@@ -1,0 +1,29 @@
+{
+  "name": "agent-loom",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "typecheck": "tsc --noEmit",
+    "check": "biome check . && tsc --noEmit",
+    "fix": "biome check --write .",
+    "postinstall": "if [ -d .git ] && command -v lefthook >/dev/null 2>&1; then lefthook install; fi",
+    "hooks:install": "lefthook install",
+    "hooks:run": "lefthook run pre-commit --force",
+    "ci": "biome ci . && tsc --noEmit && bun run test:unit && bun run test:integration",
+    "test": "bun run test:unit && bun run test:integration",
+    "test:unit": "bun test tests/unit_tests --pass-with-no-tests",
+    "test:integration": "bun test tests/integration_tests --timeout=30000 --pass-with-no-tests"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.13",
+    "@types/bun": "latest",
+    "lefthook": "^2.1.6",
+    "typescript": "^6"
+  }
+}
