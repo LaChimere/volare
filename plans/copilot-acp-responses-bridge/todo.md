@@ -134,9 +134,9 @@
 - [ ] Implement cancellation endpoint and SSE disconnect cancellation.
   - **Acceptance criteria**: Cancellation is idempotent, uses compare-and-set status changes, and always reaches a terminal turn state. SSE disconnect waits `disconnect_grace_ms` before transitioning the turn to `cancelling`, and cancellation proceeds only if the client does not reconnect within the grace period. If force-cancel exceeds `cancel_timeout_ms`, mark the turn `interrupted` with reason `force_cancel_timeout_exceeded` and mark the backend session abandoned.
   - **Expected evidence**: Cancel endpoint and disconnect tests including repeated/concurrent cancellation, reconnect within grace period, cancellation after grace period expires, and force-cancel timeout reason `force_cancel_timeout_exceeded`.
-- [ ] Implement force-dispose process cleanup.
+- [x] Implement force-dispose process cleanup.
   - **Acceptance criteria**: Timeout escalation calls backend cleanup, marks sessions disposed/abandoned from `SessionManagerInterface`, and does not leave reusable abandoned sessions. Process-backed backends escalate disposal with SIGTERM first, then SIGKILL if the process remains alive after the shutdown budget.
-  - **Expected evidence**: Process-backed backend cleanup tests or feature-gated integration proof.
+  - **Expected evidence**: `DurableSessionManager` tests cover backend cancel timeout causing forced disposal, turn interruption, and abandoned session marking; `CopilotCliBackend` tests cover cleanup delegation, and `BunCopilotPromptRunner` tracks all active session processes for SIGTERM/SIGKILL cleanup.
 - [ ] Add cancellation and approval timeout tests.
   - **Acceptance criteria**: Tests cover concurrent cancel idempotency and approval timeout terminal-state guarantees.
   - **Expected evidence**: `bun test` excerpt for cancellation/approval timeout cases.

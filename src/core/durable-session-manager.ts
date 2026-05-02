@@ -6,6 +6,7 @@ import type {
   AgentEvent,
   AgentRequestInputInterface,
   BackendSessionInterface,
+  CancelResultInterface,
   RequestContextInterface,
   ResolvedTurnInterface,
   SessionManagerInterface,
@@ -20,6 +21,7 @@ const TERMINAL_TURN_TYPES = new Set<AgentEvent['type']>([
   'turn.cancelled',
   'turn.interrupted',
 ]);
+const DEFAULT_CANCEL_TIMEOUT_MS = 1000;
 
 export class DurableSessionManager implements SessionManagerInterface {
   readonly #store: StateStoreInterface;
@@ -113,14 +115,58 @@ export class DurableSessionManager implements SessionManagerInterface {
       workspaceId: thread.workspaceId,
       threadId: turn.threadId,
     });
-    await this.#backend.cancel(session, { timeoutMs: 0, forceAfterTimeout: false });
-    const moved = await this.#store.updateTurnStatus(
+    const movedToCancelling = await this.#store.updateTurnStatus(
       turn.id,
       'any-non-terminal',
+      'cancelling',
+    );
+    if (!movedToCancelling) {
+      const currentTurn = await this.#store.getTurn(turn.id);
+      if (currentTurn && isTerminalTurnStatus(currentTurn.status)) {
+        return {
+          status: currentTurn.status === 'cancelled' ? 'cancelled' : 'already_terminal',
+        } as const;
+      }
+    }
+
+    let cancelResult: CancelResultInterface;
+    try {
+      cancelResult = await this.#backend.cancel(session, {
+        timeoutMs: DEFAULT_CANCEL_TIMEOUT_MS,
+        forceAfterTimeout: true,
+      });
+    } catch (error) {
+      await this.#store.updateTurnStatus(turn.id, 'cancelling', 'failed', Date.now());
+      this.#appendEvent(turn.id, { type: 'turn.failed', turnId: turn.id, error });
+      throw error;
+    }
+
+    if (cancelResult.status === 'timed_out') {
+      await this.#backend.disposeSession(session);
+      await this.#store.updateBackendSessionStatus(session.bridgeSessionId, 'any', 'abandoned');
+      const interrupted = await this.#store.updateTurnStatus(
+        turn.id,
+        'cancelling',
+        'interrupted',
+        Date.now(),
+      );
+      if (interrupted) {
+        this.#appendEvent(turn.id, {
+          type: 'turn.interrupted',
+          turnId: turn.id,
+          reason: 'force_cancel_timeout_exceeded',
+        });
+      }
+      return { status: 'timed_out' as const };
+    }
+
+    const cancelled = await this.#store.updateTurnStatus(
+      turn.id,
+      'cancelling',
       'cancelled',
       Date.now(),
     );
-    if (moved) {
+    if (cancelled) {
       this.#appendEvent(turn.id, { type: 'turn.cancelled', turnId: turn.id });
     }
     return { status: 'cancelled' as const };

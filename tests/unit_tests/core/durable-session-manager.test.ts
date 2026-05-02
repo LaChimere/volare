@@ -38,6 +38,8 @@ class TerminalOmittingBackend implements AgentBackendInterface {
   readonly name = 'test-backend';
   resumeCount = 0;
   cancelCount = 0;
+  disposeCount = 0;
+  cancelResult: CancelResultInterface = { status: 'cancelled' };
 
   capabilities(): BackendCapabilitiesInterface {
     return capabilities();
@@ -67,10 +69,12 @@ class TerminalOmittingBackend implements AgentBackendInterface {
 
   async cancel(): Promise<CancelResultInterface> {
     this.cancelCount += 1;
-    return { status: 'cancelled' };
+    return this.cancelResult;
   }
 
-  async disposeSession(): Promise<void> {}
+  async disposeSession(): Promise<void> {
+    this.disposeCount += 1;
+  }
 }
 
 class CreateFailingBackend extends TerminalOmittingBackend {
@@ -222,6 +226,41 @@ describe('DurableSessionManager', () => {
       expect(manager.getEvents(resolved.turn.id)).toContainEqual({
         type: 'turn.cancelled',
         turnId: resolved.turn.id,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('interrupts the turn and abandons the session when backend force-cancel times out', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new TerminalOmittingBackend();
+    backend.cancelResult = { status: 'timed_out' };
+    const manager = new DurableSessionManager({ store, backend });
+    try {
+      const resolved = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'hello' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+
+      await expect(manager.cancelTurn(resolved.turn.id)).resolves.toEqual({ status: 'timed_out' });
+
+      expect(backend.cancelCount).toBe(1);
+      expect(backend.disposeCount).toBe(1);
+      await expect(store.getTurn(resolved.turn.id)).resolves.toMatchObject({
+        status: 'interrupted',
+      });
+      await expect(
+        store.getBackendSession(resolved.session.bridgeSessionId),
+      ).resolves.toMatchObject({
+        status: 'abandoned',
+      });
+      expect(manager.getEvents(resolved.turn.id)).toContainEqual({
+        type: 'turn.interrupted',
+        turnId: resolved.turn.id,
+        reason: 'force_cancel_timeout_exceeded',
       });
     } finally {
       await rm(root, { recursive: true, force: true });
