@@ -212,7 +212,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
       streaming: true,
       resumableTurns: false,
       clientSideToolCalls: false,
-      cancellation: false,
+      cancellation: true,
     };
   }
 }

@@ -128,9 +128,9 @@
 - [ ] Implement approval timeout watchdog and escalation.
   - **Acceptance criteria**: After timeout auto-deny is journaled, `SessionManagerInterface` waits up to `cancel_timeout_ms` for a backend terminal event; if none arrives, it atomically checks the turn is non-terminal, calls `AgentBackendInterface.cancel(session, { forceAfterTimeout: true })`, synthesizes `turn.interrupted` with reason `approval_timeout_exceeded`, and marks the backend session abandoned after forced disposal if needed.
   - **Expected evidence**: Approval timeout tests covering backend terminal-before-timeout, forced cancel after timeout, synthesized interrupted event, and abandoned session marking.
-- [ ] Implement the Responses cancel endpoint route.
+- [x] Implement the Responses cancel endpoint route.
   - **Acceptance criteria**: `POST /openai/v1/responses/:id/cancel` requires auth, resolves external response ID to turn ID, calls `SessionManagerInterface.cancelTurn()`, and returns appropriate success/error responses for authenticated cancel, unauthenticated rejection, missing response ID, already-terminal turn, and concurrent cancel.
-  - **Expected evidence**: Route tests for authenticated cancel, unauthenticated rejection, missing response ID, already-terminal turn, and concurrent cancel idempotency.
+  - **Expected evidence**: Server route tests cover authenticated cancel, unauthenticated rejection, missing response ID, already-terminal turn preservation, concurrent cancel idempotency, and SSE stream disconnect cancellation.
 - [ ] Implement cancellation endpoint and SSE disconnect cancellation.
   - **Acceptance criteria**: Cancellation is idempotent, uses compare-and-set status changes, and always reaches a terminal turn state. SSE disconnect waits `disconnect_grace_ms` before transitioning the turn to `cancelling`, and cancellation proceeds only if the client does not reconnect within the grace period. If force-cancel exceeds `cancel_timeout_ms`, mark the turn `interrupted` with reason `force_cancel_timeout_exceeded` and mark the backend session abandoned.
   - **Expected evidence**: Cancel endpoint and disconnect tests including repeated/concurrent cancellation, reconnect within grace period, cancellation after grace period expires, and force-cancel timeout reason `force_cancel_timeout_exceeded`.

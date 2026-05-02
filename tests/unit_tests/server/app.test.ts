@@ -121,6 +121,109 @@ describe('server app', () => {
     await reader?.cancel();
   });
 
+  test('cancels an in-progress response by response id', async () => {
+    const app = createApp({ config });
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'hello',
+        }),
+      }),
+    );
+    const reader = createResponse.body?.getReader();
+    const firstChunk = await reader?.read();
+    const responseId = /"id":"(resp_[^"]+)"/.exec(new TextDecoder().decode(firstChunk?.value))?.[1];
+    expect(responseId).toBeDefined();
+
+    const [firstCancel, secondCancel] = await Promise.all([
+      app.fetch(request(`/openai/v1/responses/${responseId}/cancel`, { method: 'POST' })),
+      app.fetch(request(`/openai/v1/responses/${responseId}/cancel`, { method: 'POST' })),
+    ]);
+
+    expect(firstCancel.status).toBe(200);
+    expect(secondCancel.status).toBe(200);
+    await expect(firstCancel.json()).resolves.toMatchObject({
+      id: responseId,
+      status: 'incomplete',
+    });
+    await expect(secondCancel.json()).resolves.toMatchObject({
+      id: responseId,
+      status: 'incomplete',
+    });
+    await reader?.cancel();
+  });
+
+  test('rejects unauthenticated and missing response cancellations', async () => {
+    const app = createApp({ config });
+
+    const unauthenticated = await app.fetch(
+      new Request('http://127.0.0.1:8000/openai/v1/responses/resp_missing/cancel', {
+        method: 'POST',
+      }),
+    );
+    const missing = await app.fetch(
+      request('/openai/v1/responses/resp_missing/cancel', { method: 'POST' }),
+    );
+
+    expect(unauthenticated.status).toBe(401);
+    expect(missing.status).toBe(404);
+  });
+
+  test('returns already-terminal responses from cancel without changing completion', async () => {
+    const app = createApp({ config });
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'hello',
+        }),
+      }),
+    );
+    const streamText = await createResponse.text();
+    const responseId = /"id":"(resp_[^"]+)"/.exec(streamText)?.[1];
+    expect(responseId).toBeDefined();
+
+    const cancelResponse = await app.fetch(
+      request(`/openai/v1/responses/${responseId}/cancel`, { method: 'POST' }),
+    );
+
+    expect(cancelResponse.status).toBe(200);
+    await expect(cancelResponse.json()).resolves.toMatchObject({
+      id: responseId,
+      status: 'completed',
+      output: [{ content: [{ text: 'hello' }] }],
+    });
+  });
+
+  test('cancels an in-progress response when the SSE stream disconnects', async () => {
+    const app = createApp({ config });
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'hello',
+        }),
+      }),
+    );
+    const reader = createResponse.body?.getReader();
+    const firstChunk = await reader?.read();
+    const responseId = /"id":"(resp_[^"]+)"/.exec(new TextDecoder().decode(firstChunk?.value))?.[1];
+    expect(responseId).toBeDefined();
+
+    await reader?.cancel();
+    const storedResponse = await app.fetch(request(`/openai/v1/responses/${responseId}`));
+
+    expect(storedResponse.status).toBe(200);
+    await expect(storedResponse.json()).resolves.toMatchObject({
+      id: responseId,
+      status: 'incomplete',
+    });
+  });
+
   test('fails previous_response_id explicitly until durable state lands', async () => {
     const app = createApp({ config });
 

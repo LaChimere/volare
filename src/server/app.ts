@@ -71,13 +71,18 @@ export function createApp(dependencies: AppDependenciesInterface): {
             workspaceId: persistedWorkspace.id,
             requestId,
           });
+          const streamAbort = new AbortController();
           const stream = asyncIterableToStream(
-            adapter.encodeStream(sessionManager.streamTurn(resolved), {
+            adapter.encodeStream(sessionManager.streamTurn(resolved, streamAbort.signal), {
               turnId: resolved.turn.id,
               threadId: resolved.thread.id,
               externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
               previousResponseId: input.clientRef?.parentExternalId ?? null,
             }),
+            async () => {
+              streamAbort.abort();
+              await sessionManager?.cancelTurn(resolved.turn.id);
+            },
           );
           return new Response(stream, {
             headers: {
@@ -107,6 +112,30 @@ export function createApp(dependencies: AppDependenciesInterface): {
           );
         }
 
+        const cancelMatch = url.pathname.match(/^\/openai\/v1\/responses\/([^/]+)\/cancel$/);
+        if (request.method === 'POST' && cancelMatch?.[1]) {
+          if (!sessionManager) {
+            return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
+          }
+          const clientRef = await stateStore?.resolveClientRef(adapter.protocol, cancelMatch[1]);
+          const turnId = clientRef?.turnId ?? cancelMatch[1];
+          const result = await sessionManager.cancelTurn(turnId);
+          if (result.status === 'not_found') {
+            return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
+          }
+          const turn = await sessionManager.getTurn(turnId);
+          if (!turn) {
+            return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
+          }
+          return Response.json(
+            adapter.encodeStoredResponse(
+              clientRef ? { ...turn, id: clientRef.externalId } : turn,
+              sessionManager.getEvents(turn.id),
+              { previousResponseId: clientRef?.parentExternalId ?? null },
+            ),
+          );
+        }
+
         return encodeOpenAIError(new AgentLoomError('not_found', 'Route not found'));
       } catch (error) {
         return encodeOpenAIError(error);
@@ -115,7 +144,10 @@ export function createApp(dependencies: AppDependenciesInterface): {
   };
 }
 
-function asyncIterableToStream(iterable: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array> {
+function asyncIterableToStream(
+  iterable: AsyncIterable<Uint8Array>,
+  onCancel?: () => Promise<void>,
+): ReadableStream<Uint8Array> {
   const iterator = iterable[Symbol.asyncIterator]();
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -127,6 +159,7 @@ function asyncIterableToStream(iterable: AsyncIterable<Uint8Array>): ReadableStr
       controller.enqueue(next.value);
     },
     async cancel() {
+      await onCancel?.();
       await iterator.return?.();
     },
   });
