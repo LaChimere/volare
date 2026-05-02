@@ -177,7 +177,7 @@ function summarizeBytes(value: string | Uint8Array, path: string, redactedPaths:
 function redactScalar(value: unknown, path: string, redactedPaths: string[]) {
   redactedPaths.push(path);
   if (typeof value === 'string') {
-    return summarizeString(value, path, []);
+    return { redacted: true, charCount: value.length };
   }
   return '[redacted]';
 }
