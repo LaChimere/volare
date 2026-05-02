@@ -105,7 +105,7 @@ export async function normalizePermissionRequestScope(
     const requestedPath = path.isAbsolute(request.scope.path)
       ? request.scope.path
       : path.join(workspaceRoot, request.scope.path);
-    const canonicalPath = await realpath(requestedPath);
+    const canonicalPath = await canonicalizePermissionPath(requestedPath, request.action);
     if (!isInsideOrEqual(canonicalPath, workspaceRoot)) {
       return { type: 'deny', reason: 'path_outside_workspace' };
     }
@@ -122,6 +122,22 @@ export async function normalizePermissionRequestScope(
   } catch {
     return { type: 'deny', reason: 'path_canonicalization_failed' };
   }
+}
+
+async function canonicalizePermissionPath(requestedPath: string, action: string): Promise<string> {
+  try {
+    return await realpath(requestedPath);
+  } catch (cause) {
+    if (action === 'filesystem:write' && isMissingPathError(cause)) {
+      const canonicalParent = await realpath(path.dirname(requestedPath));
+      return path.join(canonicalParent, path.basename(requestedPath));
+    }
+    throw cause;
+  }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
 
 function isFilesystemAction(action: string): boolean {

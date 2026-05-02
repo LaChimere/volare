@@ -55,6 +55,7 @@ describe('DefaultApprovalPolicy', () => {
     await withWorkspace(async (root) => {
       const filePath = path.join(root, 'editable.txt');
       await writeFile(filePath, 'hello');
+      const newFilePath = path.join(root, 'new-file.txt');
       const policy = new DefaultApprovalPolicy({ now: () => 1000, timeoutMs: 5000 });
 
       await expect(
@@ -62,6 +63,14 @@ describe('DefaultApprovalPolicy', () => {
       ).resolves.toMatchObject({
         type: 'ask',
         timeoutAt: 6000,
+        request: { scope: { path: filePath } },
+      });
+      await expect(
+        policy.evaluate(request('filesystem:write', newFilePath), context(root)),
+      ).resolves.toMatchObject({
+        type: 'ask',
+        timeoutAt: 6000,
+        request: { scope: { path: newFilePath } },
       });
       await expect(policy.evaluate(request('shell:exec'), context(root))).resolves.toMatchObject({
         type: 'ask',
