@@ -167,9 +167,9 @@
 - [x] Implement shutdown orchestration and forced disposal.
   - **Acceptance criteria**: Shutdown stops accepting requests, cancels in-progress turns with `cancel_timeout_ms`, force-disposes unresponsive backends through graceful cancel, SIGTERM, and SIGKILL when supported, marks remaining non-terminal turns interrupted, flushes the event journal, marks abandoned sessions, and exits non-zero if the hard deadline is exceeded.
   - **Expected evidence**: `ShutdownController` stops the server before state recovery, idempotently marks remaining non-terminal turns interrupted and sessions abandoned, and `src/index.ts` wires SIGINT/SIGTERM to clean exit or non-zero failure; backend force-disposal paths are covered by durable cancel and Copilot runner cleanup tests.
-- [ ] Add process identity validation.
+- [x] Add process identity validation.
   - **Acceptance criteria**: Live PIDs are checked against stored identity metadata before any signal is sent.
-  - **Expected evidence**: Process identity validation tests covering PID mismatch/reuse scenarios.
+  - **Expected evidence**: `DefaultProcessIdentityValidator` tests cover matching identity, PID mismatch, and reused-PID metadata; `BunCopilotPromptRunner` tracks process identity metadata and validates it before SIGTERM/SIGKILL cleanup signals.
 - [x] Implement cleanup and retention.
   - **Acceptance criteria**: Idle session pruning and event retention never delete non-terminal turns. Event retention is disabled by default; if enabled, it deletes only whole terminal-turn journals, writes retention tombstones so replay returns `JournalExpiredError`, and never creates sequence gaps inside retained turns.
   - **Expected evidence**: SQLite cleanup tests cover idle session pruning while preserving non-terminal turns; `SQLiteEventJournal` retention tests cover whole terminal-turn journal deletion, tombstone replay behavior via `journal_expired`, non-terminal journal preservation, and no partial sequence gaps.

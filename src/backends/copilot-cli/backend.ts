@@ -12,6 +12,17 @@ import type {
   CreateSessionOptionsInterface,
   WorkspaceInterface,
 } from '../../core/types';
+import {
+  createProcessIdentity,
+  DefaultProcessIdentityValidator,
+  type ProcessIdentityInterface,
+  type ProcessIdentityValidatorInterface,
+} from './process-identity';
+
+type TrackedProcess = {
+  proc: ReturnType<typeof Bun.spawn>;
+  identity: ProcessIdentityInterface;
+};
 
 export interface CopilotPromptRunnerInterface {
   run(prompt: string, options: CopilotPromptRunOptionsInterface): AsyncIterable<string>;
@@ -166,7 +177,14 @@ async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
 }
 
 export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
-  readonly #processes = new Map<string, Set<ReturnType<typeof Bun.spawn>>>();
+  readonly #processes = new Map<string, Set<TrackedProcess>>();
+  readonly #identityValidator: ProcessIdentityValidatorInterface;
+
+  constructor(
+    identityValidator: ProcessIdentityValidatorInterface = new DefaultProcessIdentityValidator(),
+  ) {
+    this.#identityValidator = identityValidator;
+  }
 
   async *run(prompt: string, options: CopilotPromptRunOptionsInterface): AsyncIterable<string> {
     const proc = Bun.spawn(
@@ -191,9 +209,9 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
         stderr: 'pipe',
       },
     );
-    this.#trackProcess(options.backendSessionId, proc);
+    const tracked = this.#trackProcess(options.backendSessionId, proc);
 
-    const abort = () => proc.kill('SIGTERM');
+    const abort = () => this.#kill(tracked, 'SIGTERM');
     options.signal?.addEventListener('abort', abort, { once: true });
 
     const stderrPromise = new Response(proc.stderr).text();
@@ -235,7 +253,7 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
       }
     } finally {
       options.signal?.removeEventListener('abort', abort);
-      this.#untrackProcess(options.backendSessionId, proc);
+      this.#untrackProcess(options.backendSessionId, tracked);
     }
   }
 
@@ -249,8 +267,8 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
     }
 
     const activeProcesses = [...processes];
-    for (const proc of activeProcesses) {
-      proc.kill('SIGTERM');
+    for (const tracked of activeProcesses) {
+      this.#kill(tracked, 'SIGTERM');
     }
     if (!options.forceAfterTimeout) {
       return { status: 'cancelled' };
@@ -261,8 +279,8 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
       return { status: 'cancelled' };
     }
 
-    for (const proc of activeProcesses) {
-      proc.kill('SIGKILL');
+    for (const tracked of activeProcesses) {
+      this.#kill(tracked, 'SIGKILL');
     }
     return { status: 'timed_out' };
   }
@@ -273,46 +291,53 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
       return;
     }
     const activeProcesses = [...processes];
-    for (const proc of activeProcesses) {
-      proc.kill('SIGTERM');
+    for (const tracked of activeProcesses) {
+      this.#kill(tracked, 'SIGTERM');
     }
     if (!(await waitForAllExits(activeProcesses, 250))) {
-      for (const proc of activeProcesses) {
-        proc.kill('SIGKILL');
+      for (const tracked of activeProcesses) {
+        this.#kill(tracked, 'SIGKILL');
       }
     }
   }
 
-  #trackProcess(backendSessionId: string, proc: ReturnType<typeof Bun.spawn>): void {
+  #trackProcess(backendSessionId: string, proc: ReturnType<typeof Bun.spawn>): TrackedProcess {
+    const tracked = {
+      proc,
+      identity: createProcessIdentity(String(proc.pid), Date.now()),
+    };
     const processes = this.#processes.get(backendSessionId);
     if (processes) {
-      processes.add(proc);
-      return;
+      processes.add(tracked);
+      return tracked;
     }
-    this.#processes.set(backendSessionId, new Set([proc]));
+    this.#processes.set(backendSessionId, new Set([tracked]));
+    return tracked;
   }
 
-  #untrackProcess(backendSessionId: string, proc: ReturnType<typeof Bun.spawn>): void {
+  #untrackProcess(backendSessionId: string, tracked: TrackedProcess): void {
     const processes = this.#processes.get(backendSessionId);
     if (!processes) {
       return;
     }
-    processes.delete(proc);
+    processes.delete(tracked);
     if (processes.size === 0) {
       this.#processes.delete(backendSessionId);
     }
   }
+
+  #kill(tracked: TrackedProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
+    this.#identityValidator.assertMatches(tracked.identity, String(tracked.proc.pid));
+    tracked.proc.kill(signal);
+  }
 }
 
-async function waitForAllExits(
-  processes: Array<ReturnType<typeof Bun.spawn>>,
-  timeoutMs: number,
-): Promise<boolean> {
+async function waitForAllExits(processes: TrackedProcess[], timeoutMs: number): Promise<boolean> {
   if (timeoutMs <= 0) {
     return false;
   }
   const timeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), timeoutMs));
-  const exited = Promise.all(processes.map((proc) => proc.exited)).then(() => true);
+  const exited = Promise.all(processes.map((tracked) => tracked.proc.exited)).then(() => true);
   return await Promise.race([exited, timeout]);
 }
 
