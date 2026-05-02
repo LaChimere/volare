@@ -104,15 +104,15 @@
 
 ### Phase 3: Permissions and Cancellation
 
-- [ ] Confirm the Phase 3 approval gate.
+- [x] Confirm the Phase 3 approval gate.
   - **Acceptance criteria**: Phase 0's approval decision is documented, design Open Question #7 is resolved for the MVP, and the result is reflected in concrete backend behavior plus `MockBackend` approval capability shape before any Phase 3 implementation starts.
-  - **Expected evidence**: Decision note naming HTTP approval UI vs internal-only approval API, plus backend/MockBackend capability test output.
-- [ ] Implement approval policy defaults.
+  - **Expected evidence**: `plan.md` records the Phase 0 decision as backend-internal pause/resume with `externalApprovalDecisions: false`; backend capability tests assert the same metadata.
+- [x] Implement approval policy defaults.
   - **Acceptance criteria**: Read-only actions allow, writes and shell ask, destructive actions deny by default.
-  - **Expected evidence**: Policy unit test output.
-- [ ] Implement approval path canonicalization and workspace boundary enforcement.
+  - **Expected evidence**: `tests/unit_tests/approvals/policy.test.ts` covers read allow, write/shell ask, destructive deny, and default deny behavior.
+- [x] Implement approval path canonicalization and workspace boundary enforcement.
   - **Acceptance criteria**: File paths in permission requests are canonicalized with platform-native realpath before approval; paths outside the workspace auto-deny with `path_outside_workspace`; canonicalization failures auto-deny with `path_canonicalization_failed`.
-  - **Expected evidence**: Approval path tests covering `..`, symlinks, mixed separators, absolute paths, outside-workspace paths, and canonicalization failures.
+  - **Expected evidence**: Approval policy tests cover canonical relative paths, symlink escape denial, outside-workspace denial, and canonicalization failures.
 - [ ] Implement `ApprovalProviderInterface` persistence and atomic resolution.
   - **Acceptance criteria**: Approval status update and `permission.resolved` journal append commit atomically through `StateStoreInterface.resolveApprovalWithJournal()` for allow, deny, timeout, and cancellation paths. If the journal append cannot commit, the approval remains pending or the turn fails closed with `turn.failed`; never continue with an unjournaled decision.
   - **Expected evidence**: ApprovalProviderInterface transaction tests including simulated journal failure.

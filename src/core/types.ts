@@ -144,6 +144,25 @@ export interface PermissionRequestInterface {
   metadata?: Record<string, unknown>;
 }
 
+export interface ApprovalContextInterface {
+  turnId: TurnId;
+  threadId: ThreadId;
+  workspaceId: WorkspaceId;
+  workspaceRootPath: string;
+}
+
+export type ApprovalEvaluation =
+  | { type: 'allow'; request: PermissionRequestInterface }
+  | { type: 'deny'; reason: string; request: PermissionRequestInterface }
+  | { type: 'ask'; approvalId: ApprovalId; timeoutAt: number; request: PermissionRequestInterface };
+
+export interface ApprovalPolicyInterface {
+  evaluate(
+    request: PermissionRequestInterface,
+    context: ApprovalContextInterface,
+  ): Promise<ApprovalEvaluation>;
+}
+
 export interface WorkspaceResolverInterface {
   resolve(
     hints: WorkspaceHintsInterface,
