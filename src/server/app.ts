@@ -15,7 +15,10 @@ export interface AppDependenciesInterface {
   workspaceResolver?: WorkspaceResolver;
   sessionManager?: SessionManagerInterface;
   stateStore?: StateStoreInterface;
+  disconnectGraceMs?: number;
 }
+
+const DEFAULT_DISCONNECT_GRACE_MS = 250;
 
 export function createApp(dependencies: AppDependenciesInterface): {
   fetch(request: Request): Promise<Response>;
@@ -82,6 +85,7 @@ export function createApp(dependencies: AppDependenciesInterface): {
               previousResponseId: input.clientRef?.parentExternalId ?? null,
             }),
             async () => {
+              await delay(dependencies.disconnectGraceMs ?? DEFAULT_DISCONNECT_GRACE_MS);
               streamAbort.abort();
               await sessionManager?.cancelTurn(resolved.turn.id);
             },
@@ -165,4 +169,11 @@ function asyncIterableToStream(
       await iterator.return?.();
     },
   });
+}
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

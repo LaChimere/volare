@@ -93,7 +93,7 @@ describe('server app', () => {
   });
 
   test('serves a non-terminal response snapshot without blocking', async () => {
-    const app = createApp({ config });
+    const app = createApp({ config, disconnectGraceMs: 0 });
 
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
@@ -122,7 +122,7 @@ describe('server app', () => {
   });
 
   test('cancels an in-progress response by response id', async () => {
-    const app = createApp({ config });
+    const app = createApp({ config, disconnectGraceMs: 0 });
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
         method: 'POST',
@@ -199,7 +199,7 @@ describe('server app', () => {
   });
 
   test('cancels an in-progress response when the SSE stream disconnects', async () => {
-    const app = createApp({ config });
+    const app = createApp({ config, disconnectGraceMs: 10 });
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
         method: 'POST',
@@ -214,7 +214,13 @@ describe('server app', () => {
     const responseId = /"id":"(resp_[^"]+)"/.exec(new TextDecoder().decode(firstChunk?.value))?.[1];
     expect(responseId).toBeDefined();
 
-    await reader?.cancel();
+    const cancelPromise = reader?.cancel();
+    const duringGrace = await app.fetch(request(`/openai/v1/responses/${responseId}`));
+    await expect(duringGrace.json()).resolves.toMatchObject({
+      id: responseId,
+      status: 'in_progress',
+    });
+    await cancelPromise;
     const storedResponse = await app.fetch(request(`/openai/v1/responses/${responseId}`));
 
     expect(storedResponse.status).toBe(200);
