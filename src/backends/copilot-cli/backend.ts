@@ -350,12 +350,12 @@ export function extractTextFromCopilotOutput(output: string): string {
     .map((line) => line.trim())
     .filter(Boolean);
   const parts = lines.flatMap((line) => {
-    if (!looksLikeJson(line)) {
-      return [line];
-    }
     try {
-      return extractTextFromValue(JSON.parse(line));
+      return extractTextFromValue(JSON.parse(line), line);
     } catch (cause) {
+      if (!looksLikeStructuredJson(line)) {
+        return [line];
+      }
       throw new AgentLoomError(
         'backend_output_invalid',
         'Copilot CLI emitted malformed JSON output',
@@ -368,16 +368,19 @@ export function extractTextFromCopilotOutput(output: string): string {
   return parts.join('');
 }
 
-function looksLikeJson(line: string): boolean {
-  return line.startsWith('{') || line.startsWith('[') || line.startsWith('"');
+function looksLikeStructuredJson(line: string): boolean {
+  return line.startsWith('{') || line.startsWith('[');
 }
 
-function extractTextFromValue(value: unknown): string[] {
+function extractTextFromValue(value: unknown, fallbackText?: string): string[] {
   if (typeof value === 'string') {
     return [value];
   }
+  if (fallbackText !== undefined && (typeof value === 'number' || typeof value === 'boolean')) {
+    return [fallbackText];
+  }
   if (Array.isArray(value)) {
-    return value.flatMap(extractTextFromValue);
+    return value.flatMap((child) => extractTextFromValue(child));
   }
   if (!value || typeof value !== 'object') {
     return [];
@@ -391,5 +394,5 @@ function extractTextFromValue(value: unknown): string[] {
     }
   }
 
-  return Object.values(record).flatMap(extractTextFromValue);
+  return Object.values(record).flatMap((child) => extractTextFromValue(child));
 }

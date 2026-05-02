@@ -156,6 +156,11 @@ describe('CopilotCliBackend', () => {
       ),
     ).toBe('hello!');
     expect(extractTextFromCopilotOutput('plain text')).toBe('plain text');
+    expect(extractTextFromCopilotOutput('"quoted text"')).toBe('quoted text');
+    expect(extractTextFromCopilotOutput('"plain text starting with a quote')).toBe(
+      '"plain text starting with a quote',
+    );
+    expect(extractTextFromCopilotOutput('true')).toBe('true');
     expect(() => extractTextFromCopilotOutput('{"delta":')).toThrow(
       'Copilot CLI emitted malformed JSON output',
     );
