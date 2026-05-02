@@ -1,0 +1,109 @@
+import { AgentLoomError } from '../core/errors';
+import { InMemorySessionManager } from '../core/in-memory-session-manager';
+import { WorkspaceResolver } from '../core/workspace-resolver';
+import { encodeOpenAIError, OpenAIResponsesAdapter } from '../northbound/openai-responses/adapter';
+import { requireBearerAuth } from './auth';
+import type { ServerRuntimeConfigInterface } from './config';
+
+export interface AppDependenciesInterface {
+  config: ServerRuntimeConfigInterface;
+  adapter?: OpenAIResponsesAdapter;
+  workspaceResolver?: WorkspaceResolver;
+  sessionManager?: InMemorySessionManager;
+}
+
+export function createApp(dependencies: AppDependenciesInterface): {
+  fetch(request: Request): Promise<Response>;
+} {
+  const adapter = dependencies.adapter ?? new OpenAIResponsesAdapter();
+  const workspaceResolver = dependencies.workspaceResolver ?? new WorkspaceResolver();
+  let sessionManager = dependencies.sessionManager;
+
+  return {
+    async fetch(request: Request): Promise<Response> {
+      try {
+        requireBearerAuth(request, dependencies.config.apiKey);
+        const url = new URL(request.url);
+
+        if (request.method === 'GET' && url.pathname === '/openai/v1/models') {
+          return Response.json({
+            models: [{ id: 'copilot-agent', object: 'model', owned_by: 'github' }],
+          });
+        }
+
+        if (request.method === 'POST' && url.pathname === '/openai/v1/responses') {
+          const body = await request.json();
+          const northboundRequest = {
+            transport: 'http' as const,
+            method: request.method,
+            path: url.pathname,
+            headers: request.headers,
+            body,
+          };
+          const workspace = await workspaceResolver.resolve(
+            await adapter.extractWorkspaceHints(northboundRequest),
+            dependencies.config,
+          );
+          sessionManager ??= new InMemorySessionManager({ workspace });
+          const requestId = crypto.randomUUID();
+          const input = await adapter.parseRequest(northboundRequest, {
+            workspaceId: workspace.id,
+            requestId,
+          });
+          const resolved = await sessionManager.startTurn(input, {
+            workspaceId: workspace.id,
+            requestId,
+          });
+          const stream = asyncIterableToStream(
+            adapter.encodeStream(sessionManager.streamTurn(resolved), {
+              turnId: resolved.turn.id,
+              threadId: resolved.thread.id,
+              externalResponseId: resolved.turn.id,
+            }),
+          );
+          return new Response(stream, {
+            headers: {
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache',
+            },
+          });
+        }
+
+        const responseMatch = url.pathname.match(/^\/openai\/v1\/responses\/([^/]+)$/);
+        if (request.method === 'GET' && responseMatch?.[1]) {
+          if (!sessionManager) {
+            return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
+          }
+          const turn = sessionManager.getTurn(responseMatch[1]);
+          if (!turn) {
+            return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
+          }
+          return Response.json(
+            adapter.encodeStoredResponse(turn, sessionManager.getEvents(turn.id)),
+          );
+        }
+
+        return encodeOpenAIError(new AgentLoomError('not_found', 'Route not found'));
+      } catch (error) {
+        return encodeOpenAIError(error);
+      }
+    },
+  };
+}
+
+function asyncIterableToStream(iterable: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array> {
+  const iterator = iterable[Symbol.asyncIterator]();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await iterator.next();
+      if (next.done) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(next.value);
+    },
+    async cancel() {
+      await iterator.return?.();
+    },
+  });
+}

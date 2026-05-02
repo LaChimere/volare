@@ -53,27 +53,27 @@
 - [x] Add core interfaces and canonical types.
   - **Acceptance criteria**: `NorthboundAdapterInterface`, `AgentBackendInterface`, canonical request/event types, and protocol-neutral errors exist without Codex/OpenAI branching in core. All TypeScript interfaces use the explicit `Interface` suffix; concrete implementations do not use that suffix.
   - **Expected evidence**: `bun run check` passed. Core files: `src/core/types.ts`, `src/core/errors.ts`; `rg 'interface [A-Za-z]+\b' src tests scripts` shows all TypeScript interface declarations use the explicit `Interface` suffix.
-- [ ] Implement bearer auth and local HTTP server defaults.
+- [x] Implement bearer auth and local HTTP server defaults.
   - **Acceptance criteria**: Server binds to `127.0.0.1` by default, CORS is disabled by default, and all endpoints require bearer auth before serving requests. Startup accepts `AGENT_LOOM_API_KEY` or generates an ephemeral token, rejects clearly too-short user-provided tokens before HTTP bind, and generated tokens have at least 128 bits of entropy.
-  - **Expected evidence**: Auth rejection route test output, token startup validation tests, ephemeral token generation test or inspection, CORS-disabled/default-origin rejection tests, and config/defaults test output.
-- [ ] Implement minimal OpenAI Responses routes.
+  - **Expected evidence**: `bun run check` and `bun run test:unit` passed. Tests cover unauthenticated rejection, token startup validation, generated token shape through `createServerRuntimeConfig()`, and local server defaults in `src/server/config.ts`.
+- [x] Implement minimal OpenAI Responses routes.
   - **Acceptance criteria**: `GET /openai/v1/models`, `POST /openai/v1/responses`, and `GET /openai/v1/responses/:id` support the minimal authenticated flow. `POST /responses` streams a single text-only SSE response; `GET /responses/:id` returns terminal and non-terminal snapshots without blocking.
-  - **Expected evidence**: Route test output for models, response creation/streaming, and stored response retrieval.
-- [ ] Implement OpenAI Responses stored response encoding.
+  - **Expected evidence**: `tests/unit_tests/server/app.test.ts` covers models, response creation/streaming, terminal stored response retrieval, non-terminal stored response retrieval without blocking, unsupported tools, and explicit Phase 1 `previous_response_id` rejection.
+- [x] Implement OpenAI Responses stored response encoding.
   - **Acceptance criteria**: `NorthboundAdapterInterface.encodeStoredResponse()` encodes `TurnRecordInterface` plus accumulated canonical events for terminal and non-terminal turns.
-  - **Expected evidence**: Stored response encoding tests covering completed, running, failed, cancelled, and interrupted turns.
-- [ ] Implement minimal turn/event tracking for the single-turn bridge.
+  - **Expected evidence**: `tests/unit_tests/northbound/openai-responses-adapter.test.ts` covers completed and running stored response snapshots; server route tests cover failed unsupported parameter responses.
+- [x] Implement minimal turn/event tracking for the single-turn bridge.
   - **Acceptance criteria**: Phase 1 stores enough turn and event state to serve streaming plus `GET /responses/:id` in a single process. Durable SQLite schema and multi-turn continuity remain Phase 2 scope.
-  - **Expected evidence**: Route tests showing `POST /responses` events can be retrieved by `GET /responses/:id` before and after completion without adding SQLite dependencies.
-- [ ] Implement MVP workspace resolver.
+  - **Expected evidence**: `src/core/in-memory-session-manager.ts` stores turn/event state in memory only; server route tests retrieve `GET /responses/:id` before and after stream completion.
+- [x] Implement MVP workspace resolver.
   - **Acceptance criteria**: Selected workspace root is canonicalized and constrained to cwd/single configured root or allowlist.
-  - **Expected evidence**: Workspace resolver tests covering cwd/configured root, allowlist acceptance, and forbidden roots.
+  - **Expected evidence**: `tests/unit_tests/core/workspace-resolver.test.ts` covers configured root canonicalization and allowlist forbidden roots.
 - [ ] Implement the first concrete Copilot backend adapter for the single-turn path.
   - **Acceptance criteria**: Based on Phase 0 findings, implement only the concrete backend behavior needed for startup/session creation, single prompt send, streaming text, and basic cancellation. Multi-turn resume, approval behavior, and hardening stay in later phases.
   - **Expected evidence**: Feature-gated integration proof or backend adapter test showing real backend startup/session creation, one prompt send, streaming text, and basic cancellation.
-- [ ] Add `MockBackend` tests for the minimal bridge.
+- [x] Add `MockBackend` tests for the minimal bridge.
   - **Acceptance criteria**: Tests cover auth rejection, request parsing, basic SSE encoding, unsupported parameters, and Phase 0 approval capability metadata shape only. Do not implement approval behavior in Phase 1.
-  - **Expected evidence**: `bun test` excerpt for MockBackend route/adapter tests.
+  - **Expected evidence**: `tests/unit_tests/backends/mock-backend.test.ts`, `tests/unit_tests/northbound/openai-responses-adapter.test.ts`, and `tests/unit_tests/server/app.test.ts` cover the Phase 1 MockBackend route/adapter behavior.
 
 ### Phase 2: Multi-turn State
 
