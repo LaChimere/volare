@@ -68,9 +68,9 @@
 - [x] Implement MVP workspace resolver.
   - **Acceptance criteria**: Selected workspace root is canonicalized and constrained to cwd/single configured root or allowlist.
   - **Expected evidence**: `tests/unit_tests/core/workspace-resolver.test.ts` covers configured root canonicalization and allowlist forbidden roots.
-- [ ] Implement the first concrete Copilot backend adapter for the single-turn path.
+- [x] Implement the first concrete Copilot backend adapter for the single-turn path.
   - **Acceptance criteria**: Based on Phase 0 findings, implement only the concrete backend behavior needed for startup/session creation, single prompt send, streaming text, and basic cancellation. Multi-turn resume, approval behavior, and hardening stay in later phases.
-  - **Expected evidence**: Feature-gated integration proof or backend adapter test showing real backend startup/session creation, one prompt send, streaming text, and basic cancellation.
+  - **Expected evidence**: `src/backends/copilot-cli/backend.ts` implements `CopilotCliBackend` with `Bun.spawn()` runner, Phase 0 backend-internal approval capability metadata, session creation, prompt send, streaming text extraction, cancellation hooks, and disposal hooks. `tests/unit_tests/backends/copilot-cli-backend.test.ts` covers backend capabilities, session creation plus one prompt send through an injected runner, and Copilot output parsing.
 - [x] Add `MockBackend` tests for the minimal bridge.
   - **Acceptance criteria**: Tests cover auth rejection, request parsing, basic SSE encoding, unsupported parameters, and Phase 0 approval capability metadata shape only. Do not implement approval behavior in Phase 1.
   - **Expected evidence**: `tests/unit_tests/backends/mock-backend.test.ts`, `tests/unit_tests/northbound/openai-responses-adapter.test.ts`, and `tests/unit_tests/server/app.test.ts` cover the Phase 1 MockBackend route/adapter behavior.
