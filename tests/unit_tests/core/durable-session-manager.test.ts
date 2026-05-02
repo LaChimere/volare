@@ -86,7 +86,6 @@ describe('DurableSessionManager', () => {
     const manager = new DurableSessionManager({
       store,
       backend: new CreateFailingBackend(),
-      workspace,
     });
 
     await expect(
@@ -106,13 +105,13 @@ describe('DurableSessionManager', () => {
     const store = createStore();
     const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
     const backend = new TerminalOmittingBackend();
-    const manager = new DurableSessionManager({ store, backend, workspace });
+    const manager = new DurableSessionManager({ store, backend });
     try {
       const first = await manager.startTurn(
         {
           model: 'copilot-agent',
           input: { message: 'hello' },
-          clientRef: { externalId: 'resp_1' },
+          clientRef: { protocol: 'test-protocol', externalId: 'resp_1' },
         },
         { workspaceId: workspace.id, requestId: 'request_1' },
       );
@@ -127,7 +126,12 @@ describe('DurableSessionManager', () => {
           parentTurnId: first.turn.id,
           model: 'copilot-agent',
           input: { message: 'again' },
-          clientRef: { externalId: 'resp_2', parentExternalId: 'resp_1' },
+          clientRef: {
+            protocol: 'test-protocol',
+            externalId: 'resp_2',
+            parentProtocol: 'test-protocol',
+            parentExternalId: 'resp_1',
+          },
         },
         { workspaceId: workspace.id, requestId: 'request_2' },
       );
@@ -155,7 +159,7 @@ describe('DurableSessionManager', () => {
     const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
     const otherWorkspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/other-agent-loom' });
     const backend = new TerminalOmittingBackend();
-    const manager = new DurableSessionManager({ store, backend, workspace });
+    const manager = new DurableSessionManager({ store, backend });
     const first = await manager.startTurn(
       { model: 'copilot-agent', input: { message: 'hello' } },
       { workspaceId: workspace.id, requestId: 'request_1' },
@@ -179,7 +183,7 @@ describe('DurableSessionManager', () => {
     const store = createStore();
     const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
     const backend = new TerminalOmittingBackend();
-    const manager = new DurableSessionManager({ store, backend, workspace });
+    const manager = new DurableSessionManager({ store, backend });
     const first = await manager.startTurn(
       { model: 'copilot-agent', input: { message: 'hello' } },
       { workspaceId: workspace.id, requestId: 'request_1' },
@@ -204,7 +208,7 @@ describe('DurableSessionManager', () => {
     const store = createStore();
     const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
     const backend = new TerminalOmittingBackend();
-    const manager = new DurableSessionManager({ store, backend, workspace });
+    const manager = new DurableSessionManager({ store, backend });
     try {
       const resolved = await manager.startTurn(
         { model: 'copilot-agent', input: { message: 'hello' } },
@@ -224,12 +228,60 @@ describe('DurableSessionManager', () => {
     }
   });
 
+  test('reports already-terminal turns without claiming they were cancelled', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new TerminalOmittingBackend();
+    const manager = new DurableSessionManager({ store, backend });
+    try {
+      const resolved = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'hello' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+      await store.updateTurnStatus(resolved.turn.id, 'queued', 'succeeded', Date.now());
+
+      await expect(manager.cancelTurn(resolved.turn.id)).resolves.toEqual({
+        status: 'already_terminal',
+      });
+
+      expect(backend.cancelCount).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('stores client refs under the caller protocol instead of an adapter literal', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new TerminalOmittingBackend();
+    const manager = new DurableSessionManager({ store, backend });
+    try {
+      const resolved = await manager.startTurn(
+        {
+          model: 'agent-model',
+          input: { message: 'hello' },
+          clientRef: { protocol: 'custom-protocol', externalId: 'custom_1' },
+        },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+
+      await expect(store.resolveClientRef('custom-protocol', 'custom_1')).resolves.toMatchObject({
+        turnId: resolved.turn.id,
+      });
+      await expect(store.resolveClientRef('openai-responses-v1', 'custom_1')).resolves.toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('rejects backend send when the resolved session scope is inconsistent', async () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
     const store = createStore();
     const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
     const backend = new TerminalOmittingBackend();
-    const manager = new DurableSessionManager({ store, backend, workspace });
+    const manager = new DurableSessionManager({ store, backend });
     try {
       const resolved = await manager.startTurn(
         { model: 'copilot-agent', input: { message: 'hello' } },

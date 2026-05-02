@@ -12,7 +12,6 @@ import type {
   StateStoreInterface,
   ThreadInterface,
   TurnRecordInterface,
-  WorkspaceInterface,
 } from './types';
 
 const TERMINAL_TURN_TYPES = new Set<AgentEvent['type']>([
@@ -25,17 +24,14 @@ const TERMINAL_TURN_TYPES = new Set<AgentEvent['type']>([
 export class DurableSessionManager implements SessionManagerInterface {
   readonly #store: StateStoreInterface;
   readonly #backend: AgentBackendInterface;
-  readonly #workspace: WorkspaceInterface;
   readonly #events = new Map<string, AgentEvent[]>();
 
   constructor(options: {
     store: StateStoreInterface;
     backend: AgentBackendInterface;
-    workspace: WorkspaceInterface;
   }) {
     this.#store = options.store;
     this.#backend = options.backend;
-    this.#workspace = options.workspace;
   }
 
   async startTurn(
@@ -62,13 +58,13 @@ export class DurableSessionManager implements SessionManagerInterface {
     const turn = await this.#store.createTurn(turnInput);
     if (input.clientRef?.externalId) {
       await this.#store.bindClientRef({
-        protocol: 'openai-responses-v1',
+        protocol: input.clientRef.protocol,
         externalId: input.clientRef.externalId,
         turnId: turn.id,
         threadId: thread.id,
         ...(input.clientRef.parentExternalId
           ? {
-              parentProtocol: 'openai-responses-v1',
+              parentProtocol: input.clientRef.parentProtocol ?? input.clientRef.protocol,
               parentExternalId: input.clientRef.parentExternalId,
             }
           : {}),
@@ -106,7 +102,7 @@ export class DurableSessionManager implements SessionManagerInterface {
       return { status: 'not_found' as const };
     }
     if (isTerminalTurnStatus(turn.status)) {
-      return { status: 'cancelled' as const };
+      return { status: turn.status === 'cancelled' ? 'cancelled' : 'already_terminal' } as const;
     }
     const session = await this.#store.getBackendSession(turn.bridgeSessionId);
     if (!session) {
@@ -191,13 +187,14 @@ export class DurableSessionManager implements SessionManagerInterface {
   }
 
   async #createSessionForThread(thread: ThreadInterface): Promise<BackendSessionInterface> {
+    const workspace = await this.#requireWorkspace(thread.workspaceId);
     const reserved = await this.#store.reserveBackendSession({
       workspaceId: thread.workspaceId,
       threadId: thread.id,
       backend: this.#backend.name,
     });
     try {
-      const created = await this.#backend.createSession(this.#workspace, {
+      const created = await this.#backend.createSession(workspace, {
         bridgeSessionId: reserved.bridgeSessionId,
         threadId: thread.id,
       });
@@ -241,13 +238,10 @@ export class DurableSessionManager implements SessionManagerInterface {
   }
 
   async #assertWorkspaceUnchanged(workspaceId: string): Promise<void> {
-    const workspace = await this.#store.getWorkspace(workspaceId);
-    if (!workspace) {
-      throw new AgentLoomError('workspace_changed', 'Workspace is no longer available');
-    }
+    const workspace = await this.#requireWorkspace(workspaceId);
     try {
       const canonicalRoot = await realpath(workspace.rootPath);
-      if (canonicalRoot !== workspace.rootPath || workspace.rootPath !== this.#workspace.rootPath) {
+      if (canonicalRoot !== workspace.rootPath) {
         throw new AgentLoomError('workspace_changed', 'Workspace root changed before resume');
       }
     } catch (cause) {
@@ -258,6 +252,14 @@ export class DurableSessionManager implements SessionManagerInterface {
         cause,
       });
     }
+  }
+
+  async #requireWorkspace(workspaceId: string) {
+    const workspace = await this.#store.getWorkspace(workspaceId);
+    if (!workspace) {
+      throw new AgentLoomError('workspace_changed', 'Workspace is no longer available');
+    }
+    return workspace;
   }
 
   #record(turnId: string, event: AgentEvent): AgentEvent {

@@ -227,7 +227,11 @@ export interface NorthboundAdapterInterface {
     events: AsyncIterable<AgentEvent>,
     context: ResponseContextInterface,
   ): AsyncIterable<Uint8Array>;
-  encodeStoredResponse(record: TurnRecordInterface, events: AgentEvent[]): unknown;
+  encodeStoredResponse(
+    record: TurnRecordInterface,
+    events: AgentEvent[],
+    options?: { previousResponseId?: string | null },
+  ): unknown;
   encodeError(error: AgentLoomErrorInterface): unknown;
   capabilities(): NorthboundCapabilitiesInterface;
 }
@@ -251,6 +255,7 @@ export interface ResponseContextInterface {
   turnId: TurnId;
   threadId: ThreadId;
   externalResponseId?: string;
+  previousResponseId?: string | null;
 }
 
 export interface AgentRequestInputInterface {
@@ -260,7 +265,9 @@ export interface AgentRequestInputInterface {
   input: AgentInputInterface;
   metadata?: Record<string, unknown>;
   clientRef?: {
-    externalId?: string;
+    protocol: ClientProtocol;
+    externalId: string;
+    parentProtocol?: ClientProtocol;
     parentExternalId?: string;
   };
 }
@@ -395,7 +402,7 @@ export interface CancelOptionsInterface {
 }
 
 export interface CancelResultInterface {
-  status: 'cancelled' | 'timed_out' | 'not_found';
+  status: 'cancelled' | 'already_terminal' | 'timed_out' | 'not_found';
 }
 
 export interface BackendCapabilitiesInterface {

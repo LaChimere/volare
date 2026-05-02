@@ -89,12 +89,10 @@ export class InMemorySessionManager implements SessionManagerInterface {
       return { status: 'not_found' };
     }
 
-    if (
-      turn.status === 'succeeded' ||
-      turn.status === 'failed' ||
-      turn.status === 'cancelled' ||
-      turn.status === 'interrupted'
-    ) {
+    if (turn.status === 'succeeded' || turn.status === 'failed' || turn.status === 'interrupted') {
+      return { status: 'already_terminal' };
+    }
+    if (turn.status === 'cancelled') {
       return { status: 'cancelled' };
     }
 

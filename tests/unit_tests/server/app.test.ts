@@ -204,6 +204,7 @@ describe('server app', () => {
     );
     expect(await storedSecondResponse.json()).toMatchObject({
       id: secondResponseId,
+      previous_response_id: firstResponseId,
       status: 'completed',
       output: [{ content: [{ text: 'second' }] }],
     });

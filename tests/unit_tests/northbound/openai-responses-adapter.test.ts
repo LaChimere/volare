@@ -61,9 +61,11 @@ describe('OpenAIResponsesAdapter', () => {
           completedAt: createdAt,
         },
         [{ type: 'text.delta', turnId: 'resp_1', delta: 'done' }],
+        { previousResponseId: 'resp_parent' },
       ),
     ).toMatchObject({
       id: 'resp_1',
+      previous_response_id: 'resp_parent',
       status: 'completed',
       output: [{ content: [{ text: 'done' }] }],
     });

@@ -72,7 +72,9 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
       input: { message },
       ...(metadata ? { metadata } : {}),
       clientRef: {
+        protocol: this.protocol,
         externalId: createId('resp'),
+        ...(parentRef ? { parentProtocol: parentRef.protocol } : {}),
         ...(previousResponseId ? { parentExternalId: previousResponseId } : {}),
       },
     };
@@ -134,6 +136,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
                 completedAt: new Date(),
               },
               [event],
+              { previousResponseId: context.previousResponseId ?? null },
             ),
           });
           break;
@@ -160,7 +163,11 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
     yield encoder.encode('data: [DONE]\n\n');
   }
 
-  encodeStoredResponse(record: TurnRecordInterface, events: AgentEvent[]): unknown {
+  encodeStoredResponse(
+    record: TurnRecordInterface,
+    events: AgentEvent[],
+    options: { previousResponseId?: string | null } = {},
+  ): unknown {
     const text = events
       .filter(
         (event): event is Extract<AgentEvent, { type: 'text.delta' }> =>
@@ -187,7 +194,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
       model: record.model,
       output,
       error: failedEvent(events)?.error ?? null,
-      previous_response_id: null,
+      previous_response_id: options.previousResponseId ?? null,
     };
   }
 

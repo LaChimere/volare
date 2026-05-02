@@ -22,7 +22,14 @@ export function createApp(dependencies: AppDependenciesInterface): {
   const stateStore = dependencies.stateStore;
   const adapter = dependencies.adapter ?? new OpenAIResponsesAdapter(stateStore);
   const workspaceResolver = dependencies.workspaceResolver ?? new WorkspaceResolver();
-  let sessionManager = dependencies.sessionManager;
+  let sessionManager =
+    dependencies.sessionManager ??
+    (stateStore
+      ? new DurableSessionManager({
+          store: stateStore,
+          backend: new MockBackend(),
+        })
+      : undefined);
 
   return {
     async fetch(request: Request): Promise<Response> {
@@ -53,13 +60,7 @@ export function createApp(dependencies: AppDependenciesInterface): {
             ? await stateStore.getOrCreateWorkspace({ rootPath: workspace.rootPath })
             : workspace;
           if (!sessionManager) {
-            sessionManager = stateStore
-              ? new DurableSessionManager({
-                  store: stateStore,
-                  backend: new MockBackend(),
-                  workspace: persistedWorkspace,
-                })
-              : new InMemorySessionManager({ workspace: persistedWorkspace });
+            sessionManager = new InMemorySessionManager({ workspace: persistedWorkspace });
           }
           const requestId = crypto.randomUUID();
           const input = await adapter.parseRequest(northboundRequest, {
@@ -75,6 +76,7 @@ export function createApp(dependencies: AppDependenciesInterface): {
               turnId: resolved.turn.id,
               threadId: resolved.thread.id,
               externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
+              previousResponseId: input.clientRef?.parentExternalId ?? null,
             }),
           );
           return new Response(stream, {
@@ -100,6 +102,7 @@ export function createApp(dependencies: AppDependenciesInterface): {
             adapter.encodeStoredResponse(
               clientRef ? { ...turn, id: clientRef.externalId } : turn,
               sessionManager.getEvents(turn.id),
+              { previousResponseId: clientRef?.parentExternalId ?? null },
             ),
           );
         }
