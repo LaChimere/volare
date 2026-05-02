@@ -357,6 +357,7 @@ export interface StateStoreInterface {
     bridgeSessionId: BridgeSessionId;
     request: PermissionRequestInterface;
     timeoutAt: number;
+    journalEvent?: JournalEventInterface;
   }): Promise<ApprovalRecordInterface>;
   getApproval(approvalId: ApprovalId): Promise<ApprovalRecordInterface | null>;
   resolveApprovalWithJournal(

@@ -64,20 +64,63 @@ describe('ApprovalProvider', () => {
       status: 'resolved',
       decision: { type: 'deny', scope: 'once', reason: 'manual' },
     });
-    expect(
-      store.database
-        .query<{ canonical_json: string }, [string]>(
-          'SELECT canonical_json FROM events WHERE turn_id = ?',
-        )
-        .get(turn.id),
-    ).toEqual({
-      canonical_json: JSON.stringify({
+    expect(canonicalEvents(store, turn.id)).toEqual([
+      {
+        type: 'permission.required',
+        turnId: turn.id,
+        approvalId: evaluation.approvalId,
+        action: 'shell:exec',
+      },
+      {
         type: 'permission.resolved',
         turnId: turn.id,
         approvalId: evaluation.approvalId,
         decision: 'deny',
-      }),
+      },
+    ]);
+  });
+
+  test('journals manual allow decisions', async () => {
+    const store = createStore();
+    const { workspace, thread, session, turn } = await createFixture(store);
+    const provider = new ApprovalProvider({
+      store,
+      policy: new DefaultApprovalPolicy({ now: () => 1000, timeoutMs: 5000 }),
     });
+    const evaluation = await provider.evaluate(
+      { action: 'shell:exec', scope: { command: 'bun test' } },
+      {
+        turnId: turn.id,
+        threadId: thread.id,
+        workspaceId: workspace.id,
+        workspaceRootPath: workspace.rootPath,
+        bridgeSessionId: session.bridgeSessionId,
+      },
+    );
+    if (evaluation.type !== 'ask') {
+      throw new Error('expected ask');
+    }
+
+    await expect(
+      provider.resolve(evaluation.approvalId, { type: 'allow', scope: 'once' }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      decision: { type: 'allow', scope: 'once' },
+    });
+    expect(canonicalEvents(store, turn.id)).toEqual([
+      {
+        type: 'permission.required',
+        turnId: turn.id,
+        approvalId: evaluation.approvalId,
+        action: 'shell:exec',
+      },
+      {
+        type: 'permission.resolved',
+        turnId: turn.id,
+        approvalId: evaluation.approvalId,
+        decision: 'allow',
+      },
+    ]);
   });
 
   test('atomically resolves aborted awaits and makes later resolves idempotent', async () => {
@@ -120,6 +163,20 @@ describe('ApprovalProvider', () => {
       status: 'already_terminal',
       decision: { type: 'aborted', reason: 'turn_cancelled' },
     });
+    expect(canonicalEvents(store, turn.id)).toEqual([
+      {
+        type: 'permission.required',
+        turnId: turn.id,
+        approvalId: evaluation.approvalId,
+        action: 'shell:exec',
+      },
+      {
+        type: 'permission.resolved',
+        turnId: turn.id,
+        approvalId: evaluation.approvalId,
+        decision: 'deny',
+      },
+    ]);
   });
 
   test('atomically resolves timed-out awaits before returning', async () => {
@@ -151,5 +208,28 @@ describe('ApprovalProvider', () => {
     await expect(store.getApproval(evaluation.approvalId)).resolves.toMatchObject({
       status: 'timed_out',
     });
+    expect(canonicalEvents(store, turn.id)).toEqual([
+      {
+        type: 'permission.required',
+        turnId: turn.id,
+        approvalId: evaluation.approvalId,
+        action: 'shell:exec',
+      },
+      {
+        type: 'permission.resolved',
+        turnId: turn.id,
+        approvalId: evaluation.approvalId,
+        decision: 'deny',
+      },
+    ]);
   });
 });
+
+function canonicalEvents(store: SQLiteStateStore, turnId: string): unknown[] {
+  return store.database
+    .query<{ canonical_json: string }, [string]>(
+      'SELECT canonical_json FROM events WHERE turn_id = ? ORDER BY seq',
+    )
+    .all(turnId)
+    .map((row) => JSON.parse(row.canonical_json));
+}

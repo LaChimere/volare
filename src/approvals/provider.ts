@@ -46,6 +46,15 @@ export class ApprovalProvider implements ApprovalProviderInterface {
       bridgeSessionId: context.bridgeSessionId,
       request: evaluation.request,
       timeoutAt: evaluation.timeoutAt,
+      journalEvent: {
+        turnId: context.turnId,
+        kind: 'canonical',
+        canonicalJson: permissionRequiredEvent(
+          context.turnId,
+          evaluation.approvalId,
+          evaluation.request,
+        ),
+      },
     });
     return {
       type: 'ask',
@@ -96,6 +105,19 @@ export class ApprovalProvider implements ApprovalProviderInterface {
     }
     return approval;
   }
+}
+
+function permissionRequiredEvent(
+  turnId: string,
+  approvalId: string,
+  request: PermissionRequestInterface,
+) {
+  return {
+    type: 'permission.required',
+    turnId,
+    approvalId,
+    action: request.action,
+  };
 }
 
 function permissionResolvedEvent(turnId: string, approvalId: string, decision: ApprovalDecision) {

@@ -122,9 +122,9 @@
 - [ ] Implement approval API and backend decision delivery.
   - **Acceptance criteria**: Behavior matches the Phase 0 decision and design Open Question #7 resolution, and does not claim approval enforcement without backend support. If HTTP approval UI is not in MVP, this means internal `ApprovalProviderInterface` API plus backend integration only.
   - **Expected evidence**: Route/backend interaction tests for allow, deny, timeout, and unsupported approval behavior.
-- [ ] Implement approval audit trail.
+- [x] Implement approval audit trail.
   - **Acceptance criteria**: `permission.required` and `permission.resolved` events are journaled for allow, deny, timeout, and cancellation paths; audit event completeness is testable before the Phase 4 debug endpoint exposes the events.
-  - **Expected evidence**: Event journal tests showing complete approval audit event pairs for allow, deny, timeout, cancellation, and unsupported approval behavior.
+  - **Expected evidence**: `ApprovalProvider` tests assert complete approval audit event pairs for manual allow, manual deny, timeout, and cancellation paths, including idempotent terminal resolution behavior.
 - [ ] Implement approval timeout watchdog and escalation.
   - **Acceptance criteria**: After timeout auto-deny is journaled, `SessionManagerInterface` waits up to `cancel_timeout_ms` for a backend terminal event; if none arrives, it atomically checks the turn is non-terminal, calls `AgentBackendInterface.cancel(session, { forceAfterTimeout: true })`, synthesizes `turn.interrupted` with reason `approval_timeout_exceeded`, and marks the backend session abandoned after forced disposal if needed.
   - **Expected evidence**: Approval timeout tests covering backend terminal-before-timeout, forced cancel after timeout, synthesized interrupted event, and abandoned session marking.

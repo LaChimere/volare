@@ -14,6 +14,7 @@ import type {
   BridgeSessionId,
   ClientProtocol,
   ClientTurnRefInterface,
+  JournalEventInterface,
   PermissionRequestInterface,
   StateStoreInterface,
   ThreadId,
@@ -326,24 +327,35 @@ export class SQLiteStateStore implements StateStoreInterface {
     bridgeSessionId: BridgeSessionId;
     request: PermissionRequestInterface;
     timeoutAt: number;
+    journalEvent?: JournalEventInterface;
   }): Promise<ApprovalRecordInterface> {
     const id = input.approvalId ?? createId('approval');
     const now = Date.now();
-    this.database
-      .query(
-        `INSERT INTO approvals
-          (id, turn_id, bridge_session_id, status, redacted_request_json, timeout_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        id,
-        input.turnId,
-        input.bridgeSessionId,
-        'pending',
-        JSON.stringify(input.request),
-        input.timeoutAt,
-        now,
-      );
+    const insertApproval = () => {
+      this.database
+        .query(
+          `INSERT INTO approvals
+            (id, turn_id, bridge_session_id, status, redacted_request_json, timeout_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          input.turnId,
+          input.bridgeSessionId,
+          'pending',
+          JSON.stringify(input.request),
+          input.timeoutAt,
+          now,
+        );
+      if (input.journalEvent) {
+        insertJournalEvent(this.database, input.journalEvent, now);
+      }
+    };
+    if (input.journalEvent) {
+      this.database.transaction(insertApproval)();
+    } else {
+      insertApproval();
+    }
     return {
       id,
       turnId: input.turnId,
@@ -396,24 +408,7 @@ export class SQLiteStateStore implements StateStoreInterface {
           now,
           approval.id,
         );
-      const seq = nextEventSeq(this.database, input.journalEvent.turnId);
-      this.database
-        .query(
-          `INSERT INTO events
-            (id, turn_id, seq, kind, redacted_raw_json, canonical_json, encoded_json, redaction_json, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          input.journalEvent.id ?? createId('event'),
-          input.journalEvent.turnId,
-          input.journalEvent.seq ?? seq,
-          input.journalEvent.kind,
-          jsonOrNull(input.journalEvent.redactedRawJson),
-          jsonOrNull(input.journalEvent.canonicalJson),
-          jsonOrNull(input.journalEvent.encodedJson),
-          jsonOrNull(input.journalEvent.redactionJson),
-          input.journalEvent.createdAt ?? now,
-        );
+      insertJournalEvent(this.database, input.journalEvent, now);
       return { status: 'resolved' as const, decision: input.decision };
     });
     return transaction();
@@ -498,6 +493,27 @@ function parseJson<T>(value: string | null): T {
 
 function jsonOrNull(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
+}
+
+function insertJournalEvent(database: Database, event: JournalEventInterface, now: number): void {
+  const seq = nextEventSeq(database, event.turnId);
+  database
+    .query(
+      `INSERT INTO events
+        (id, turn_id, seq, kind, redacted_raw_json, canonical_json, encoded_json, redaction_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      event.id ?? createId('event'),
+      event.turnId,
+      event.seq ?? seq,
+      event.kind,
+      jsonOrNull(event.redactedRawJson),
+      jsonOrNull(event.canonicalJson),
+      jsonOrNull(event.encodedJson),
+      jsonOrNull(event.redactionJson),
+      event.createdAt ?? now,
+    );
 }
 
 function nextEventSeq(database: Database, turnId: TurnId): number {
