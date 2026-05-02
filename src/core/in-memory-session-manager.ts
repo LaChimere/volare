@@ -8,12 +8,13 @@ import type {
   CancelResultInterface,
   RequestContextInterface,
   ResolvedTurnInterface,
+  SessionManagerInterface,
   ThreadInterface,
   TurnRecordInterface,
   WorkspaceInterface,
 } from './types';
 
-export class InMemorySessionManager {
+export class InMemorySessionManager implements SessionManagerInterface {
   readonly #backend: AgentBackendInterface;
   readonly #workspace: WorkspaceInterface;
   readonly #turns = new Map<string, TurnRecordInterface>();
@@ -74,7 +75,7 @@ export class InMemorySessionManager {
     };
   }
 
-  getTurn(turnId: string): TurnRecordInterface | null {
+  async getTurn(turnId: string): Promise<TurnRecordInterface | null> {
     return this.#turns.get(turnId) ?? null;
   }
 

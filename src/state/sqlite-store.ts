@@ -236,7 +236,7 @@ export class SQLiteStateStore implements StateStoreInterface {
     session: BackendSessionInterface,
     metadata: BackendProcessMetadataInterface,
   ): Promise<void> {
-    this.database
+    const result = this.database
       .query(
         `UPDATE backend_sessions
          SET backend_session_id = ?, process_id = ?, process_started_at = ?, process_identity_hash = ?,
@@ -253,6 +253,12 @@ export class SQLiteStateStore implements StateStoreInterface {
         session.bridgeSessionId,
         'initializing',
       );
+    if (result.changes !== 1) {
+      throw new AgentLoomError(
+        'backend_session_activation_failed',
+        'Backend session could not be activated',
+      );
+    }
   }
 
   async updateBackendSessionStatus(

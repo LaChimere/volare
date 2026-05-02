@@ -1,5 +1,8 @@
+import { MockBackend } from '../backends/mock/backend';
+import { DurableSessionManager } from '../core/durable-session-manager';
 import { AgentLoomError } from '../core/errors';
 import { InMemorySessionManager } from '../core/in-memory-session-manager';
+import type { SessionManagerInterface, StateStoreInterface } from '../core/types';
 import { WorkspaceResolver } from '../core/workspace-resolver';
 import { encodeOpenAIError, OpenAIResponsesAdapter } from '../northbound/openai-responses/adapter';
 import { requireBearerAuth } from './auth';
@@ -9,13 +12,15 @@ export interface AppDependenciesInterface {
   config: ServerRuntimeConfigInterface;
   adapter?: OpenAIResponsesAdapter;
   workspaceResolver?: WorkspaceResolver;
-  sessionManager?: InMemorySessionManager;
+  sessionManager?: SessionManagerInterface;
+  stateStore?: StateStoreInterface;
 }
 
 export function createApp(dependencies: AppDependenciesInterface): {
   fetch(request: Request): Promise<Response>;
 } {
-  const adapter = dependencies.adapter ?? new OpenAIResponsesAdapter();
+  const stateStore = dependencies.stateStore;
+  const adapter = dependencies.adapter ?? new OpenAIResponsesAdapter(stateStore);
   const workspaceResolver = dependencies.workspaceResolver ?? new WorkspaceResolver();
   let sessionManager = dependencies.sessionManager;
 
@@ -44,21 +49,32 @@ export function createApp(dependencies: AppDependenciesInterface): {
             await adapter.extractWorkspaceHints(northboundRequest),
             dependencies.config,
           );
-          sessionManager ??= new InMemorySessionManager({ workspace });
+          const persistedWorkspace = stateStore
+            ? await stateStore.getOrCreateWorkspace({ rootPath: workspace.rootPath })
+            : workspace;
+          if (!sessionManager) {
+            sessionManager = stateStore
+              ? new DurableSessionManager({
+                  store: stateStore,
+                  backend: new MockBackend(),
+                  workspace: persistedWorkspace,
+                })
+              : new InMemorySessionManager({ workspace: persistedWorkspace });
+          }
           const requestId = crypto.randomUUID();
           const input = await adapter.parseRequest(northboundRequest, {
-            workspaceId: workspace.id,
+            workspaceId: persistedWorkspace.id,
             requestId,
           });
           const resolved = await sessionManager.startTurn(input, {
-            workspaceId: workspace.id,
+            workspaceId: persistedWorkspace.id,
             requestId,
           });
           const stream = asyncIterableToStream(
             adapter.encodeStream(sessionManager.streamTurn(resolved), {
               turnId: resolved.turn.id,
               threadId: resolved.thread.id,
-              externalResponseId: resolved.turn.id,
+              externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
             }),
           );
           return new Response(stream, {
@@ -74,12 +90,17 @@ export function createApp(dependencies: AppDependenciesInterface): {
           if (!sessionManager) {
             return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
           }
-          const turn = sessionManager.getTurn(responseMatch[1]);
+          const clientRef = await stateStore?.resolveClientRef(adapter.protocol, responseMatch[1]);
+          const turnId = clientRef?.turnId ?? responseMatch[1];
+          const turn = await sessionManager.getTurn(turnId);
           if (!turn) {
             return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
           }
           return Response.json(
-            adapter.encodeStoredResponse(turn, sessionManager.getEvents(turn.id)),
+            adapter.encodeStoredResponse(
+              clientRef ? { ...turn, id: clientRef.externalId } : turn,
+              sessionManager.getEvents(turn.id),
+            ),
           );
         }
 

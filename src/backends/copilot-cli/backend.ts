@@ -64,6 +64,16 @@ export class CopilotCliBackend implements AgentBackendInterface {
     };
   }
 
+  async resumeSession(session: BackendSessionInterface): Promise<BackendSessionInterface> {
+    if (!session.backendSessionId) {
+      throw new AgentLoomError(
+        'backend_session_not_active',
+        'Cannot resume a reserved backend session',
+      );
+    }
+    return session;
+  }
+
   async *send(
     session: BackendSessionInterface,
     request: AgentRequestInterface,

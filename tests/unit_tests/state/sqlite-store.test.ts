@@ -101,6 +101,9 @@ describe('SQLiteStateStore', () => {
       bridgeSessionId: session.bridgeSessionId,
       status: 'idle',
     });
+    await expect(
+      store.activateBackendSession(session, { backendSessionId: 'backend_2' }),
+    ).rejects.toThrow('Backend session could not be activated');
   });
 
   test('binds and resolves client refs', async () => {

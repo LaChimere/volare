@@ -222,6 +222,18 @@ export interface ResolvedTurnInterface {
   thread: ThreadInterface;
   session: BackendSessionInterface;
   request: AgentRequestInterface;
+  externalResponseId?: string;
+}
+
+export interface SessionManagerInterface {
+  startTurn(
+    input: AgentRequestInputInterface,
+    context: RequestContextInterface,
+  ): Promise<ResolvedTurnInterface>;
+  getTurn(turnId: TurnId): Promise<TurnRecordInterface | null>;
+  getEvents(turnId: TurnId): AgentEvent[];
+  streamTurn(resolved: ResolvedTurnInterface, signal?: AbortSignal): AsyncIterable<AgentEvent>;
+  cancelTurn(turnId: TurnId): Promise<CancelResultInterface>;
 }
 
 export interface StateStoreInterface {
@@ -273,7 +285,7 @@ export interface AgentBackendInterface {
     workspace: WorkspaceInterface,
     options: CreateSessionOptionsInterface,
   ): Promise<BackendSessionInterface>;
-  resumeSession?(session: BackendSessionInterface): Promise<BackendSessionInterface>;
+  resumeSession(session: BackendSessionInterface): Promise<BackendSessionInterface>;
   send(
     session: BackendSessionInterface,
     request: AgentRequestInterface,

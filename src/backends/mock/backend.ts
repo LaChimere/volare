@@ -43,6 +43,10 @@ export class MockBackend implements AgentBackendInterface {
     };
   }
 
+  async resumeSession(session: BackendSessionInterface): Promise<BackendSessionInterface> {
+    return session;
+  }
+
   async *send(
     session: BackendSessionInterface,
     request: AgentRequestInterface,

@@ -5,6 +5,7 @@ export interface ServerRuntimeConfigInterface {
   port: number;
   apiKey: string;
   generatedApiKey: boolean;
+  stateDatabasePath: string;
   defaultWorkspaceRoot?: string;
   allowedWorkspaceRoots?: string[];
 }
@@ -15,6 +16,7 @@ export interface ServerRuntimeEnvInterface {
   AGENT_LOOM_PORT: string | undefined;
   AGENT_LOOM_WORKSPACE_ROOT: string | undefined;
   AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: string | undefined;
+  AGENT_LOOM_STATE_DB_PATH: string | undefined;
 }
 
 export function createServerRuntimeConfig(
@@ -34,6 +36,7 @@ export function createServerRuntimeConfig(
     port: env.AGENT_LOOM_PORT ? Number(env.AGENT_LOOM_PORT) : 8000,
     apiKey,
     generatedApiKey: !providedApiKey,
+    stateDatabasePath: env.AGENT_LOOM_STATE_DB_PATH ?? '.agent-loom/state.sqlite',
     ...(env.AGENT_LOOM_WORKSPACE_ROOT
       ? { defaultWorkspaceRoot: env.AGENT_LOOM_WORKSPACE_ROOT }
       : {}),
@@ -52,6 +55,7 @@ function readServerRuntimeEnv(): ServerRuntimeEnvInterface {
     AGENT_LOOM_PORT: Bun.env['AGENT_LOOM_PORT'],
     AGENT_LOOM_WORKSPACE_ROOT: Bun.env['AGENT_LOOM_WORKSPACE_ROOT'],
     AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: Bun.env['AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS'],
+    AGENT_LOOM_STATE_DB_PATH: Bun.env['AGENT_LOOM_STATE_DB_PATH'],
   };
 }
 

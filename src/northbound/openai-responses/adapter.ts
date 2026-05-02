@@ -9,6 +9,7 @@ import type {
   NorthboundRequestInterface,
   RequestContextInterface,
   ResponseContextInterface,
+  StateStoreInterface,
   TurnRecordInterface,
   WorkspaceHintsInterface,
 } from '../../core/types';
@@ -17,6 +18,8 @@ const encoder = new TextEncoder();
 
 export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
   readonly protocol = 'openai-responses-v1';
+
+  constructor(readonly stateStore?: StateStoreInterface) {}
 
   async extractWorkspaceHints(
     request: NorthboundRequestInterface,
@@ -56,8 +59,15 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
     }
 
     const previousResponseId = stringValue(request.body['previous_response_id']);
+    const parentRef = previousResponseId
+      ? await this.stateStore?.resolveClientRef(this.protocol, previousResponseId)
+      : null;
+    if (previousResponseId && this.stateStore && !parentRef) {
+      throw new AgentLoomError('not_found', 'previous_response_id was not found');
+    }
     const metadata = isRecord(request.body['metadata']) ? request.body['metadata'] : undefined;
     return {
+      ...(parentRef ? { threadId: parentRef.threadId, parentTurnId: parentRef.turnId } : {}),
       model,
       input: { message },
       ...(metadata ? { metadata } : {}),
@@ -114,7 +124,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
             sequence_number: sequenceNumber++,
             response: this.encodeStoredResponse(
               {
-                id: event.turnId,
+                id: responseId,
                 threadId: context.threadId,
                 parentTurnId: null,
                 bridgeSessionId: '',
@@ -294,6 +304,10 @@ function statusForErrorCode(code: string): number {
       return 403;
     case 'not_found':
       return 404;
+    case 'backend_session_mismatch':
+    case 'session_lost':
+    case 'workspace_changed':
+      return 409;
     default:
       return 500;
   }
