@@ -185,9 +185,9 @@
 
 ### Acceptance Gate
 
-- [ ] All acceptance criteria above are met with evidence.
-- [ ] Diff remains consistent with approved `plan.md` and does not add out-of-scope protocols/backends.
-- [ ] Applicable verification level is executed for each phase.
+- [x] All acceptance criteria above are met with evidence.
+- [x] Diff remains consistent with approved `plan.md` and does not add out-of-scope protocols/backends.
+- [x] Applicable verification level is executed for each phase.
 - [x] Related docs are checked after behavior, config, schema, or API changes.
 
 If any check fails:
@@ -204,27 +204,30 @@ If any check fails:
   - **Expected evidence**: exited 0 after Phase 5B changes.
 - [x] Unit/contract tests:
   - `bun run test`
-  - **Expected evidence**: 77 passing unit tests; integration test command ran with no matching integration tests.
-- [ ] Integration or before/after checks:
-  - Feature-gated real backend integration command TBD after Phase 0.
-  - **Expected evidence to paste**: probe/integration command, backend capability notes, or explicit reason integration was not available.
+  - **Expected evidence**: 78 passing unit tests; integration test command ran with no matching integration tests.
+- [x] Integration or before/after checks:
+  - `bun scripts/probe-copilot-cli.ts`
+  - `bun run package`
+  - **Expected evidence**: Phase 0 probe verified local Copilot CLI startup, ACP initialize, prompt streaming, process cancellation, and permission flags; final packaging check compiled `dist/agent-loom`. Real Codex client integration remains unavailable in this environment.
 - [x] Security checks:
   - Auth rejection, CORS rejection, workspace boundary, redaction, approval timeout, cancellation cleanup.
   - **Expected evidence**: Route/config/state/event/approval tests cover auth rejection, CORS rejection, workspace boundary rejection, redaction fail-closed behavior, approval timeout decisions, and cancellation cleanup.
 
 ## Review / Packaging
 
-- [ ] Summarize implementation changes and rationale.
-- [ ] Confirm no scope creep or unrelated cleanup.
-- [ ] Check whether related docs need updating; use `refresh-related-docs` if broader docs become stale.
-- [ ] Prepare PR description or changelog notes if applicable.
+- [x] Summarize implementation changes and rationale.
+- [x] Confirm no scope creep or unrelated cleanup.
+- [x] Check whether related docs need updating; use `refresh-related-docs` if broader docs become stale.
+- [x] Prepare PR description or changelog notes if applicable.
 
 ## Evidence Log
 
-- `command`: output excerpt
-- before/after: evidence
+- `bun run check`: exited 0 after final implementation and review fixes.
+- `bun run test`: 78 passing unit tests; integration test command ran with no matching integration tests.
+- `bun run package`: compiled `dist/agent-loom`.
+- Final review: prior production debug endpoint/event journal wiring finding was resolved; re-review found no significant issues.
 
 ## Result
 
-- **Outcome**:
-- **Follow-ups**:
+- **Outcome**: Agent Loom MVP bridge implementation is complete through Phase 5B with atomic commits, docs updates, and final review.
+- **Follow-ups**: Real Codex + Copilot end-to-end integration remains gated on an environment where Codex can be pointed at the local Responses bridge.
