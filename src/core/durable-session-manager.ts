@@ -5,6 +5,9 @@ import type {
   AgentBackendInterface,
   AgentEvent,
   AgentRequestInputInterface,
+  ApprovalDecision,
+  ApprovalEvaluation,
+  ApprovalProviderInterface,
   BackendSessionInterface,
   CancelResultInterface,
   RequestContextInterface,
@@ -26,14 +29,17 @@ const DEFAULT_CANCEL_TIMEOUT_MS = 1000;
 export class DurableSessionManager implements SessionManagerInterface {
   readonly #store: StateStoreInterface;
   readonly #backend: AgentBackendInterface;
+  readonly #approvalProvider: ApprovalProviderInterface | undefined;
   readonly #events = new Map<string, AgentEvent[]>();
 
   constructor(options: {
     store: StateStoreInterface;
     backend: AgentBackendInterface;
+    approvalProvider?: ApprovalProviderInterface;
   }) {
     this.#store = options.store;
     this.#backend = options.backend;
+    this.#approvalProvider = options.approvalProvider;
   }
 
   async startTurn(
@@ -183,6 +189,17 @@ export class DurableSessionManager implements SessionManagerInterface {
     let sawTerminal = false;
     try {
       for await (const event of this.#backend.send(resolved.session, resolved.request, signal)) {
+        if (event.type === 'permission.required' && this.#approvalProvider) {
+          yield this.#record(resolved.turn.id, event);
+          const decision = await this.#resolveApprovalRequest(event, resolved, signal);
+          yield this.#record(resolved.turn.id, {
+            type: 'permission.resolved',
+            turnId: resolved.turn.id,
+            approvalId: event.approvalId,
+            decision: decision.type === 'allow' ? 'allow' : 'deny',
+          });
+          continue;
+        }
         if (TERMINAL_TURN_TYPES.has(event.type)) {
           sawTerminal = true;
           await this.#store.updateTurnStatus(
@@ -306,6 +323,63 @@ export class DurableSessionManager implements SessionManagerInterface {
       throw new AgentLoomError('workspace_changed', 'Workspace is no longer available');
     }
     return workspace;
+  }
+
+  async #resolveApprovalRequest(
+    event: Extract<AgentEvent, { type: 'permission.required' }>,
+    resolved: ResolvedTurnInterface,
+    signal?: AbortSignal,
+  ): Promise<ApprovalDecision> {
+    if (!this.#approvalProvider) {
+      throw new AgentLoomError('approval_provider_missing', 'No approval provider is configured');
+    }
+    const workspace = await this.#requireWorkspace(resolved.request.workspaceId);
+    const evaluation = await this.#approvalProvider.evaluate(event.request, {
+      turnId: resolved.turn.id,
+      threadId: resolved.thread.id,
+      workspaceId: resolved.request.workspaceId,
+      workspaceRootPath: workspace.rootPath,
+      bridgeSessionId: resolved.session.bridgeSessionId,
+      approvalId: event.approvalId,
+    });
+    const decision = await this.#decisionFromEvaluation(evaluation, signal);
+    await this.#deliverApprovalDecision(resolved.session, event.approvalId, decision);
+    return decision;
+  }
+
+  async #decisionFromEvaluation(
+    evaluation: ApprovalEvaluation,
+    signal?: AbortSignal,
+  ): Promise<ApprovalDecision> {
+    switch (evaluation.type) {
+      case 'allow':
+        return { type: 'allow', scope: 'once' };
+      case 'deny':
+        return { type: 'deny', scope: 'once', reason: evaluation.reason };
+      case 'ask':
+        if (!this.#approvalProvider) {
+          throw new AgentLoomError(
+            'approval_provider_missing',
+            'No approval provider is configured',
+          );
+        }
+        return await this.#approvalProvider.awaitDecision(evaluation.approvalId, signal);
+    }
+  }
+
+  async #deliverApprovalDecision(
+    session: BackendSessionInterface,
+    approvalId: string,
+    decision: ApprovalDecision,
+  ): Promise<void> {
+    const capabilities = this.#backend.capabilities();
+    if (!capabilities.externalApprovalDecisions || !this.#backend.submitApprovalDecision) {
+      throw new AgentLoomError(
+        'approval_delivery_unsupported',
+        'Backend does not support external approval decision delivery',
+      );
+    }
+    await this.#backend.submitApprovalDecision(session, approvalId, decision);
   }
 
   #record(turnId: string, event: AgentEvent): AgentEvent {

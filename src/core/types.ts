@@ -151,6 +151,7 @@ export interface ApprovalContextInterface {
   workspaceId: WorkspaceId;
   workspaceRootPath: string;
   bridgeSessionId: BridgeSessionId;
+  approvalId?: ApprovalId;
 }
 
 export type ApprovalEvaluation =

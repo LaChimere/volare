@@ -40,8 +40,9 @@ export class ApprovalProvider implements ApprovalProviderInterface {
       return evaluation;
     }
 
+    const approvalId = context.approvalId ?? evaluation.approvalId;
     const approval = await this.#store.createApproval({
-      approvalId: evaluation.approvalId,
+      approvalId,
       turnId: context.turnId,
       bridgeSessionId: context.bridgeSessionId,
       request: evaluation.request,
@@ -49,11 +50,7 @@ export class ApprovalProvider implements ApprovalProviderInterface {
       journalEvent: {
         turnId: context.turnId,
         kind: 'canonical',
-        canonicalJson: permissionRequiredEvent(
-          context.turnId,
-          evaluation.approvalId,
-          evaluation.request,
-        ),
+        canonicalJson: permissionRequiredEvent(context.turnId, approvalId, evaluation.request),
       },
     });
     return {

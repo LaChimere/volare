@@ -119,9 +119,9 @@
 - [x] Implement `ApprovalProviderInterface.awaitDecision()` AbortSignal cancellation.
   - **Acceptance criteria**: When turn-cancellation `AbortSignal` fires, `awaitDecision()` atomically resolves the approval as deny with reason `turn_cancelled`, appends `permission.resolved` in the same transaction, returns `{ type: "aborted" }`, and makes subsequent approval attempts idempotent no-ops.
   - **Expected evidence**: `ApprovalProvider` tests cover AbortSignal cancellation resolving to `{ type: "aborted", reason: "turn_cancelled" }`, persisted aborted state, and idempotent later resolution attempts.
-- [ ] Implement approval API and backend decision delivery.
+- [x] Implement approval API and backend decision delivery.
   - **Acceptance criteria**: Behavior matches the Phase 0 decision and design Open Question #7 resolution, and does not claim approval enforcement without backend support. If HTTP approval UI is not in MVP, this means internal `ApprovalProviderInterface` API plus backend integration only.
-  - **Expected evidence**: Route/backend interaction tests for allow, deny, timeout, and unsupported approval behavior.
+  - **Expected evidence**: `DurableSessionManager` backend interaction tests cover supported external approval delivery and fail-closed behavior when a backend emits `permission.required` without advertising external approval decision support; Copilot capability metadata still reports external approval decisions as unsupported.
 - [x] Implement approval audit trail.
   - **Acceptance criteria**: `permission.required` and `permission.resolved` events are journaled for allow, deny, timeout, and cancellation paths; audit event completeness is testable before the Phase 4 debug endpoint exposes the events.
   - **Expected evidence**: `ApprovalProvider` tests assert complete approval audit event pairs for manual allow, manual deny, timeout, and cancellation paths, including idempotent terminal resolution behavior.

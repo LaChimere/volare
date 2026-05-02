@@ -1,3 +1,4 @@
+import { ApprovalProvider } from '../approvals/provider';
 import { MockBackend } from '../backends/mock/backend';
 import { DurableSessionManager } from '../core/durable-session-manager';
 import { AgentLoomError } from '../core/errors';
@@ -28,6 +29,7 @@ export function createApp(dependencies: AppDependenciesInterface): {
       ? new DurableSessionManager({
           store: stateStore,
           backend: new MockBackend(),
+          approvalProvider: new ApprovalProvider({ store: stateStore }),
         })
       : undefined);
 

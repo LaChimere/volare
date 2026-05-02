@@ -8,6 +8,9 @@ import type {
   AgentBackendInterface,
   AgentEvent,
   AgentRequestInterface,
+  ApprovalDecision,
+  ApprovalEvaluation,
+  ApprovalProviderInterface,
   BackendCapabilitiesInterface,
   BackendSessionInterface,
   CancelResultInterface,
@@ -63,7 +66,10 @@ class TerminalOmittingBackend implements AgentBackendInterface {
     return session;
   }
 
-  async *send(_session: BackendSessionInterface, request: AgentRequestInterface) {
+  async *send(
+    _session: BackendSessionInterface,
+    request: AgentRequestInterface,
+  ): AsyncIterable<AgentEvent> {
     yield { type: 'text.delta', turnId: request.turnId, delta: 'partial' } satisfies AgentEvent;
   }
 
@@ -80,6 +86,63 @@ class TerminalOmittingBackend implements AgentBackendInterface {
 class CreateFailingBackend extends TerminalOmittingBackend {
   override async createSession(): Promise<BackendSessionInterface> {
     throw new Error('backend failed to start');
+  }
+}
+
+class PermissionBackend extends TerminalOmittingBackend {
+  readonly submittedDecisions: ApprovalDecision[] = [];
+
+  constructor(readonly externalApprovalDecisions: boolean) {
+    super();
+  }
+
+  override capabilities(): BackendCapabilitiesInterface {
+    return { ...capabilities(), externalApprovalDecisions: this.externalApprovalDecisions };
+  }
+
+  override async *send(
+    _session: BackendSessionInterface,
+    request: AgentRequestInterface,
+  ): AsyncIterable<AgentEvent> {
+    yield {
+      type: 'permission.required',
+      turnId: request.turnId,
+      approvalId: 'approval_backend_1',
+      request: { action: 'shell:exec', scope: { command: 'bun test' } },
+    } satisfies AgentEvent;
+    yield { type: 'text.delta', turnId: request.turnId, delta: 'approved' } satisfies AgentEvent;
+    yield {
+      type: 'turn.succeeded',
+      turnId: request.turnId,
+      output: { text: 'approved' },
+    } satisfies AgentEvent;
+  }
+
+  async submitApprovalDecision(
+    _session: BackendSessionInterface,
+    _approvalId: string,
+    decision: ApprovalDecision,
+  ): Promise<void> {
+    this.submittedDecisions.push(decision);
+  }
+}
+
+class StubApprovalProvider implements ApprovalProviderInterface {
+  constructor(
+    readonly evaluation: ApprovalEvaluation,
+    readonly awaitedDecision: ApprovalDecision = { type: 'allow', scope: 'once' },
+  ) {}
+
+  async evaluate(): Promise<ApprovalEvaluation> {
+    return this.evaluation;
+  }
+
+  async resolve() {
+    return { status: 'resolved' as const, decision: this.awaitedDecision };
+  }
+
+  async awaitDecision(): Promise<ApprovalDecision> {
+    return this.awaitedDecision;
   }
 }
 
@@ -335,6 +398,77 @@ describe('DurableSessionManager', () => {
           }),
         ),
       ).rejects.toThrow('Backend session does not match request scope');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('delivers approval decisions to backends that support external decisions', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new PermissionBackend(true);
+    const manager = new DurableSessionManager({
+      store,
+      backend,
+      approvalProvider: new StubApprovalProvider({
+        type: 'ask',
+        approvalId: 'approval_backend_1',
+        timeoutAt: Date.now() + 1000,
+        request: { action: 'shell:exec', scope: { command: 'bun test' } },
+      }),
+    });
+    try {
+      const resolved = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'hello' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+
+      const events = await Array.fromAsync(manager.streamTurn(resolved));
+
+      expect(backend.submittedDecisions).toEqual([{ type: 'allow', scope: 'once' }]);
+      expect(events.map((event) => event.type)).toEqual([
+        'turn.created',
+        'permission.required',
+        'permission.resolved',
+        'text.delta',
+        'turn.succeeded',
+      ]);
+      await expect(store.getTurn(resolved.turn.id)).resolves.toMatchObject({ status: 'succeeded' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed when backend approval decision delivery is unsupported', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new PermissionBackend(false);
+    const manager = new DurableSessionManager({
+      store,
+      backend,
+      approvalProvider: new StubApprovalProvider({
+        type: 'deny',
+        reason: 'policy_denied',
+        request: { action: 'shell:exec', scope: { command: 'bun test' } },
+      }),
+    });
+    try {
+      const resolved = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'hello' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+
+      const events = await Array.fromAsync(manager.streamTurn(resolved));
+
+      expect(backend.submittedDecisions).toEqual([]);
+      expect(events.map((event) => event.type)).toEqual([
+        'turn.created',
+        'permission.required',
+        'turn.failed',
+      ]);
+      await expect(store.getTurn(resolved.turn.id)).resolves.toMatchObject({ status: 'failed' });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
