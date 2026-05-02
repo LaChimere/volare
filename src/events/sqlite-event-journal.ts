@@ -9,7 +9,7 @@ import type {
   ThreadId,
   TurnId,
 } from '../core/types';
-import { DefaultRedactor, type RedactorInterface } from './redaction';
+import { DefaultRedactor, RedactionFailedError, type RedactorInterface } from './redaction';
 
 type JournalEventRow = {
   id: string;
@@ -37,24 +37,16 @@ export class SQLiteEventJournal implements EventJournalInterface {
   async append(event: JournalEventInterface): Promise<void> {
     const now = Date.now();
     const seq = event.seq ?? nextEventSeq(this.database, event.turnId);
-    const redacted = this.#redactEvent(event);
-    this.database
-      .query(
-        `INSERT INTO events
-          (id, turn_id, seq, kind, redacted_raw_json, canonical_json, encoded_json, redaction_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        event.id ?? createId('event'),
-        event.turnId,
-        seq,
-        event.kind,
-        jsonOrNull(redacted.redactedRawJson),
-        jsonOrNull(redacted.canonicalJson),
-        jsonOrNull(redacted.encodedJson),
-        jsonOrNull(redacted.redactionJson),
-        event.createdAt ?? now,
-      );
+    let redacted: JournalEventInterface;
+    try {
+      redacted = this.#redactEvent(event);
+    } catch (error) {
+      if (error instanceof RedactionFailedError) {
+        insertSecurityRedactionFailure(this.database, event.turnId, now);
+      }
+      throw error;
+    }
+    insertJournalEvent(this.database, { ...redacted, seq }, now);
   }
 
   #redactEvent(event: JournalEventInterface): JournalEventInterface {
@@ -155,6 +147,46 @@ function parseEventJson(value: string, column: string): unknown {
 
 function jsonOrNull(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
+}
+
+function insertJournalEvent(database: Database, event: JournalEventInterface, now: number): void {
+  database
+    .query(
+      `INSERT INTO events
+        (id, turn_id, seq, kind, redacted_raw_json, canonical_json, encoded_json, redaction_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      event.id ?? createId('event'),
+      event.turnId,
+      event.seq ?? nextEventSeq(database, event.turnId),
+      event.kind,
+      jsonOrNull(event.redactedRawJson),
+      jsonOrNull(event.canonicalJson),
+      jsonOrNull(event.encodedJson),
+      jsonOrNull(event.redactionJson),
+      event.createdAt ?? now,
+    );
+}
+
+function insertSecurityRedactionFailure(database: Database, turnId: TurnId, now: number): void {
+  insertJournalEvent(
+    database,
+    {
+      turnId,
+      kind: 'security',
+      canonicalJson: {
+        type: 'turn.failed',
+        turnId,
+        error: { code: 'redaction_failed' },
+      },
+      redactionJson: {
+        redactedPaths: ['$'],
+        failure: 'redaction_failed',
+      },
+    },
+    now,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

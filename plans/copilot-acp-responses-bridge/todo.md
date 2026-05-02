@@ -149,9 +149,9 @@
 - [x] Implement redaction boundary.
   - **Acceptance criteria**: Headers, file contents, commands, URLs, env vars, prompts, and approval payloads follow redaction rules before persistence.
   - **Expected evidence**: `DefaultRedactor` tests cover sensitive headers, file contents, shell commands, URLs, environment variables, prompts, and approval payloads; `SQLiteEventJournal` tests verify redacted payloads are persisted.
-- [ ] Implement fail-closed redaction behavior.
+- [x] Implement fail-closed redaction behavior.
   - **Acceptance criteria**: `RedactionFailedError` prevents unredacted persistence and fails the active turn safely.
-  - **Expected evidence**: Simulated redaction failure test output.
+  - **Expected evidence**: `SQLiteEventJournal` simulated redaction failure test verifies the original unredacted payload is not persisted and only a sanitized security `turn.failed` event is written before `RedactionFailedError` is returned.
 - [ ] Add the minimal debug endpoint.
   - **Acceptance criteria**: A single authenticated, read-only `GET /debug/turns/:id/events` endpoint exposes redacted turn events without leaking secrets. Do not add broader observability, UI, thread debug routes, backend-session debug routes, or approval debug routes in this phase.
   - **Expected evidence**: Debug route tests showing redacted response payloads.

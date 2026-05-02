@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-
+import { RedactionFailedError, type RedactorInterface } from '../../../src/events/redaction';
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
 import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
@@ -140,4 +140,44 @@ describe('SQLiteEventJournal', () => {
       'canonical_json could not be decoded',
     );
   });
+
+  test('fails closed when redaction fails before persistence', async () => {
+    const { database, store } = createFixture();
+    const { turn } = await createTurn(store);
+    const journal = new SQLiteEventJournal(database, new FailingRedactor());
+
+    await expect(
+      journal.append({
+        turnId: turn.id,
+        kind: 'northbound',
+        redactedRawJson: { prompt: 'unredacted secret' },
+      }),
+    ).rejects.toThrow('Redaction failed before journal persistence');
+
+    await expect(journal.listByTurn(turn.id)).resolves.toEqual([
+      expect.objectContaining({
+        kind: 'security',
+        canonicalJson: {
+          type: 'turn.failed',
+          turnId: turn.id,
+          error: { code: 'redaction_failed' },
+        },
+        redactionJson: {
+          redactedPaths: ['$'],
+          failure: 'redaction_failed',
+        },
+      }),
+    ]);
+    expect(
+      database
+        .query<{ redacted_raw_json: string | null }, []>('SELECT redacted_raw_json FROM events')
+        .all(),
+    ).toEqual([{ redacted_raw_json: null }]);
+  });
 });
+
+class FailingRedactor implements RedactorInterface {
+  redact(): never {
+    throw new RedactionFailedError('test', new Error('boom'));
+  }
+}
