@@ -174,6 +174,49 @@ describe('SQLiteEventJournal', () => {
         .all(),
     ).toEqual([{ redacted_raw_json: null }]);
   });
+
+  test('prunes only whole terminal-turn journals and leaves replay tombstones', async () => {
+    const { store, journal } = createFixture();
+    const { turn: terminalTurn } = await createTurn(store);
+    const { turn: nonTerminalTurn } = await createTurn(store);
+    await store.updateTurnStatus(terminalTurn.id, 'queued', 'succeeded', 100);
+    await journal.append({
+      turnId: terminalTurn.id,
+      kind: 'canonical',
+      canonicalJson: { type: 'turn.created', turnId: terminalTurn.id },
+    });
+    await journal.append({
+      turnId: terminalTurn.id,
+      kind: 'canonical',
+      canonicalJson: { type: 'turn.succeeded', turnId: terminalTurn.id },
+    });
+    await journal.append({
+      turnId: nonTerminalTurn.id,
+      kind: 'canonical',
+      canonicalJson: { type: 'text.delta', turnId: nonTerminalTurn.id, delta: 'partial' },
+    });
+
+    await expect(journal.pruneTerminalTurnEvents({ completedBefore: 101 })).resolves.toEqual({
+      prunedTurnCount: 1,
+    });
+
+    await expect(Array.fromAsync(journal.replay(terminalTurn.id))).rejects.toMatchObject({
+      code: 'journal_expired',
+    });
+    await expect(Array.fromAsync(journal.replay(nonTerminalTurn.id))).resolves.toEqual([
+      { type: 'text.delta', turnId: nonTerminalTurn.id, delta: 'partial' },
+    ]);
+    await expect(journal.listByTurn(terminalTurn.id)).resolves.toMatchObject([
+      {
+        seq: 0,
+        kind: 'security',
+        redactionJson: { retention: 'expired' },
+      },
+    ]);
+    await expect(journal.pruneTerminalTurnEvents({ completedBefore: 101 })).resolves.toEqual({
+      prunedTurnCount: 0,
+    });
+  });
 });
 
 class FailingRedactor implements RedactorInterface {

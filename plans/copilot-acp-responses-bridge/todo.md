@@ -170,9 +170,9 @@
 - [ ] Add process identity validation.
   - **Acceptance criteria**: Live PIDs are checked against stored identity metadata before any signal is sent.
   - **Expected evidence**: Process identity validation tests covering PID mismatch/reuse scenarios.
-- [ ] Implement cleanup and retention.
+- [x] Implement cleanup and retention.
   - **Acceptance criteria**: Idle session pruning and event retention never delete non-terminal turns. Event retention is disabled by default; if enabled, it deletes only whole terminal-turn journals, writes retention tombstones so replay returns `JournalExpiredError`, and never creates sequence gaps inside retained turns.
-  - **Expected evidence**: Cleanup/retention tests showing non-terminal turn preservation, whole-journal deletion, tombstone replay behavior, and no partial sequence gaps.
+  - **Expected evidence**: SQLite cleanup tests cover idle session pruning while preserving non-terminal turns; `SQLiteEventJournal` retention tests cover whole terminal-turn journal deletion, tombstone replay behavior via `journal_expired`, non-terminal journal preservation, and no partial sequence gaps.
 
 ### Phase 5B: Configuration and Packaging Hardening
 

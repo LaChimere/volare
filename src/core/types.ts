@@ -195,6 +195,7 @@ export interface EventJournalInterface {
   listByTurn(turnId: TurnId): Promise<JournalEventInterface[]>;
   listByThread(threadId: ThreadId): Promise<JournalEventInterface[]>;
   replay(turnId: TurnId): AsyncIterable<AgentEvent>;
+  pruneTerminalTurnEvents(input: { completedBefore: number }): Promise<{ prunedTurnCount: number }>;
 }
 
 export interface ApprovalRecordInterface {
@@ -223,6 +224,10 @@ export interface ApprovalResolutionResultInterface {
 export interface StartupRecoveryResultInterface {
   interruptedTurnCount: number;
   abandonedSessionCount: number;
+}
+
+export interface IdleSessionPruneResultInterface {
+  prunedSessionCount: number;
 }
 
 export interface WorkspaceResolverInterface {
@@ -377,6 +382,10 @@ export interface StateStoreInterface {
     input: ApprovalResolutionInputInterface,
   ): Promise<ApprovalResolutionResultInterface>;
   recoverStartupState(input?: { now?: number }): Promise<StartupRecoveryResultInterface>;
+  pruneIdleBackendSessions(input: {
+    updatedBefore: number;
+    now?: number;
+  }): Promise<IdleSessionPruneResultInterface>;
 }
 
 export interface AgentBackendInterface {

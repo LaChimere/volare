@@ -269,6 +269,36 @@ describe('SQLiteStateStore', () => {
       abandonedSessionCount: 0,
     });
   });
+
+  test('prunes only idle backend sessions without non-terminal turns', async () => {
+    const store = createStore();
+    const { session, turn } = await createTurnFixture(store);
+    await store.updateTurnStatus(turn.id, 'queued', 'succeeded', 100);
+    await store.updateBackendSessionStatus(session.bridgeSessionId, 'active', 'idle');
+    const activeFixture = await createTurnFixture(store);
+    await store.updateBackendSessionStatus(activeFixture.session.bridgeSessionId, 'active', 'idle');
+    store.database
+      .query('UPDATE backend_sessions SET updated_at = ? WHERE id IN (?, ?)')
+      .run(100, session.bridgeSessionId, activeFixture.session.bridgeSessionId);
+
+    await expect(store.pruneIdleBackendSessions({ updatedBefore: 101, now: 200 })).resolves.toEqual(
+      {
+        prunedSessionCount: 1,
+      },
+    );
+
+    await expect(store.getBackendSession(session.bridgeSessionId)).resolves.toMatchObject({
+      status: 'disposed',
+    });
+    await expect(
+      store.getBackendSession(activeFixture.session.bridgeSessionId),
+    ).resolves.toMatchObject({
+      status: 'idle',
+    });
+    await expect(store.getTurn(activeFixture.turn.id)).resolves.toMatchObject({
+      status: 'queued',
+    });
+  });
 });
 
 async function createTurnFixture(store: SQLiteStateStore) {

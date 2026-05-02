@@ -14,6 +14,7 @@ import type {
   BridgeSessionId,
   ClientProtocol,
   ClientTurnRefInterface,
+  IdleSessionPruneResultInterface,
   JournalEventInterface,
   PermissionRequestInterface,
   StartupRecoveryResultInterface,
@@ -438,6 +439,26 @@ export class SQLiteStateStore implements StateStoreInterface {
       };
     });
     return transaction();
+  }
+
+  async pruneIdleBackendSessions(input: {
+    updatedBefore: number;
+    now?: number;
+  }): Promise<IdleSessionPruneResultInterface> {
+    const result = this.database
+      .query(
+        `UPDATE backend_sessions
+         SET status = 'disposed', updated_at = ?
+         WHERE status = 'idle'
+           AND updated_at < ?
+           AND NOT EXISTS (
+             SELECT 1 FROM turns
+             WHERE turns.bridge_session_id = backend_sessions.id
+               AND turns.status IN ('queued', 'running', 'cancelling')
+           )`,
+      )
+      .run(input.now ?? Date.now(), input.updatedBefore);
+    return { prunedSessionCount: result.changes };
   }
 }
 

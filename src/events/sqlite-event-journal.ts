@@ -94,6 +94,9 @@ export class SQLiteEventJournal implements EventJournalInterface {
 
   async *replay(turnId: TurnId): AsyncIterable<AgentEvent> {
     const events = await this.listByTurn(turnId);
+    if (isRetentionTombstone(events)) {
+      throw new AgentLoomError('journal_expired', 'Journal retention expired for this turn');
+    }
     for (const [index, event] of events.entries()) {
       if (event.seq !== index) {
         throw new AgentLoomError('journal_corrupted', 'Journal sequence gap detected', {
@@ -105,6 +108,46 @@ export class SQLiteEventJournal implements EventJournalInterface {
       }
       yield decodeCanonicalEvent(event);
     }
+  }
+
+  async pruneTerminalTurnEvents(input: {
+    completedBefore: number;
+  }): Promise<{ prunedTurnCount: number }> {
+    const transaction = this.database.transaction(() => {
+      const turnIds = this.database
+        .query<{ id: string }, [number]>(
+          `SELECT turns.id
+           FROM turns
+           WHERE turns.status IN ('succeeded', 'failed', 'cancelled', 'interrupted')
+             AND turns.completed_at IS NOT NULL
+             AND turns.completed_at < ?
+             AND EXISTS (SELECT 1 FROM events WHERE events.turn_id = turns.id)
+             AND NOT EXISTS (
+               SELECT 1 FROM events
+               WHERE events.turn_id = turns.id
+                 AND events.kind = 'security'
+                 AND events.redaction_json LIKE '%"retention":"expired"%'
+             )`,
+        )
+        .all(input.completedBefore)
+        .map((row) => row.id);
+      const now = Date.now();
+      for (const turnId of turnIds) {
+        this.database.query('DELETE FROM events WHERE turn_id = ?').run(turnId);
+        insertJournalEvent(
+          this.database,
+          {
+            turnId,
+            seq: 0,
+            kind: 'security',
+            redactionJson: { retention: 'expired' },
+          },
+          now,
+        );
+      }
+      return { prunedTurnCount: turnIds.length };
+    });
+    return transaction();
   }
 }
 
@@ -135,6 +178,15 @@ function decodeCanonicalEvent(event: JournalEventInterface): AgentEvent {
     });
   }
   return event.canonicalJson as AgentEvent;
+}
+
+function isRetentionTombstone(events: JournalEventInterface[]): boolean {
+  return (
+    events.length === 1 &&
+    events[0]?.kind === 'security' &&
+    isRecord(events[0].redactionJson) &&
+    events[0].redactionJson['retention'] === 'expired'
+  );
 }
 
 function parseEventJson(value: string, column: string): unknown {
