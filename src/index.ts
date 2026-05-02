@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { SQLiteEventJournal } from './events/sqlite-event-journal';
 import { createApp } from './server/app';
 import { createServerRuntimeConfig } from './server/config';
 import { ShutdownController } from './server/shutdown';
@@ -14,6 +15,7 @@ if (config.stateDatabasePath !== ':memory:') {
 const database = new Database(config.stateDatabasePath);
 migrate(database);
 const stateStore = new SQLiteStateStore(database);
+const eventJournal = new SQLiteEventJournal(database);
 await stateStore.recoverStartupState();
 
 if (config.generatedApiKey) {
@@ -23,7 +25,7 @@ if (config.generatedApiKey) {
 const server = Bun.serve({
   hostname: config.host,
   port: config.port,
-  fetch: createApp({ config, stateStore }).fetch,
+  fetch: createApp({ config, stateStore, eventJournal }).fetch,
 });
 const shutdown = new ShutdownController({ server, stateStore });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

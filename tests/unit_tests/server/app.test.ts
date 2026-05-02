@@ -344,6 +344,38 @@ describe('server app', () => {
     });
   });
 
+  test('journals streamed canonical events for debug replay', async () => {
+    const stateStore = createStateStore();
+    const eventJournal = new SQLiteEventJournal(stateStore.database);
+    const app = createApp({ config, stateStore, eventJournal });
+
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'journal me',
+        }),
+      }),
+    );
+    const streamText = await createResponse.text();
+    const responseId = /"id":"(resp_[^"]+)"/.exec(streamText)?.[1];
+    const clientRef = await stateStore.resolveClientRef('openai-responses-v1', responseId ?? '');
+
+    expect(clientRef).toBeDefined();
+    const debugResponse = await app.fetch(request(`/debug/turns/${clientRef?.turnId}/events`));
+
+    expect(debugResponse.status).toBe(200);
+    const debugBody = (await debugResponse.json()) as {
+      events: Array<{ canonicalJson?: { type?: string } }>;
+    };
+    expect(
+      debugBody.events.map(
+        (event: { canonicalJson?: { type?: string } }) => event.canonicalJson?.type,
+      ),
+    ).toEqual(['turn.created', 'text.delta', 'turn.succeeded']);
+  });
+
   test('fails missing durable parents explicitly', async () => {
     const app = createApp({ config, stateStore: createStateStore() });
 

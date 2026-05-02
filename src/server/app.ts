@@ -5,6 +5,7 @@ import { DurableSessionManager } from '../core/durable-session-manager';
 import { AgentLoomError } from '../core/errors';
 import { InMemorySessionManager } from '../core/in-memory-session-manager';
 import type {
+  AgentEvent,
   EventJournalInterface,
   SessionManagerInterface,
   StateStoreInterface,
@@ -119,12 +120,18 @@ export function createApp(dependencies: AppDependenciesInterface): {
           });
           const streamAbort = new AbortController();
           const stream = asyncIterableToStream(
-            adapter.encodeStream(sessionManager.streamTurn(resolved, streamAbort.signal), {
-              turnId: resolved.turn.id,
-              threadId: resolved.thread.id,
-              externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
-              previousResponseId: input.clientRef?.parentExternalId ?? null,
-            }),
+            adapter.encodeStream(
+              journalCanonicalEvents(
+                sessionManager.streamTurn(resolved, streamAbort.signal),
+                dependencies.eventJournal,
+              ),
+              {
+                turnId: resolved.turn.id,
+                threadId: resolved.thread.id,
+                externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
+                previousResponseId: input.clientRef?.parentExternalId ?? null,
+              },
+            ),
             async () => {
               await delay(dependencies.disconnectGraceMs ?? dependencies.config.disconnectGraceMs);
               streamAbort.abort();
@@ -189,6 +196,22 @@ export function createApp(dependencies: AppDependenciesInterface): {
       }
     },
   };
+}
+
+async function* journalCanonicalEvents(
+  events: AsyncIterable<AgentEvent>,
+  eventJournal: EventJournalInterface | undefined,
+): AsyncIterable<AgentEvent> {
+  for await (const event of events) {
+    if (eventJournal) {
+      await eventJournal.append({
+        turnId: event.turnId,
+        kind: 'canonical',
+        canonicalJson: event,
+      });
+    }
+    yield event;
+  }
 }
 
 function asyncIterableToStream(
