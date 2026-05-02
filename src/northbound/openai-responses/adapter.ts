@@ -86,6 +86,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
   ): AsyncIterable<Uint8Array> {
     const responseId = context.externalResponseId ?? context.turnId;
     let sequenceNumber = 0;
+    const replayedEvents: AgentEvent[] = [];
 
     yield encodeSse({
       type: 'response.created',
@@ -107,6 +108,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
     });
 
     for await (const event of events) {
+      replayedEvents.push(event);
       switch (event.type) {
         case 'turn.created':
           break;
@@ -135,7 +137,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
                 createdAt: new Date(),
                 completedAt: new Date(),
               },
-              [event],
+              replayedEvents,
               { previousResponseId: context.previousResponseId ?? null },
             ),
           });

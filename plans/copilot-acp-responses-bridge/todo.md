@@ -155,9 +155,9 @@
 - [x] Add the minimal debug endpoint.
   - **Acceptance criteria**: A single authenticated, read-only `GET /debug/turns/:id/events` endpoint exposes redacted turn events without leaking secrets. Do not add broader observability, UI, thread debug routes, backend-session debug routes, or approval debug routes in this phase.
   - **Expected evidence**: Server route tests cover authenticated `GET /debug/turns/:id/events`, redacted event payloads, and unauthenticated rejection.
-- [ ] Add golden replay tests.
+- [x] Add golden replay tests.
   - **Acceptance criteria**: Tests cover backend events to canonical events to encoded OpenAI SSE output.
-  - **Expected evidence**: Golden fixture test output.
+  - **Expected evidence**: `OpenAIResponsesAdapter` golden replay test writes canonical events to `SQLiteEventJournal`, replays them, encodes OpenAI Responses SSE output, and verifies the completed response contains replayed text.
 
 ### Phase 5A: Recovery and Cleanup Hardening
 
