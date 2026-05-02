@@ -35,18 +35,18 @@
 
 ### Phase 0: Protocol Probe
 
-- [ ] Create a throwaway Copilot backend lifecycle probe.
+- [x] Create a throwaway Copilot backend lifecycle probe.
   - **Acceptance criteria**: Probe covers backend startup, initialization, session creation, prompt send, streaming text, cancellation, and approval behavior.
-  - **Expected evidence**: Probe command, key output excerpt, and recorded backend capability observations.
-- [ ] Record the approval integration decision.
+  - **Expected evidence**: `bun scripts/probe-copilot-cli.ts` reported `copilot` at `/opt/homebrew/bin/copilot`, version `GitHub Copilot CLI 1.0.40`, supported backend startup, ACP server startup, ACP initialize, prompt send, streaming text, process-level cancellation, and permission flags. External approval decision delivery was not proven.
+- [x] Record the approval integration decision.
   - **Acceptance criteria**: Decision is one of external decisions, backend-internal pause/resume, or approvals unsupported for first backend.
-  - **Expected evidence**: Decision note in `plan.md` or `design.md` naming the chosen approval integration path.
-- [ ] Record the approval capability metadata shape.
+  - **Expected evidence**: `plan.md` Phase 0 Findings chooses backend-internal pause/resume for the first backend and explicitly says not to claim HTTP/external approval enforcement until Phase 3 proves an ACP approval decision method.
+- [x] Record the approval capability metadata shape.
   - **Acceptance criteria**: The Phase 0 decision note defines the `MockBackend` approval capability metadata shape that Phase 1 may assert without implementing approval behavior.
-  - **Expected evidence**: Decision note excerpt and Phase 1 test fixture shape.
-- [ ] Update `design.md` or `plan.md` if probe findings invalidate assumptions.
+  - **Expected evidence**: `plan.md` records `permissionRequests: true`, `externalApprovalDecisions: false`, `backendInternalPauseResume: true`, and `decision: "backend-internal-pause-resume"` for Phase 1 `MockBackend` metadata.
+- [x] Update `design.md` or `plan.md` if probe findings invalidate assumptions.
   - **Acceptance criteria**: Later phases do not proceed on disproven backend assumptions.
-  - **Expected evidence**: Diff or note confirming no update was needed.
+  - **Expected evidence**: `plan.md` assumptions and Phase 0 Findings were updated; no `design.md` change was needed because the design already allows the Phase 0 approval path decision.
 
 ### Phase 1: Minimal Responses Bridge
 

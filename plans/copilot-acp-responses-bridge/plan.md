@@ -22,9 +22,9 @@ The implementation should deliver the narrowest useful vertical slice first, the
 - [x] **Verified**: `research.md` and `design.md` exist under `plans/copilot-acp-responses-bridge/` and establish the interface-first direction.
 - [x] **Verified**: The repo-local guidance prefers Bun and Bun-native APIs.
 - [x] **Verified**: Phase 0 must validate the real Copilot backend lifecycle before production backend code is finalized.
-- [ ] **Unverified**: The chosen Copilot CLI/SDK integration supports the required lifecycle: startup, session creation/resume, streaming, cancellation, and approval behavior.
+- [x] **Verified**: The chosen Copilot CLI integration supports startup, ACP initialize, prompt execution, streaming text, and process-level cancellation in the local environment.
 - [ ] **Unverified**: Codex's current Responses client behavior matches the minimal endpoint and SSE shapes in the design.
-- [ ] **Unverified**: The initial repository structure and package scripts already contain all Bun scaffolding needed for implementation.
+- [x] **Verified**: The initial repository structure and package scripts contain Bun scaffolding for `check`, `typecheck`, unit tests, integration tests, and CI.
 
 ## Options Considered
 
@@ -59,6 +59,40 @@ The implementation should deliver the narrowest useful vertical slice first, the
   - **Acceptance criteria**: The note chooses one approval path for implementation: external decisions through `submitApprovalDecision()`, backend-internal pause/resume, or approvals unsupported for the first backend.
 - [ ] Document the approval capability metadata shape for tests.
   - **Acceptance criteria**: The Phase 0 note defines the `MockBackend` approval capability metadata shape that Phase 1 may assert without implementing approval behavior.
+
+#### Phase 0 Findings
+
+Probe command:
+
+```sh
+bun scripts/probe-copilot-cli.ts
+```
+
+Observed local backend capabilities:
+
+```text
+copilot path: /opt/homebrew/bin/copilot
+version: GitHub Copilot CLI 1.0.40
+backend startup: supported through `copilot --version`
+ACP server startup: supported; `copilot --acp` stays alive waiting for client traffic
+ACP initialize: supported through a JSON-RPC initialize frame
+session creation / prompt send / text response: supported through `copilot --prompt`
+streaming text: supported through `copilot --prompt --stream on`
+process-level cancellation: supported through SIGTERM of an active prompt process
+permission controls: CLI exposes allow/deny permission flags
+external approval decision delivery: not proven by this probe
+```
+
+Approval integration decision for the first backend: **backend-internal pause/resume**. The concrete backend may rely on Copilot CLI/ACP-native permission behavior for the first implementation, but Agent Loom must not claim HTTP/external approval enforcement until a later Phase 3 probe proves an ACP approval decision method. Phase 1 `MockBackend` approval capability metadata should use:
+
+```json
+{
+  "permissionRequests": true,
+  "externalApprovalDecisions": false,
+  "backendInternalPauseResume": true,
+  "decision": "backend-internal-pause-resume"
+}
+```
 
 ### Phase 1: Minimal Responses Bridge
 
