@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-
+import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
 import { createApp } from '../../../src/server/app';
 import { createServerRuntimeConfig } from '../../../src/server/config';
 import { migrate } from '../../../src/state/migrations';
@@ -429,5 +429,63 @@ describe('server app', () => {
         AGENT_LOOM_STATE_DB_PATH: ':memory:',
       }).stateDatabasePath,
     ).toBe(':memory:');
+  });
+
+  test('serves redacted debug events for a turn', async () => {
+    const stateStore = createStateStore();
+    const eventJournal = new SQLiteEventJournal(stateStore.database);
+    const workspace = await stateStore.getOrCreateWorkspace({ rootPath: process.cwd() });
+    const thread = await stateStore.createThread({ workspaceId: workspace.id });
+    const session = await stateStore.reserveBackendSession({
+      workspaceId: workspace.id,
+      threadId: thread.id,
+      backend: 'mock',
+    });
+    await stateStore.activateBackendSession(session, { backendSessionId: 'backend_1' });
+    const turn = await stateStore.createTurn({
+      threadId: thread.id,
+      bridgeSessionId: session.bridgeSessionId,
+      model: 'copilot-agent',
+    });
+    await eventJournal.append({
+      turnId: turn.id,
+      kind: 'northbound',
+      redactedRawJson: {
+        headers: { Authorization: 'Bearer secret', Accept: 'application/json' },
+      },
+    });
+    const app = createApp({ config, stateStore, eventJournal });
+
+    const response = await app.fetch(request(`/debug/turns/${turn.id}/events`));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      turn_id: turn.id,
+      events: [
+        {
+          turnId: turn.id,
+          kind: 'northbound',
+          redactedRawJson: {
+            headers: {
+              Authorization: { redacted: true, charCount: 13 },
+              Accept: 'application/json',
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  test('requires auth for debug events', async () => {
+    const app = createApp({
+      config,
+      eventJournal: new SQLiteEventJournal(createStateStore().database),
+    });
+
+    const response = await app.fetch(
+      new Request('http://127.0.0.1:8000/debug/turns/turn_1/events'),
+    );
+
+    expect(response.status).toBe(401);
   });
 });

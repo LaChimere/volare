@@ -152,9 +152,9 @@
 - [x] Implement fail-closed redaction behavior.
   - **Acceptance criteria**: `RedactionFailedError` prevents unredacted persistence and fails the active turn safely.
   - **Expected evidence**: `SQLiteEventJournal` simulated redaction failure test verifies the original unredacted payload is not persisted and only a sanitized security `turn.failed` event is written before `RedactionFailedError` is returned.
-- [ ] Add the minimal debug endpoint.
+- [x] Add the minimal debug endpoint.
   - **Acceptance criteria**: A single authenticated, read-only `GET /debug/turns/:id/events` endpoint exposes redacted turn events without leaking secrets. Do not add broader observability, UI, thread debug routes, backend-session debug routes, or approval debug routes in this phase.
-  - **Expected evidence**: Debug route tests showing redacted response payloads.
+  - **Expected evidence**: Server route tests cover authenticated `GET /debug/turns/:id/events`, redacted event payloads, and unauthenticated rejection.
 - [ ] Add golden replay tests.
   - **Acceptance criteria**: Tests cover backend events to canonical events to encoded OpenAI SSE output.
   - **Expected evidence**: Golden fixture test output.

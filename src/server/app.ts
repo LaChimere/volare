@@ -3,7 +3,11 @@ import { MockBackend } from '../backends/mock/backend';
 import { DurableSessionManager } from '../core/durable-session-manager';
 import { AgentLoomError } from '../core/errors';
 import { InMemorySessionManager } from '../core/in-memory-session-manager';
-import type { SessionManagerInterface, StateStoreInterface } from '../core/types';
+import type {
+  EventJournalInterface,
+  SessionManagerInterface,
+  StateStoreInterface,
+} from '../core/types';
 import { WorkspaceResolver } from '../core/workspace-resolver';
 import { encodeOpenAIError, OpenAIResponsesAdapter } from '../northbound/openai-responses/adapter';
 import { requireBearerAuth } from './auth';
@@ -15,6 +19,7 @@ export interface AppDependenciesInterface {
   workspaceResolver?: WorkspaceResolver;
   sessionManager?: SessionManagerInterface;
   stateStore?: StateStoreInterface;
+  eventJournal?: EventJournalInterface;
   disconnectGraceMs?: number;
 }
 
@@ -45,6 +50,17 @@ export function createApp(dependencies: AppDependenciesInterface): {
         if (request.method === 'GET' && url.pathname === '/openai/v1/models') {
           return Response.json({
             models: [{ id: 'copilot-agent', object: 'model', owned_by: 'github' }],
+          });
+        }
+
+        const debugEventsMatch = url.pathname.match(/^\/debug\/turns\/([^/]+)\/events$/);
+        if (request.method === 'GET' && debugEventsMatch?.[1]) {
+          if (!dependencies.eventJournal) {
+            return encodeOpenAIError(new AgentLoomError('not_found', 'Debug events not found'));
+          }
+          return Response.json({
+            turn_id: debugEventsMatch[1],
+            events: await dependencies.eventJournal.listByTurn(debugEventsMatch[1]),
           });
         }
 
