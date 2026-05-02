@@ -127,6 +127,21 @@ class PermissionBackend extends TerminalOmittingBackend {
   }
 }
 
+class HangingPermissionBackend extends PermissionBackend {
+  override async *send(
+    _session: BackendSessionInterface,
+    request: AgentRequestInterface,
+  ): AsyncIterable<AgentEvent> {
+    yield {
+      type: 'permission.required',
+      turnId: request.turnId,
+      approvalId: 'approval_backend_1',
+      request: { action: 'shell:exec', scope: { command: 'bun test' } },
+    } satisfies AgentEvent;
+    await new Promise(() => {});
+  }
+}
+
 class StubApprovalProvider implements ApprovalProviderInterface {
   constructor(
     readonly evaluation: ApprovalEvaluation,
@@ -469,6 +484,60 @@ describe('DurableSessionManager', () => {
         'turn.failed',
       ]);
       await expect(store.getTurn(resolved.turn.id)).resolves.toMatchObject({ status: 'failed' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('forces interruption when backend does not finish after approval timeout', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new HangingPermissionBackend(true);
+    backend.cancelResult = { status: 'timed_out' };
+    const manager = new DurableSessionManager({
+      store,
+      backend,
+      cancelTimeoutMs: 1,
+      approvalProvider: new StubApprovalProvider(
+        {
+          type: 'ask',
+          approvalId: 'approval_backend_1',
+          timeoutAt: Date.now() - 1,
+          request: { action: 'shell:exec', scope: { command: 'bun test' } },
+        },
+        { type: 'timeout', reason: 'approval_timeout' },
+      ),
+    });
+    try {
+      const resolved = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'hello' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+
+      const events = await Array.fromAsync(manager.streamTurn(resolved));
+
+      expect(backend.submittedDecisions).toEqual([{ type: 'timeout', reason: 'approval_timeout' }]);
+      expect(backend.cancelCount).toBe(1);
+      expect(backend.disposeCount).toBe(1);
+      expect(events.map((event) => event.type)).toEqual([
+        'turn.created',
+        'permission.required',
+        'permission.resolved',
+        'turn.interrupted',
+      ]);
+      expect(events.at(-1)).toMatchObject({
+        type: 'turn.interrupted',
+        reason: 'approval_timeout_exceeded',
+      });
+      await expect(store.getTurn(resolved.turn.id)).resolves.toMatchObject({
+        status: 'interrupted',
+      });
+      await expect(
+        store.getBackendSession(resolved.session.bridgeSessionId),
+      ).resolves.toMatchObject({
+        status: 'abandoned',
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

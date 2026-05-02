@@ -125,9 +125,9 @@
 - [x] Implement approval audit trail.
   - **Acceptance criteria**: `permission.required` and `permission.resolved` events are journaled for allow, deny, timeout, and cancellation paths; audit event completeness is testable before the Phase 4 debug endpoint exposes the events.
   - **Expected evidence**: `ApprovalProvider` tests assert complete approval audit event pairs for manual allow, manual deny, timeout, and cancellation paths, including idempotent terminal resolution behavior.
-- [ ] Implement approval timeout watchdog and escalation.
+- [x] Implement approval timeout watchdog and escalation.
   - **Acceptance criteria**: After timeout auto-deny is journaled, `SessionManagerInterface` waits up to `cancel_timeout_ms` for a backend terminal event; if none arrives, it atomically checks the turn is non-terminal, calls `AgentBackendInterface.cancel(session, { forceAfterTimeout: true })`, synthesizes `turn.interrupted` with reason `approval_timeout_exceeded`, and marks the backend session abandoned after forced disposal if needed.
-  - **Expected evidence**: Approval timeout tests covering backend terminal-before-timeout, forced cancel after timeout, synthesized interrupted event, and abandoned session marking.
+  - **Expected evidence**: `DurableSessionManager` tests cover backend terminal-before-timeout through the supported approval-delivery path, plus forced cancel after timeout, synthesized `turn.interrupted` with reason `approval_timeout_exceeded`, and abandoned session marking.
 - [x] Implement the Responses cancel endpoint route.
   - **Acceptance criteria**: `POST /openai/v1/responses/:id/cancel` requires auth, resolves external response ID to turn ID, calls `SessionManagerInterface.cancelTurn()`, and returns appropriate success/error responses for authenticated cancel, unauthenticated rejection, missing response ID, already-terminal turn, and concurrent cancel.
   - **Expected evidence**: Server route tests cover authenticated cancel, unauthenticated rejection, missing response ID, already-terminal turn preservation, concurrent cancel idempotency, and SSE stream disconnect cancellation.
@@ -137,9 +137,9 @@
 - [x] Implement force-dispose process cleanup.
   - **Acceptance criteria**: Timeout escalation calls backend cleanup, marks sessions disposed/abandoned from `SessionManagerInterface`, and does not leave reusable abandoned sessions. Process-backed backends escalate disposal with SIGTERM first, then SIGKILL if the process remains alive after the shutdown budget.
   - **Expected evidence**: `DurableSessionManager` tests cover backend cancel timeout causing forced disposal, turn interruption, and abandoned session marking; `CopilotCliBackend` tests cover cleanup delegation, and `BunCopilotPromptRunner` tracks all active session processes for SIGTERM/SIGKILL cleanup.
-- [ ] Add cancellation and approval timeout tests.
+- [x] Add cancellation and approval timeout tests.
   - **Acceptance criteria**: Tests cover concurrent cancel idempotency and approval timeout terminal-state guarantees.
-  - **Expected evidence**: `bun test` excerpt for cancellation/approval timeout cases.
+  - **Expected evidence**: Server tests cover concurrent cancel idempotency and SSE disconnect cancellation; `DurableSessionManager` tests cover cancel timeout interruption and approval-timeout terminal-state guarantees.
 
 ### Phase 4: Event Journal and Minimal Debugging
 

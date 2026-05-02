@@ -30,16 +30,19 @@ export class DurableSessionManager implements SessionManagerInterface {
   readonly #store: StateStoreInterface;
   readonly #backend: AgentBackendInterface;
   readonly #approvalProvider: ApprovalProviderInterface | undefined;
+  readonly #cancelTimeoutMs: number;
   readonly #events = new Map<string, AgentEvent[]>();
 
   constructor(options: {
     store: StateStoreInterface;
     backend: AgentBackendInterface;
     approvalProvider?: ApprovalProviderInterface;
+    cancelTimeoutMs?: number;
   }) {
     this.#store = options.store;
     this.#backend = options.backend;
     this.#approvalProvider = options.approvalProvider;
+    this.#cancelTimeoutMs = options.cancelTimeoutMs ?? DEFAULT_CANCEL_TIMEOUT_MS;
   }
 
   async startTurn(
@@ -138,7 +141,7 @@ export class DurableSessionManager implements SessionManagerInterface {
     let cancelResult: CancelResultInterface;
     try {
       cancelResult = await this.#backend.cancel(session, {
-        timeoutMs: DEFAULT_CANCEL_TIMEOUT_MS,
+        timeoutMs: this.#cancelTimeoutMs,
         forceAfterTimeout: true,
       });
     } catch (error) {
@@ -187,8 +190,24 @@ export class DurableSessionManager implements SessionManagerInterface {
     yield this.#record(resolved.turn.id, { type: 'turn.created', turnId: resolved.turn.id });
 
     let sawTerminal = false;
+    let approvalTimeoutDeadline: number | null = null;
+    const backendEvents = this.#backend.send(resolved.session, resolved.request, signal);
+    const backendIterator = backendEvents[Symbol.asyncIterator]();
     try {
-      for await (const event of this.#backend.send(resolved.session, resolved.request, signal)) {
+      while (true) {
+        const next = approvalTimeoutDeadline
+          ? await nextWithDeadline(backendIterator, approvalTimeoutDeadline)
+          : await backendIterator.next();
+        if (next === 'timeout') {
+          sawTerminal = true;
+          void backendIterator.return?.();
+          yield await this.#forceInterruptAfterApprovalTimeout(resolved);
+          return;
+        }
+        if (next.done) {
+          break;
+        }
+        const event = next.value;
         if (event.type === 'permission.required' && this.#approvalProvider) {
           yield this.#record(resolved.turn.id, event);
           const decision = await this.#resolveApprovalRequest(event, resolved, signal);
@@ -198,10 +217,14 @@ export class DurableSessionManager implements SessionManagerInterface {
             approvalId: event.approvalId,
             decision: decision.type === 'allow' ? 'allow' : 'deny',
           });
+          if (decision.type === 'timeout') {
+            approvalTimeoutDeadline = Date.now() + this.#cancelTimeoutMs;
+          }
           continue;
         }
         if (TERMINAL_TURN_TYPES.has(event.type)) {
           sawTerminal = true;
+          approvalTimeoutDeadline = null;
           await this.#store.updateTurnStatus(
             resolved.turn.id,
             'any-non-terminal',
@@ -239,6 +262,33 @@ export class DurableSessionManager implements SessionManagerInterface {
         reason: 'backend_ended_without_terminal_event',
       });
     }
+  }
+
+  async #forceInterruptAfterApprovalTimeout(resolved: ResolvedTurnInterface): Promise<AgentEvent> {
+    await this.#store.updateTurnStatus(resolved.turn.id, 'any-non-terminal', 'cancelling');
+    const cancelResult = await this.#backend.cancel(resolved.session, {
+      timeoutMs: this.#cancelTimeoutMs,
+      forceAfterTimeout: true,
+    });
+    if (cancelResult.status === 'timed_out') {
+      await this.#backend.disposeSession(resolved.session);
+      await this.#store.updateBackendSessionStatus(
+        resolved.session.bridgeSessionId,
+        'any',
+        'abandoned',
+      );
+    }
+    await this.#store.updateTurnStatus(
+      resolved.turn.id,
+      'any-non-terminal',
+      'interrupted',
+      Date.now(),
+    );
+    return this.#record(resolved.turn.id, {
+      type: 'turn.interrupted',
+      turnId: resolved.turn.id,
+      reason: 'approval_timeout_exceeded',
+    });
   }
 
   async #requireThread(threadId: string): Promise<ThreadInterface> {
@@ -419,4 +469,18 @@ function isTerminalTurnStatus(status: TurnRecordInterface['status']): boolean {
     status === 'cancelled' ||
     status === 'interrupted'
   );
+}
+
+async function nextWithDeadline<T>(
+  iterator: AsyncIterator<T>,
+  deadline: number,
+): Promise<IteratorResult<T> | 'timeout'> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    return 'timeout';
+  }
+  const timeout = new Promise<'timeout'>((resolve) =>
+    setTimeout(() => resolve('timeout'), remainingMs),
+  );
+  return await Promise.race([iterator.next(), timeout]);
 }
