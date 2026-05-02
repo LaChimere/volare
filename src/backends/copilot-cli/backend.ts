@@ -1,3 +1,5 @@
+import { realpath } from 'node:fs/promises';
+
 import { AgentLoomError } from '../../core/errors';
 import type {
   AgentBackendInterface,
@@ -53,8 +55,15 @@ export class CopilotCliBackend implements AgentBackendInterface {
     workspace: WorkspaceInterface,
     options: CreateSessionOptionsInterface,
   ): Promise<BackendSessionInterface> {
+    const canonicalRoot = await canonicalizeWorkspaceRoot(workspace.rootPath);
+    if (canonicalRoot !== workspace.rootPath) {
+      throw new AgentLoomError(
+        'workspace_changed',
+        'Workspace root changed before backend session creation',
+      );
+    }
     const backendSessionId = `copilot_cli_${options.bridgeSessionId}`;
-    this.#workspaceRoots.set(backendSessionId, workspace.rootPath);
+    this.#workspaceRoots.set(backendSessionId, canonicalRoot);
     return {
       bridgeSessionId: options.bridgeSessionId,
       backendSessionId,
@@ -137,6 +146,20 @@ export class CopilotCliBackend implements AgentBackendInterface {
       await this.#runner.dispose?.(session.backendSessionId);
       this.#workspaceRoots.delete(session.backendSessionId);
     }
+  }
+}
+
+async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
+  try {
+    return await realpath(rootPath);
+  } catch (cause) {
+    throw new AgentLoomError(
+      'workspace_canonicalization_failed',
+      'Workspace root could not be resolved',
+      {
+        cause,
+      },
+    );
   }
 }
 

@@ -1,3 +1,5 @@
+import { realpath } from 'node:fs/promises';
+
 import { AgentLoomError } from './errors';
 import type {
   AgentBackendInterface,
@@ -106,6 +108,16 @@ export class DurableSessionManager implements SessionManagerInterface {
     if (isTerminalTurnStatus(turn.status)) {
       return { status: 'cancelled' as const };
     }
+    const session = await this.#store.getBackendSession(turn.bridgeSessionId);
+    if (!session) {
+      return { status: 'not_found' as const };
+    }
+    const thread = await this.#requireThread(turn.threadId);
+    this.#assertSessionScope(session, {
+      workspaceId: thread.workspaceId,
+      threadId: turn.threadId,
+    });
+    await this.#backend.cancel(session, { timeoutMs: 0, forceAfterTimeout: false });
     const moved = await this.#store.updateTurnStatus(
       turn.id,
       'any-non-terminal',
@@ -122,6 +134,7 @@ export class DurableSessionManager implements SessionManagerInterface {
     resolved: ResolvedTurnInterface,
     signal?: AbortSignal,
   ): AsyncIterable<AgentEvent> {
+    this.#assertSessionScope(resolved.session, resolved.request);
     await this.#store.updateTurnStatus(resolved.turn.id, 'queued', 'running');
     yield this.#record(resolved.turn.id, { type: 'turn.created', turnId: resolved.turn.id });
 
@@ -210,13 +223,41 @@ export class DurableSessionManager implements SessionManagerInterface {
     if (!session) {
       throw new AgentLoomError('session_lost', 'No active backend session exists for this thread');
     }
-    if (session.workspaceId !== workspaceId || session.threadId !== threadId) {
+    this.#assertSessionScope(session, { workspaceId, threadId });
+    await this.#assertWorkspaceUnchanged(workspaceId);
+    return await this.#backend.resumeSession(session);
+  }
+
+  #assertSessionScope(
+    session: BackendSessionInterface,
+    request: { workspaceId: string; threadId: string },
+  ): void {
+    if (session.workspaceId !== request.workspaceId || session.threadId !== request.threadId) {
       throw new AgentLoomError(
         'backend_session_mismatch',
         'Backend session does not match request scope',
       );
     }
-    return await this.#backend.resumeSession(session);
+  }
+
+  async #assertWorkspaceUnchanged(workspaceId: string): Promise<void> {
+    const workspace = await this.#store.getWorkspace(workspaceId);
+    if (!workspace) {
+      throw new AgentLoomError('workspace_changed', 'Workspace is no longer available');
+    }
+    try {
+      const canonicalRoot = await realpath(workspace.rootPath);
+      if (canonicalRoot !== workspace.rootPath || workspace.rootPath !== this.#workspace.rootPath) {
+        throw new AgentLoomError('workspace_changed', 'Workspace root changed before resume');
+      }
+    } catch (cause) {
+      if (cause instanceof AgentLoomError) {
+        throw cause;
+      }
+      throw new AgentLoomError('workspace_changed', 'Workspace root changed before resume', {
+        cause,
+      });
+    }
   }
 
   #record(turnId: string, event: AgentEvent): AgentEvent {

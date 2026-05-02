@@ -89,12 +89,12 @@
 - [x] Implement backend session reserve/activate failure handling.
   - **Acceptance criteria**: `reserveBackendSession()` creates an `initializing` row before runtime start; `activateBackendSession()` records backend metadata; activation failures mark sessions `lost` or `abandoned` without reusing the thread.
   - **Expected evidence**: `SQLiteStateStore` tests cover initializing->active and activation CAS failure; `DurableSessionManager` tests cover failed backend start marking a reserved session `lost`.
-- [ ] Implement `SessionManagerInterface`.
+- [x] Implement `SessionManagerInterface`.
   - **Acceptance criteria**: It owns core turn start/cancel flows, backend session creation and resumption including `AgentBackendInterface.resumeSession()` calls, backend session continuity, terminal-event guarantees, adapter-independent orchestration, and workspace re-canonicalization before backend session resume. `SessionManagerInterface.startTurn()` returns `ResolvedTurnInterface` containing turn/thread/session/request and wraps `AgentBackendInterface.send()` in `try/finally`, expects the backend to emit a terminal event when it can, and synthesizes exactly one terminal event if the backend throws, exits early, times out, or omits a terminal event. Before every send/resume/cancel operation, it validates `session.workspaceId === request.workspaceId` and `session.threadId === request.threadId`. If the persisted workspace path is missing or resolves differently during resume, it fails with `workspace_changed`.
-  - **Expected evidence**: SessionManagerInterface tests covering `ResolvedTurnInterface`, `AgentBackendInterface.resumeSession()` calls, send/resume/cancel workspace and thread mismatch rejection, terminal-event synthesis, and `workspace_changed` resume failures.
-- [ ] Implement backend workspace re-canonicalization in `createSession()`.
+  - **Expected evidence**: `DurableSessionManager` tests cover backend reserve/activate, `resumeSession()` reuse, terminal-event synthesis, cancel delegation, workspace/thread scope rejection, and `workspace_changed` resume failures.
+- [x] Implement backend workspace re-canonicalization in `createSession()`.
   - **Acceptance criteria**: Process-backed backends re-canonicalize `workspace.rootPath` immediately before setting child process cwd in `createSession()` and fail with `workspace_canonicalization_failed` if it no longer matches the resolved workspace.
-  - **Expected evidence**: Backend adapter tests simulating workspace path changes between resolution and process spawn.
+  - **Expected evidence**: `CopilotCliBackend` tests create sessions from canonical temp workspaces and fail when the workspace disappears before spawn.
 - [x] Implement `previous_response_id` continuity.
   - **Acceptance criteria**: OpenAI response IDs map to canonical parent turn/thread state and reuse the correct backend session.
   - **Expected evidence**: Server route tests verify a second Responses request resolves the previous external response ID to the same thread/backend session and parent turn.
