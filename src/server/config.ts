@@ -6,6 +6,12 @@ export interface ServerRuntimeConfigInterface {
   apiKey: string;
   generatedApiKey: boolean;
   stateDatabasePath: string;
+  corsMode: 'disabled';
+  approvalTimeoutMs: number;
+  cancelTimeoutMs: number;
+  disconnectGraceMs: number;
+  maxActiveSessions: number;
+  eventRetentionDays?: number;
   defaultWorkspaceRoot?: string;
   allowedWorkspaceRoots?: string[];
 }
@@ -17,6 +23,13 @@ export interface ServerRuntimeEnvInterface {
   AGENT_LOOM_WORKSPACE_ROOT: string | undefined;
   AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: string | undefined;
   AGENT_LOOM_STATE_DB_PATH: string | undefined;
+  AGENT_LOOM_CORS_MODE: string | undefined;
+  AGENT_LOOM_CORS_ALLOWED_ORIGINS: string | undefined;
+  AGENT_LOOM_APPROVAL_TIMEOUT_MS: string | undefined;
+  AGENT_LOOM_CANCEL_TIMEOUT_MS: string | undefined;
+  AGENT_LOOM_DISCONNECT_GRACE_MS: string | undefined;
+  AGENT_LOOM_MAX_ACTIVE_SESSIONS: string | undefined;
+  AGENT_LOOM_EVENT_RETENTION_DAYS: string | undefined;
 }
 
 export function createServerRuntimeConfig(
@@ -24,27 +37,66 @@ export function createServerRuntimeConfig(
 ): ServerRuntimeConfigInterface {
   const providedApiKey = env.AGENT_LOOM_API_KEY;
   const apiKey = providedApiKey ?? generateApiKey();
-  if (providedApiKey && providedApiKey.length < 16) {
+  if (
+    providedApiKey !== undefined &&
+    (providedApiKey.trim().length < 16 || /\s/.test(providedApiKey))
+  ) {
     throw new AgentLoomError(
       'invalid_api_key',
-      'AGENT_LOOM_API_KEY is too short for local bearer auth',
+      'AGENT_LOOM_API_KEY must be at least 16 non-whitespace characters',
     );
   }
+  validateCorsConfig(env);
+  const defaultWorkspaceRoot = parseWorkspaceRoot(
+    'AGENT_LOOM_WORKSPACE_ROOT',
+    env.AGENT_LOOM_WORKSPACE_ROOT,
+  );
+  const allowedWorkspaceRoots = parseAllowedWorkspaceRoots(env.AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS);
+  const eventRetentionDays = optionalIntegerInRange(
+    'AGENT_LOOM_EVENT_RETENTION_DAYS',
+    env.AGENT_LOOM_EVENT_RETENTION_DAYS,
+    1,
+    3650,
+  );
 
   return {
     host: env.AGENT_LOOM_HOST ?? '127.0.0.1',
-    port: env.AGENT_LOOM_PORT ? Number(env.AGENT_LOOM_PORT) : 8000,
+    port: integerInRange('AGENT_LOOM_PORT', env.AGENT_LOOM_PORT, 1, 65_535, 8000),
     apiKey,
     generatedApiKey: !providedApiKey,
     stateDatabasePath: env.AGENT_LOOM_STATE_DB_PATH ?? '.agent-loom/state.sqlite',
-    ...(env.AGENT_LOOM_WORKSPACE_ROOT
-      ? { defaultWorkspaceRoot: env.AGENT_LOOM_WORKSPACE_ROOT }
-      : {}),
-    ...(env.AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS
-      ? {
-          allowedWorkspaceRoots: env.AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS.split(':').filter(Boolean),
-        }
-      : {}),
+    corsMode: 'disabled',
+    approvalTimeoutMs: integerInRange(
+      'AGENT_LOOM_APPROVAL_TIMEOUT_MS',
+      env.AGENT_LOOM_APPROVAL_TIMEOUT_MS,
+      1,
+      600_000,
+      60_000,
+    ),
+    cancelTimeoutMs: integerInRange(
+      'AGENT_LOOM_CANCEL_TIMEOUT_MS',
+      env.AGENT_LOOM_CANCEL_TIMEOUT_MS,
+      1,
+      600_000,
+      10_000,
+    ),
+    disconnectGraceMs: integerInRange(
+      'AGENT_LOOM_DISCONNECT_GRACE_MS',
+      env.AGENT_LOOM_DISCONNECT_GRACE_MS,
+      0,
+      60_000,
+      5000,
+    ),
+    maxActiveSessions: integerInRange(
+      'AGENT_LOOM_MAX_ACTIVE_SESSIONS',
+      env.AGENT_LOOM_MAX_ACTIVE_SESSIONS,
+      1,
+      1000,
+      10,
+    ),
+    ...(eventRetentionDays ? { eventRetentionDays } : {}),
+    ...(defaultWorkspaceRoot ? { defaultWorkspaceRoot } : {}),
+    ...(allowedWorkspaceRoots ? { allowedWorkspaceRoots } : {}),
   };
 }
 
@@ -56,6 +108,13 @@ function readServerRuntimeEnv(): ServerRuntimeEnvInterface {
     AGENT_LOOM_WORKSPACE_ROOT: Bun.env['AGENT_LOOM_WORKSPACE_ROOT'],
     AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: Bun.env['AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS'],
     AGENT_LOOM_STATE_DB_PATH: Bun.env['AGENT_LOOM_STATE_DB_PATH'],
+    AGENT_LOOM_CORS_MODE: Bun.env['AGENT_LOOM_CORS_MODE'],
+    AGENT_LOOM_CORS_ALLOWED_ORIGINS: Bun.env['AGENT_LOOM_CORS_ALLOWED_ORIGINS'],
+    AGENT_LOOM_APPROVAL_TIMEOUT_MS: Bun.env['AGENT_LOOM_APPROVAL_TIMEOUT_MS'],
+    AGENT_LOOM_CANCEL_TIMEOUT_MS: Bun.env['AGENT_LOOM_CANCEL_TIMEOUT_MS'],
+    AGENT_LOOM_DISCONNECT_GRACE_MS: Bun.env['AGENT_LOOM_DISCONNECT_GRACE_MS'],
+    AGENT_LOOM_MAX_ACTIVE_SESSIONS: Bun.env['AGENT_LOOM_MAX_ACTIVE_SESSIONS'],
+    AGENT_LOOM_EVENT_RETENTION_DAYS: Bun.env['AGENT_LOOM_EVENT_RETENTION_DAYS'],
   };
 }
 
@@ -63,4 +122,79 @@ function generateApiKey(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function validateCorsConfig(env: Partial<ServerRuntimeEnvInterface>): void {
+  const mode = env.AGENT_LOOM_CORS_MODE?.trim() ?? 'disabled';
+  const origins = splitList(env.AGENT_LOOM_CORS_ALLOWED_ORIGINS);
+  if (mode !== 'disabled') {
+    throw new AgentLoomError('invalid_config', 'CORS browser mode is not supported in the MVP');
+  }
+  if (origins.includes('*')) {
+    throw new AgentLoomError('invalid_config', 'Wildcard CORS origins are not allowed');
+  }
+}
+
+function parseWorkspaceRoot(name: string, value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '*') {
+    throw new AgentLoomError('invalid_config', `${name} must be a concrete workspace path`);
+  }
+  return trimmed;
+}
+
+function parseAllowedWorkspaceRoots(value: string | undefined): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const roots = splitList(value);
+  if (roots.length === 0 || roots.some((root) => root === '*')) {
+    throw new AgentLoomError(
+      'invalid_config',
+      'AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS must contain only concrete workspace paths',
+    );
+  }
+  return roots;
+}
+
+function splitList(value: string | undefined): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  return value
+    .split(':')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function integerInRange(
+  name: string,
+  value: string | undefined,
+  minimum: number,
+  maximum: number,
+  fallback: number,
+): number {
+  return optionalIntegerInRange(name, value, minimum, maximum) ?? fallback;
+}
+
+function optionalIntegerInRange(
+  name: string,
+  value: string | undefined,
+  minimum: number,
+  maximum: number,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new AgentLoomError(
+      'invalid_config',
+      `${name} must be an integer between ${minimum} and ${maximum}`,
+    );
+  }
+  return parsed;
 }

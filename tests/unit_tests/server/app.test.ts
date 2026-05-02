@@ -62,6 +62,31 @@ describe('server app', () => {
     });
   });
 
+  test('serves authenticated health and metrics routes', async () => {
+    const app = createApp({ config, healthStatus: () => 'recovering' });
+
+    const health = await app.fetch(request('/healthz'));
+    const metrics = await app.fetch(request('/metrics'));
+
+    expect(health.status).toBe(503);
+    await expect(health.json()).resolves.toEqual({ status: 'recovering' });
+    expect(metrics.status).toBe(200);
+    await expect(metrics.json()).resolves.toMatchObject({
+      status: 'recovering',
+      requests_total: 2,
+    });
+  });
+
+  test('requires auth for health and metrics routes', async () => {
+    const app = createApp({ config });
+
+    const health = await app.fetch(new Request('http://127.0.0.1:8000/healthz'));
+    const metrics = await app.fetch(new Request('http://127.0.0.1:8000/metrics'));
+
+    expect(health.status).toBe(401);
+    expect(metrics.status).toBe(401);
+  });
+
   test('streams a text response and serves a stored response snapshot', async () => {
     const app = createApp({ config });
 
@@ -410,7 +435,13 @@ describe('server app', () => {
 
   test('rejects clearly too-short configured tokens', () => {
     expect(() => createServerRuntimeConfig({ AGENT_LOOM_API_KEY: 'short' })).toThrow(
-      'AGENT_LOOM_API_KEY is too short',
+      'AGENT_LOOM_API_KEY must be at least 16 non-whitespace characters',
+    );
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_API_KEY: '                ' })).toThrow(
+      'AGENT_LOOM_API_KEY must be at least 16 non-whitespace characters',
+    );
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_API_KEY: ' 0123456789abcdef ' })).toThrow(
+      'AGENT_LOOM_API_KEY must be at least 16 non-whitespace characters',
     );
   });
 
@@ -429,6 +460,48 @@ describe('server app', () => {
         AGENT_LOOM_STATE_DB_PATH: ':memory:',
       }).stateDatabasePath,
     ).toBe(':memory:');
+  });
+
+  test('rejects unsafe server configuration values', () => {
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_CORS_ALLOWED_ORIGINS: '*' })).toThrow(
+      'Wildcard CORS origins are not allowed',
+    );
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_CORS_MODE: 'browser' })).toThrow(
+      'CORS browser mode is not supported',
+    );
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: '*' })).toThrow(
+      'AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS must contain only concrete workspace paths',
+    );
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_WORKSPACE_ROOT: '*' })).toThrow(
+      'AGENT_LOOM_WORKSPACE_ROOT must be a concrete workspace path',
+    );
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_PORT: '0' })).toThrow(
+      'AGENT_LOOM_PORT must be an integer',
+    );
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_CANCEL_TIMEOUT_MS: '-1' })).toThrow(
+      'AGENT_LOOM_CANCEL_TIMEOUT_MS must be an integer',
+    );
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_EVENT_RETENTION_DAYS: '0' })).toThrow(
+      'AGENT_LOOM_EVENT_RETENTION_DAYS must be an integer',
+    );
+  });
+
+  test('parses safe timeout and retention configuration values', () => {
+    expect(
+      createServerRuntimeConfig({
+        AGENT_LOOM_APPROVAL_TIMEOUT_MS: '60000',
+        AGENT_LOOM_CANCEL_TIMEOUT_MS: '10000',
+        AGENT_LOOM_DISCONNECT_GRACE_MS: '5000',
+        AGENT_LOOM_MAX_ACTIVE_SESSIONS: '10',
+        AGENT_LOOM_EVENT_RETENTION_DAYS: '30',
+      }),
+    ).toMatchObject({
+      approvalTimeoutMs: 60_000,
+      cancelTimeoutMs: 10_000,
+      disconnectGraceMs: 5000,
+      maxActiveSessions: 10,
+      eventRetentionDays: 30,
+    });
   });
 
   test('serves redacted debug events for a turn', async () => {

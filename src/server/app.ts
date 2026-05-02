@@ -1,3 +1,4 @@
+import { DefaultApprovalPolicy } from '../approvals/policy';
 import { ApprovalProvider } from '../approvals/provider';
 import { MockBackend } from '../backends/mock/backend';
 import { DurableSessionManager } from '../core/durable-session-manager';
@@ -21,9 +22,8 @@ export interface AppDependenciesInterface {
   stateStore?: StateStoreInterface;
   eventJournal?: EventJournalInterface;
   disconnectGraceMs?: number;
+  healthStatus?: () => 'recovering' | 'ready';
 }
-
-const DEFAULT_DISCONNECT_GRACE_MS = 250;
 
 export function createApp(dependencies: AppDependenciesInterface): {
   fetch(request: Request): Promise<Response>;
@@ -31,21 +31,46 @@ export function createApp(dependencies: AppDependenciesInterface): {
   const stateStore = dependencies.stateStore;
   const adapter = dependencies.adapter ?? new OpenAIResponsesAdapter(stateStore);
   const workspaceResolver = dependencies.workspaceResolver ?? new WorkspaceResolver();
+  const startedAt = Date.now();
+  let requestsTotal = 0;
   let sessionManager =
     dependencies.sessionManager ??
     (stateStore
       ? new DurableSessionManager({
           store: stateStore,
           backend: new MockBackend(),
-          approvalProvider: new ApprovalProvider({ store: stateStore }),
+          approvalProvider: new ApprovalProvider({
+            store: stateStore,
+            policy: new DefaultApprovalPolicy({ timeoutMs: dependencies.config.approvalTimeoutMs }),
+          }),
+          cancelTimeoutMs: dependencies.config.cancelTimeoutMs,
         })
       : undefined);
 
   return {
     async fetch(request: Request): Promise<Response> {
+      requestsTotal += 1;
       try {
         requireBearerAuth(request, dependencies.config.apiKey);
         const url = new URL(request.url);
+
+        if (request.method === 'GET' && url.pathname === '/healthz') {
+          const status = dependencies.healthStatus?.() ?? 'ready';
+          return Response.json(
+            {
+              status,
+            },
+            { status: status === 'ready' ? 200 : 503 },
+          );
+        }
+
+        if (request.method === 'GET' && url.pathname === '/metrics') {
+          return Response.json({
+            status: dependencies.healthStatus?.() ?? 'ready',
+            uptime_ms: Date.now() - startedAt,
+            requests_total: requestsTotal,
+          });
+        }
 
         if (request.method === 'GET' && url.pathname === '/openai/v1/models') {
           return Response.json({
@@ -101,7 +126,7 @@ export function createApp(dependencies: AppDependenciesInterface): {
               previousResponseId: input.clientRef?.parentExternalId ?? null,
             }),
             async () => {
-              await delay(dependencies.disconnectGraceMs ?? DEFAULT_DISCONNECT_GRACE_MS);
+              await delay(dependencies.disconnectGraceMs ?? dependencies.config.disconnectGraceMs);
               streamAbort.abort();
               await sessionManager?.cancelTurn(resolved.turn.id);
             },

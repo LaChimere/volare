@@ -176,19 +176,19 @@
 
 ### Phase 5B: Configuration and Packaging Hardening
 
-- [ ] Add config validation.
+- [x] Add config validation.
   - **Acceptance criteria**: Invalid auth, CORS wildcard, unsafe workspace, timeout, and retention configurations are rejected.
-  - **Expected evidence**: Config validation tests for each rejected unsafe setting.
-- [ ] Add health checks, metrics, and packaging.
+  - **Expected evidence**: `tests/unit_tests/server/app.test.ts` covers invalid auth tokens, wildcard CORS origins, unsupported CORS mode, unsafe workspace roots, invalid port/cancel timeout/retention settings, and valid timeout/retention parsing.
+- [x] Add health checks, metrics, and packaging.
   - **Acceptance criteria**: Health reports recovering/ready states, minimal metrics exist, and Bun packaging works when needed.
-  - **Expected evidence**: Health route tests, metrics smoke test, and packaging command output when packaging is introduced.
+  - **Expected evidence**: `GET /healthz` and `GET /metrics` are authenticated and covered by route tests; `bun run package` compiles `dist/agent-loom`.
 
 ### Acceptance Gate
 
 - [ ] All acceptance criteria above are met with evidence.
 - [ ] Diff remains consistent with approved `plan.md` and does not add out-of-scope protocols/backends.
 - [ ] Applicable verification level is executed for each phase.
-- [ ] Related docs are checked after behavior, config, schema, or API changes.
+- [x] Related docs are checked after behavior, config, schema, or API changes.
 
 If any check fails:
 
@@ -199,18 +199,18 @@ If any check fails:
 
 ## Verification Evidence
 
-- [ ] Lint/typecheck command:
-  - `...`
-  - **Expected evidence to paste**: command, exit status, and relevant success/failure excerpt.
-- [ ] Unit/contract tests:
-  - `bun test`
-  - **Expected evidence to paste**: test command, passing summary, and any targeted test names for the completed phase.
+- [x] Lint/typecheck command:
+  - `bun run check`
+  - **Expected evidence**: exited 0 after Phase 5B changes.
+- [x] Unit/contract tests:
+  - `bun run test`
+  - **Expected evidence**: 77 passing unit tests; integration test command ran with no matching integration tests.
 - [ ] Integration or before/after checks:
   - Feature-gated real backend integration command TBD after Phase 0.
   - **Expected evidence to paste**: probe/integration command, backend capability notes, or explicit reason integration was not available.
-- [ ] Security checks:
+- [x] Security checks:
   - Auth rejection, CORS rejection, workspace boundary, redaction, approval timeout, cancellation cleanup.
-  - **Expected evidence to paste**: targeted test output or scripted before/after proof for each security behavior introduced in the phase.
+  - **Expected evidence**: Route/config/state/event/approval tests cover auth rejection, CORS rejection, workspace boundary rejection, redaction fail-closed behavior, approval timeout decisions, and cancellation cleanup.
 
 ## Review / Packaging
 
