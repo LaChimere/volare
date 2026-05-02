@@ -51,6 +51,35 @@ describe('server app', () => {
     expect(response.headers.has('access-control-allow-origin')).toBe(false);
   });
 
+  test('rejects unexpected Origin headers before non-success route handling', async () => {
+    const app = createApp({
+      config,
+      eventJournal: new SQLiteEventJournal(createStateStore().database),
+    });
+    const originHeaders = {
+      origin: 'https://example.test',
+    };
+
+    const [missing, invalidJson, debug] = await Promise.all([
+      app.fetch(request('/missing', { headers: originHeaders })),
+      app.fetch(
+        request('/openai/v1/responses', {
+          method: 'POST',
+          headers: originHeaders,
+          body: '{',
+        }),
+      ),
+      app.fetch(request('/debug/turns/turn_missing/events', { headers: originHeaders })),
+    ]);
+
+    expect(missing.status).toBe(403);
+    expect(invalidJson.status).toBe(403);
+    expect(debug.status).toBe(403);
+    expect(missing.headers.has('access-control-allow-origin')).toBe(false);
+    expect(invalidJson.headers.has('access-control-allow-origin')).toBe(false);
+    expect(debug.headers.has('access-control-allow-origin')).toBe(false);
+  });
+
   test('serves the minimal models route', async () => {
     const app = createApp({ config });
 

@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  BunCopilotPromptRunner,
   CopilotCliBackend,
   type CopilotPromptRunnerInterface,
   type CopilotPromptRunOptionsInterface,
@@ -155,5 +156,74 @@ describe('CopilotCliBackend', () => {
       ),
     ).toBe('hello!');
     expect(extractTextFromCopilotOutput('plain text')).toBe('plain text');
+    expect(() => extractTextFromCopilotOutput('{"delta":')).toThrow(
+      'Copilot CLI emitted malformed JSON output',
+    );
+  });
+
+  test('runs a PATH-resolved Copilot process and streams JSON output', async () => {
+    const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const bin = await installFakeCopilot(
+      'stream',
+      `#!/bin/sh
+printf '{"delta":"hello"}\\n'
+`,
+    );
+    try {
+      const runner = new BunCopilotPromptRunner(undefined, bin);
+      const chunks: string[] = [];
+      for await (const chunk of runner.run('hello', {
+        backendSessionId: 'backend_session_1',
+        cwd: workspace,
+      })) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toEqual(['hello']);
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(path.dirname(bin), { recursive: true, force: true });
+    }
+  });
+
+  test('cancels a tracked Copilot process with SIGTERM', async () => {
+    const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const bin = await installFakeCopilot(
+      'cancel',
+      `#!/bin/sh
+printf '{"delta":"started"}\\n'
+trap 'exit 0' TERM
+while true; do sleep 1; done
+`,
+    );
+    try {
+      const runner = new BunCopilotPromptRunner(undefined, bin);
+      const iterator = runner
+        .run('hello', {
+          backendSessionId: 'backend_session_1',
+          cwd: workspace,
+        })
+        [Symbol.asyncIterator]();
+
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: 'started',
+      });
+      await expect(
+        runner.cancel('backend_session_1', { timeoutMs: 100, forceAfterTimeout: false }),
+      ).resolves.toEqual({ status: 'cancelled' });
+      await expect(iterator.next()).resolves.toMatchObject({ done: true });
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(path.dirname(bin), { recursive: true, force: true });
+    }
   });
 });
+
+async function installFakeCopilot(name: string, source: string): Promise<string> {
+  const root = await mkdtemp(path.join(import.meta.dir, `fake-copilot-${name}-`));
+  const bin = path.join(root, 'copilot');
+  await writeFile(bin, source);
+  await chmod(bin, 0o755);
+  return bin;
+}

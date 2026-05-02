@@ -179,17 +179,20 @@ async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
 export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
   readonly #processes = new Map<string, Set<TrackedProcess>>();
   readonly #identityValidator: ProcessIdentityValidatorInterface;
+  readonly #command: string;
 
   constructor(
     identityValidator: ProcessIdentityValidatorInterface = new DefaultProcessIdentityValidator(),
+    command = 'copilot',
   ) {
     this.#identityValidator = identityValidator;
+    this.#command = command;
   }
 
   async *run(prompt: string, options: CopilotPromptRunOptionsInterface): AsyncIterable<string> {
     const proc = Bun.spawn(
       [
-        'copilot',
+        this.#command,
         '--no-color',
         '--no-custom-instructions',
         '--disable-builtin-mcps',
@@ -347,13 +350,26 @@ export function extractTextFromCopilotOutput(output: string): string {
     .map((line) => line.trim())
     .filter(Boolean);
   const parts = lines.flatMap((line) => {
+    if (!looksLikeJson(line)) {
+      return [line];
+    }
     try {
       return extractTextFromValue(JSON.parse(line));
-    } catch {
-      return [line];
+    } catch (cause) {
+      throw new AgentLoomError(
+        'backend_output_invalid',
+        'Copilot CLI emitted malformed JSON output',
+        {
+          cause,
+        },
+      );
     }
   });
   return parts.join('');
+}
+
+function looksLikeJson(line: string): boolean {
+  return line.startsWith('{') || line.startsWith('[') || line.startsWith('"');
 }
 
 function extractTextFromValue(value: unknown): string[] {

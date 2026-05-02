@@ -7,6 +7,34 @@ import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
 
 describe('OpenAIResponsesAdapter', () => {
+  test('extracts workspace hints from request metadata', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+
+    await expect(
+      adapter.extractWorkspaceHints({
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
+        body: {
+          metadata: {
+            workspace_root: '/tmp/agent-loom-workspace',
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      source: 'client-metadata',
+      requestedRoot: '/tmp/agent-loom-workspace',
+    });
+    await expect(
+      adapter.extractWorkspaceHints({
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
+        body: {},
+      }),
+    ).resolves.toEqual({ source: 'process-cwd' });
+  });
+
   test('rejects OpenAI client-side tools honestly', async () => {
     const adapter = new OpenAIResponsesAdapter();
 
@@ -27,6 +55,49 @@ describe('OpenAIResponsesAdapter', () => {
     ).rejects.toMatchObject({
       code: 'unsupported_parameter',
     });
+  });
+
+  test('parses supported OpenAI Responses input shapes', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+    const context = { workspaceId: 'workspace_1', requestId: 'request_1' };
+    const cases: Array<{ input: unknown; expected: string }> = [
+      { input: 'hello', expected: 'hello' },
+      { input: ['hello', 'world'], expected: 'hello\nworld' },
+      {
+        input: [
+          {
+            content: [{ type: 'input_text', text: 'hello' }, 'world', { type: 'ignored' }],
+          },
+        ],
+        expected: 'hello\nworld',
+      },
+    ];
+
+    for (const { input, expected } of cases) {
+      await expect(
+        adapter.parseRequest(
+          {
+            transport: 'http',
+            method: 'POST',
+            path: '/openai/v1/responses',
+            body: { model: 'copilot-agent', input },
+          },
+          context,
+        ),
+      ).resolves.toMatchObject({ input: { message: expected } });
+    }
+
+    await expect(
+      adapter.parseRequest(
+        {
+          transport: 'http',
+          method: 'POST',
+          path: '/openai/v1/responses',
+          body: { model: 'copilot-agent', input: ['   ', { content: [] }] },
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
   });
 
   test('encodes terminal and non-terminal stored response snapshots', () => {
@@ -149,6 +220,47 @@ describe('OpenAIResponsesAdapter', () => {
       },
     });
     expect(encoded[4]).toBe('[DONE]');
+  });
+
+  test('encodes failed and interrupted terminal stream events', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+    const failed = await collectSse(
+      adapter.encodeStream(
+        (async function* () {
+          yield { type: 'turn.failed' as const, turnId: 'turn_1', error: 'boom' };
+        })(),
+        {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          externalResponseId: 'resp_failed',
+          previousResponseId: null,
+        },
+      ),
+    );
+    const interrupted = await collectSse(
+      adapter.encodeStream(
+        (async function* () {
+          yield { type: 'turn.interrupted' as const, turnId: 'turn_1', reason: 'cancelled' };
+        })(),
+        {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          externalResponseId: 'resp_interrupted',
+          previousResponseId: null,
+        },
+      ),
+    );
+
+    expect(failed[2]).toMatchObject({
+      type: 'response.failed',
+      response: { id: 'resp_failed', status: 'failed', error: 'boom' },
+    });
+    expect(failed[3]).toBe('[DONE]');
+    expect(interrupted[2]).toMatchObject({
+      type: 'response.incomplete',
+      response: { id: 'resp_interrupted', status: 'incomplete' },
+    });
+    expect(interrupted[3]).toBe('[DONE]');
   });
 });
 
