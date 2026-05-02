@@ -220,6 +220,11 @@ export interface ApprovalResolutionResultInterface {
   decision: ApprovalDecision;
 }
 
+export interface StartupRecoveryResultInterface {
+  interruptedTurnCount: number;
+  abandonedSessionCount: number;
+}
+
 export interface WorkspaceResolverInterface {
   resolve(
     hints: WorkspaceHintsInterface,
@@ -371,6 +376,7 @@ export interface StateStoreInterface {
   resolveApprovalWithJournal(
     input: ApprovalResolutionInputInterface,
   ): Promise<ApprovalResolutionResultInterface>;
+  recoverStartupState(input?: { now?: number }): Promise<StartupRecoveryResultInterface>;
 }
 
 export interface AgentBackendInterface {

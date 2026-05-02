@@ -16,6 +16,7 @@ import type {
   ClientTurnRefInterface,
   JournalEventInterface,
   PermissionRequestInterface,
+  StartupRecoveryResultInterface,
   StateStoreInterface,
   ThreadId,
   ThreadInterface,
@@ -410,6 +411,31 @@ export class SQLiteStateStore implements StateStoreInterface {
         );
       insertJournalEvent(this.database, input.journalEvent, now);
       return { status: 'resolved' as const, decision: input.decision };
+    });
+    return transaction();
+  }
+
+  async recoverStartupState(input: { now?: number } = {}): Promise<StartupRecoveryResultInterface> {
+    const now = input.now ?? Date.now();
+    const transaction = this.database.transaction(() => {
+      const interruptedTurns = this.database
+        .query(
+          `UPDATE turns
+           SET status = 'interrupted', completed_at = ?
+           WHERE status IN ('queued', 'running', 'cancelling')`,
+        )
+        .run(now);
+      const abandonedSessions = this.database
+        .query(
+          `UPDATE backend_sessions
+           SET status = 'abandoned', updated_at = ?
+           WHERE status IN ('initializing', 'active', 'idle', 'disposing', 'stale')`,
+        )
+        .run(now);
+      return {
+        interruptedTurnCount: interruptedTurns.changes,
+        abandonedSessionCount: abandonedSessions.changes,
+      };
     });
     return transaction();
   }

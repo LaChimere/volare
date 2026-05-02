@@ -161,9 +161,9 @@
 
 ### Phase 5A: Recovery and Cleanup Hardening
 
-- [ ] Implement startup recovery.
+- [x] Implement startup recovery.
   - **Acceptance criteria**: Recovery completes before HTTP bind, non-terminal turns are interrupted, and active/stale backend sessions are handled according to design.
-  - **Expected evidence**: Startup recovery tests or integration proof showing server readiness waits for recovery.
+  - **Expected evidence**: `src/index.ts` runs `SQLiteStateStore.recoverStartupState()` before `Bun.serve()`, and SQLite recovery tests verify non-terminal turns are interrupted, terminal turns are preserved, and active/stale backend sessions are abandoned idempotently.
 - [ ] Implement shutdown orchestration and forced disposal.
   - **Acceptance criteria**: Shutdown stops accepting requests, cancels in-progress turns with `cancel_timeout_ms`, force-disposes unresponsive backends through graceful cancel, SIGTERM, and SIGKILL when supported, marks remaining non-terminal turns interrupted, flushes the event journal, marks abandoned sessions, and exits non-zero if the hard deadline is exceeded.
   - **Expected evidence**: Shutdown tests or integration proof covering graceful shutdown, forced shutdown, abandoned session marking, and journal flush.

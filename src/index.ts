@@ -13,6 +13,7 @@ if (config.stateDatabasePath !== ':memory:') {
 const database = new Database(config.stateDatabasePath);
 migrate(database);
 const stateStore = new SQLiteStateStore(database);
+await stateStore.recoverStartupState();
 
 if (config.generatedApiKey) {
   console.error(`Agent Loom API token: ${config.apiKey}`);

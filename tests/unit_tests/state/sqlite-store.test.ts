@@ -227,6 +227,48 @@ describe('SQLiteStateStore', () => {
       store.database.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM events').get(),
     ).toEqual({ count: 0 });
   });
+
+  test('recovers startup state before serving requests', async () => {
+    const store = createStore();
+    const { session, turn } = await createTurnFixture(store);
+    await store.updateTurnStatus(turn.id, 'queued', 'running');
+    const terminalTurn = await store.createTurn({
+      threadId: turn.threadId,
+      bridgeSessionId: session.bridgeSessionId,
+      model: 'copilot-agent',
+    });
+    await store.updateTurnStatus(terminalTurn.id, 'queued', 'succeeded', 111);
+    const staleSession = await store.reserveBackendSession({
+      workspaceId: session.workspaceId,
+      threadId: turn.threadId,
+      backend: 'mock',
+    });
+    await store.updateBackendSessionStatus(staleSession.bridgeSessionId, 'initializing', 'stale');
+
+    await expect(store.recoverStartupState({ now: 222 })).resolves.toEqual({
+      interruptedTurnCount: 1,
+      abandonedSessionCount: 2,
+    });
+
+    await expect(store.getTurn(turn.id)).resolves.toMatchObject({
+      status: 'interrupted',
+      completedAt: new Date(222),
+    });
+    await expect(store.getTurn(terminalTurn.id)).resolves.toMatchObject({
+      status: 'succeeded',
+      completedAt: new Date(111),
+    });
+    await expect(store.getBackendSession(session.bridgeSessionId)).resolves.toMatchObject({
+      status: 'abandoned',
+    });
+    await expect(store.getBackendSession(staleSession.bridgeSessionId)).resolves.toMatchObject({
+      status: 'abandoned',
+    });
+    await expect(store.recoverStartupState({ now: 333 })).resolves.toEqual({
+      interruptedTurnCount: 0,
+      abandonedSessionCount: 0,
+    });
+  });
 });
 
 async function createTurnFixture(store: SQLiteStateStore) {
