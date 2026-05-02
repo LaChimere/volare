@@ -321,12 +321,13 @@ export class SQLiteStateStore implements StateStoreInterface {
   }
 
   async createApproval(input: {
+    approvalId?: string;
     turnId: TurnId;
     bridgeSessionId: BridgeSessionId;
     request: PermissionRequestInterface;
     timeoutAt: number;
   }): Promise<ApprovalRecordInterface> {
-    const id = createId('approval');
+    const id = input.approvalId ?? createId('approval');
     const now = Date.now();
     this.database
       .query(

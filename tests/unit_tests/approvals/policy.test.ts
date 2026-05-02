@@ -23,6 +23,7 @@ function context(workspaceRootPath: string): ApprovalContextInterface {
     threadId: 'thread_1',
     workspaceId: 'workspace_1',
     workspaceRootPath,
+    bridgeSessionId: 'bridge_session_1',
   };
 }
 

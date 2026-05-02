@@ -113,12 +113,12 @@
 - [x] Implement approval path canonicalization and workspace boundary enforcement.
   - **Acceptance criteria**: File paths in permission requests are canonicalized with platform-native realpath before approval; paths outside the workspace auto-deny with `path_outside_workspace`; canonicalization failures auto-deny with `path_canonicalization_failed`.
   - **Expected evidence**: Approval policy tests cover canonical relative paths, symlink escape denial, outside-workspace denial, and canonicalization failures.
-- [ ] Implement `ApprovalProviderInterface` persistence and atomic resolution.
+- [x] Implement `ApprovalProviderInterface` persistence and atomic resolution.
   - **Acceptance criteria**: Approval status update and `permission.resolved` journal append commit atomically through `StateStoreInterface.resolveApprovalWithJournal()` for allow, deny, timeout, and cancellation paths. If the journal append cannot commit, the approval remains pending or the turn fails closed with `turn.failed`; never continue with an unjournaled decision.
-  - **Expected evidence**: ApprovalProviderInterface transaction tests including simulated journal failure.
-- [ ] Implement `ApprovalProviderInterface.awaitDecision()` AbortSignal cancellation.
+  - **Expected evidence**: `SQLiteStateStore` transaction tests cover atomic approval resolution and rollback on journal insertion failure; `ApprovalProvider` tests cover persisted ask evaluations and canonical `permission.resolved` journal events.
+- [x] Implement `ApprovalProviderInterface.awaitDecision()` AbortSignal cancellation.
   - **Acceptance criteria**: When turn-cancellation `AbortSignal` fires, `awaitDecision()` atomically resolves the approval as deny with reason `turn_cancelled`, appends `permission.resolved` in the same transaction, returns `{ type: "aborted" }`, and makes subsequent approval attempts idempotent no-ops.
-  - **Expected evidence**: ApprovalProviderInterface tests covering AbortSignal cancellation, transaction atomicity, and subsequent duplicate approval attempts.
+  - **Expected evidence**: `ApprovalProvider` tests cover AbortSignal cancellation resolving to `{ type: "aborted", reason: "turn_cancelled" }`, persisted aborted state, and idempotent later resolution attempts.
 - [ ] Implement approval API and backend decision delivery.
   - **Acceptance criteria**: Behavior matches the Phase 0 decision and design Open Question #7 resolution, and does not claim approval enforcement without backend support. If HTTP approval UI is not in MVP, this means internal `ApprovalProviderInterface` API plus backend integration only.
   - **Expected evidence**: Route/backend interaction tests for allow, deny, timeout, and unsupported approval behavior.

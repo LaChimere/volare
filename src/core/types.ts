@@ -150,6 +150,7 @@ export interface ApprovalContextInterface {
   threadId: ThreadId;
   workspaceId: WorkspaceId;
   workspaceRootPath: string;
+  bridgeSessionId: BridgeSessionId;
 }
 
 export type ApprovalEvaluation =
@@ -162,6 +163,18 @@ export interface ApprovalPolicyInterface {
     request: PermissionRequestInterface,
     context: ApprovalContextInterface,
   ): Promise<ApprovalEvaluation>;
+}
+
+export interface ApprovalProviderInterface {
+  evaluate(
+    request: PermissionRequestInterface,
+    context: ApprovalContextInterface,
+  ): Promise<ApprovalEvaluation>;
+  resolve(
+    approvalId: ApprovalId,
+    decision: ApprovalDecision,
+  ): Promise<ApprovalResolutionResultInterface>;
+  awaitDecision(approvalId: ApprovalId, signal?: AbortSignal): Promise<ApprovalDecision>;
 }
 
 export interface JournalEventInterface {
@@ -339,6 +352,7 @@ export interface StateStoreInterface {
   getBackendSession(bridgeSessionId: BridgeSessionId): Promise<BackendSessionInterface | null>;
   getBackendSessionByThread(threadId: ThreadId): Promise<BackendSessionInterface | null>;
   createApproval(input: {
+    approvalId?: ApprovalId;
     turnId: TurnId;
     bridgeSessionId: BridgeSessionId;
     request: PermissionRequestInterface;
