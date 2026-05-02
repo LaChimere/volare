@@ -64,16 +64,6 @@ export class CopilotCliBackend implements AgentBackendInterface {
     };
   }
 
-  async resumeSession(session: BackendSessionInterface): Promise<BackendSessionInterface> {
-    if (!session.backendSessionId) {
-      throw new AgentLoomError(
-        'backend_session_not_active',
-        'Cannot resume a reserved backend session',
-      );
-    }
-    return session;
-  }
-
   async *send(
     session: BackendSessionInterface,
     request: AgentRequestInterface,
@@ -168,19 +158,42 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
     const abort = () => proc.kill('SIGTERM');
     options.signal?.addEventListener('abort', abort, { once: true });
 
+    const stderrPromise = new Response(proc.stderr).text();
+
     try {
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      const exitCode = await proc.exited;
+      const reader = proc.stdout.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const text = extractTextFromCopilotOutput(line);
+          if (text.length > 0) {
+            yield text;
+          }
+        }
+      }
+
+      buffer += decoder.decode();
+      const remainingText = extractTextFromCopilotOutput(buffer);
+      if (remainingText.length > 0) {
+        yield remainingText;
+      }
+
+      const [exitCode, stderr] = await Promise.all([proc.exited, stderrPromise]);
       if (exitCode !== 0) {
         throw new AgentLoomError('backend_process_failed', `Copilot CLI exited with ${exitCode}`, {
           cause: stderr,
         });
-      }
-
-      const text = extractTextFromCopilotOutput(stdout);
-      if (text.length > 0) {
-        yield text;
       }
     } finally {
       options.signal?.removeEventListener('abort', abort);

@@ -9,10 +9,18 @@ export interface ServerRuntimeConfigInterface {
   allowedWorkspaceRoots?: string[];
 }
 
+export interface ServerRuntimeEnvInterface {
+  AGENT_LOOM_API_KEY: string | undefined;
+  AGENT_LOOM_HOST: string | undefined;
+  AGENT_LOOM_PORT: string | undefined;
+  AGENT_LOOM_WORKSPACE_ROOT: string | undefined;
+  AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: string | undefined;
+}
+
 export function createServerRuntimeConfig(
-  env: Record<string, string | undefined> = Bun.env,
+  env: Partial<ServerRuntimeEnvInterface> = readServerRuntimeEnv(),
 ): ServerRuntimeConfigInterface {
-  const providedApiKey = env['AGENT_LOOM_API_KEY'];
+  const providedApiKey = env.AGENT_LOOM_API_KEY;
   const apiKey = providedApiKey ?? generateApiKey();
   if (providedApiKey && providedApiKey.length < 16) {
     throw new AgentLoomError(
@@ -22,20 +30,28 @@ export function createServerRuntimeConfig(
   }
 
   return {
-    host: env['AGENT_LOOM_HOST'] ?? '127.0.0.1',
-    port: env['AGENT_LOOM_PORT'] ? Number(env['AGENT_LOOM_PORT']) : 8000,
+    host: env.AGENT_LOOM_HOST ?? '127.0.0.1',
+    port: env.AGENT_LOOM_PORT ? Number(env.AGENT_LOOM_PORT) : 8000,
     apiKey,
     generatedApiKey: !providedApiKey,
-    ...(env['AGENT_LOOM_WORKSPACE_ROOT']
-      ? { defaultWorkspaceRoot: env['AGENT_LOOM_WORKSPACE_ROOT'] }
+    ...(env.AGENT_LOOM_WORKSPACE_ROOT
+      ? { defaultWorkspaceRoot: env.AGENT_LOOM_WORKSPACE_ROOT }
       : {}),
-    ...(env['AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS']
+    ...(env.AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS
       ? {
-          allowedWorkspaceRoots: env['AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS']
-            .split(':')
-            .filter(Boolean),
+          allowedWorkspaceRoots: env.AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS.split(':').filter(Boolean),
         }
       : {}),
+  };
+}
+
+function readServerRuntimeEnv(): ServerRuntimeEnvInterface {
+  return {
+    AGENT_LOOM_API_KEY: Bun.env['AGENT_LOOM_API_KEY'],
+    AGENT_LOOM_HOST: Bun.env['AGENT_LOOM_HOST'],
+    AGENT_LOOM_PORT: Bun.env['AGENT_LOOM_PORT'],
+    AGENT_LOOM_WORKSPACE_ROOT: Bun.env['AGENT_LOOM_WORKSPACE_ROOT'],
+    AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: Bun.env['AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS'],
   };
 }
 

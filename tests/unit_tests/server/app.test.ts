@@ -27,6 +27,21 @@ describe('server app', () => {
     expect(response.status).toBe(401);
   });
 
+  test('rejects unexpected Origin headers with CORS disabled by default', async () => {
+    const app = createApp({ config });
+
+    const response = await app.fetch(
+      request('/openai/v1/models', {
+        headers: {
+          origin: 'https://example.test',
+        },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.has('access-control-allow-origin')).toBe(false);
+  });
+
   test('serves the minimal models route', async () => {
     const app = createApp({ config });
 
@@ -147,5 +162,13 @@ describe('server app', () => {
     expect(() => createServerRuntimeConfig({ AGENT_LOOM_API_KEY: 'short' })).toThrow(
       'AGENT_LOOM_API_KEY is too short',
     );
+  });
+
+  test('generates an ephemeral API key when none is configured', () => {
+    const runtimeConfig = createServerRuntimeConfig({});
+
+    expect(runtimeConfig.generatedApiKey).toBe(true);
+    expect(runtimeConfig.apiKey).toHaveLength(64);
+    expect(runtimeConfig.apiKey).toMatch(/^[a-f0-9]+$/);
   });
 });

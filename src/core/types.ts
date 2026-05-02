@@ -224,23 +224,6 @@ export interface ResolvedTurnInterface {
   request: AgentRequestInterface;
 }
 
-export interface SessionManagerInterface {
-  startTurn(
-    input: AgentRequestInputInterface,
-    context: RequestContextInterface,
-  ): Promise<ResolvedTurnInterface>;
-  getTurn(turnId: TurnId): Promise<TurnRecordInterface | null>;
-  cancelTurn(turnId: TurnId): Promise<CancelResultInterface>;
-}
-
-export interface StateStoreInterface {
-  bindClientRef(ref: ClientTurnRefInterface): Promise<void>;
-  resolveClientRef(
-    protocol: ClientProtocol,
-    externalId: string,
-  ): Promise<ClientTurnRefInterface | null>;
-}
-
 export interface AgentBackendInterface {
   name: string;
   capabilities(): BackendCapabilitiesInterface;
@@ -248,7 +231,7 @@ export interface AgentBackendInterface {
     workspace: WorkspaceInterface,
     options: CreateSessionOptionsInterface,
   ): Promise<BackendSessionInterface>;
-  resumeSession(session: BackendSessionInterface): Promise<BackendSessionInterface>;
+  resumeSession?(session: BackendSessionInterface): Promise<BackendSessionInterface>;
   send(
     session: BackendSessionInterface,
     request: AgentRequestInterface,
