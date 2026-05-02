@@ -166,7 +166,7 @@ async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
 }
 
 export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
-  readonly #processes = new Map<string, ReturnType<typeof Bun.spawn>>();
+  readonly #processes = new Map<string, Set<ReturnType<typeof Bun.spawn>>>();
 
   async *run(prompt: string, options: CopilotPromptRunOptionsInterface): AsyncIterable<string> {
     const proc = Bun.spawn(
@@ -191,7 +191,7 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
         stderr: 'pipe',
       },
     );
-    this.#processes.set(options.backendSessionId, proc);
+    this.#trackProcess(options.backendSessionId, proc);
 
     const abort = () => proc.kill('SIGTERM');
     options.signal?.addEventListener('abort', abort, { once: true });
@@ -235,7 +235,7 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
       }
     } finally {
       options.signal?.removeEventListener('abort', abort);
-      this.#processes.delete(options.backendSessionId);
+      this.#untrackProcess(options.backendSessionId, proc);
     }
   }
 
@@ -243,46 +243,76 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
     backendSessionId: string,
     options: CancelOptionsInterface = { timeoutMs: 0, forceAfterTimeout: false },
   ): Promise<CancelResultInterface> {
-    const proc = this.#processes.get(backendSessionId);
-    if (!proc) {
+    const processes = this.#processes.get(backendSessionId);
+    if (!processes || processes.size === 0) {
       return { status: 'not_found' };
     }
 
-    proc.kill('SIGTERM');
+    const activeProcesses = [...processes];
+    for (const proc of activeProcesses) {
+      proc.kill('SIGTERM');
+    }
     if (!options.forceAfterTimeout) {
       return { status: 'cancelled' };
     }
 
-    const exited = await waitForExit(proc, options.timeoutMs);
+    const exited = await waitForAllExits(activeProcesses, options.timeoutMs);
     if (exited) {
       return { status: 'cancelled' };
     }
 
-    proc.kill('SIGKILL');
+    for (const proc of activeProcesses) {
+      proc.kill('SIGKILL');
+    }
     return { status: 'timed_out' };
   }
 
   async dispose(backendSessionId: string): Promise<void> {
-    const proc = this.#processes.get(backendSessionId);
-    if (!proc) {
+    const processes = this.#processes.get(backendSessionId);
+    if (!processes || processes.size === 0) {
       return;
     }
-    proc.kill('SIGTERM');
-    if (!(await waitForExit(proc, 250))) {
-      proc.kill('SIGKILL');
+    const activeProcesses = [...processes];
+    for (const proc of activeProcesses) {
+      proc.kill('SIGTERM');
+    }
+    if (!(await waitForAllExits(activeProcesses, 250))) {
+      for (const proc of activeProcesses) {
+        proc.kill('SIGKILL');
+      }
+    }
+  }
+
+  #trackProcess(backendSessionId: string, proc: ReturnType<typeof Bun.spawn>): void {
+    const processes = this.#processes.get(backendSessionId);
+    if (processes) {
+      processes.add(proc);
+      return;
+    }
+    this.#processes.set(backendSessionId, new Set([proc]));
+  }
+
+  #untrackProcess(backendSessionId: string, proc: ReturnType<typeof Bun.spawn>): void {
+    const processes = this.#processes.get(backendSessionId);
+    if (!processes) {
+      return;
+    }
+    processes.delete(proc);
+    if (processes.size === 0) {
+      this.#processes.delete(backendSessionId);
     }
   }
 }
 
-async function waitForExit(
-  proc: ReturnType<typeof Bun.spawn>,
+async function waitForAllExits(
+  processes: Array<ReturnType<typeof Bun.spawn>>,
   timeoutMs: number,
 ): Promise<boolean> {
   if (timeoutMs <= 0) {
     return false;
   }
   const timeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), timeoutMs));
-  const exited = proc.exited.then(() => true);
+  const exited = Promise.all(processes.map((proc) => proc.exited)).then(() => true);
   return await Promise.race([exited, timeout]);
 }
 
