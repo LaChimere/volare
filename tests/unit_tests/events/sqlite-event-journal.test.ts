@@ -56,6 +56,37 @@ describe('SQLiteEventJournal', () => {
     ]);
   });
 
+  test('redacts event payloads before persistence', async () => {
+    const { store, journal } = createFixture();
+    const { turn } = await createTurn(store);
+
+    await journal.append({
+      turnId: turn.id,
+      kind: 'northbound',
+      redactedRawJson: {
+        headers: { Authorization: 'Bearer secret', Accept: 'application/json' },
+        prompt: 'secret prompt',
+      },
+    });
+
+    await expect(journal.listByTurn(turn.id)).resolves.toMatchObject([
+      {
+        redactedRawJson: {
+          headers: {
+            Authorization: { redacted: true, charCount: 13 },
+            Accept: 'application/json',
+          },
+          prompt: { redacted: true, charCount: 13 },
+        },
+        redactionJson: {
+          redactedRawJson: {
+            redactedPaths: ['$.headers.Authorization', '$.prompt'],
+          },
+        },
+      },
+    ]);
+  });
+
   test('detects sequence gaps during replay', async () => {
     const { store, journal } = createFixture();
     const { turn } = await createTurn(store);

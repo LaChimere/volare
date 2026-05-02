@@ -146,9 +146,9 @@
 - [x] Implement canonical event journal and replay.
   - **Acceptance criteria**: Replay orders by sequence, detects gaps, and supports incomplete non-terminal turns without treating them as corruption.
   - **Expected evidence**: `SQLiteEventJournal` replay tests cover ordered replay, sequence gap detection, incomplete non-terminal replay, thread listing, and malformed canonical JSON corruption errors.
-- [ ] Implement redaction boundary.
+- [x] Implement redaction boundary.
   - **Acceptance criteria**: Headers, file contents, commands, URLs, env vars, prompts, and approval payloads follow redaction rules before persistence.
-  - **Expected evidence**: Redaction tests for each sensitive payload class.
+  - **Expected evidence**: `DefaultRedactor` tests cover sensitive headers, file contents, shell commands, URLs, environment variables, prompts, and approval payloads; `SQLiteEventJournal` tests verify redacted payloads are persisted.
 - [ ] Implement fail-closed redaction behavior.
   - **Acceptance criteria**: `RedactionFailedError` prevents unredacted persistence and fails the active turn safely.
   - **Expected evidence**: Simulated redaction failure test output.

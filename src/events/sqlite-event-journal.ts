@@ -9,6 +9,7 @@ import type {
   ThreadId,
   TurnId,
 } from '../core/types';
+import { DefaultRedactor, type RedactorInterface } from './redaction';
 
 type JournalEventRow = {
   id: string;
@@ -23,13 +24,20 @@ type JournalEventRow = {
 };
 
 export class SQLiteEventJournal implements EventJournalInterface {
-  constructor(readonly database: Database) {
+  readonly #redactor: RedactorInterface;
+
+  constructor(
+    readonly database: Database,
+    redactor: RedactorInterface = new DefaultRedactor(),
+  ) {
     this.database.run('PRAGMA foreign_keys = ON');
+    this.#redactor = redactor;
   }
 
   async append(event: JournalEventInterface): Promise<void> {
     const now = Date.now();
     const seq = event.seq ?? nextEventSeq(this.database, event.turnId);
+    const redacted = this.#redactEvent(event);
     this.database
       .query(
         `INSERT INTO events
@@ -41,12 +49,28 @@ export class SQLiteEventJournal implements EventJournalInterface {
         event.turnId,
         seq,
         event.kind,
-        jsonOrNull(event.redactedRawJson),
-        jsonOrNull(event.canonicalJson),
-        jsonOrNull(event.encodedJson),
-        jsonOrNull(event.redactionJson),
+        jsonOrNull(redacted.redactedRawJson),
+        jsonOrNull(redacted.canonicalJson),
+        jsonOrNull(redacted.encodedJson),
+        jsonOrNull(redacted.redactionJson),
         event.createdAt ?? now,
       );
+  }
+
+  #redactEvent(event: JournalEventInterface): JournalEventInterface {
+    const redactionJson: Record<string, unknown> = isRecord(event.redactionJson)
+      ? { ...event.redactionJson }
+      : {};
+    const redacted: JournalEventInterface = { ...event };
+    for (const key of ['redactedRawJson', 'canonicalJson', 'encodedJson'] as const) {
+      if (event[key] === undefined) {
+        continue;
+      }
+      const result = this.#redactor.redact(event[key]);
+      redacted[key] = result.value;
+      redactionJson[key] = result.redactionJson;
+    }
+    return { ...redacted, redactionJson };
   }
 
   async listByTurn(turnId: TurnId): Promise<JournalEventInterface[]> {
@@ -131,6 +155,10 @@ function parseEventJson(value: string, column: string): unknown {
 
 function jsonOrNull(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function nextEventSeq(database: Database, turnId: TurnId): number {
