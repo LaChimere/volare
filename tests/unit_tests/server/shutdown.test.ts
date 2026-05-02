@@ -1,0 +1,51 @@
+import { Database } from 'bun:sqlite';
+import { describe, expect, test } from 'bun:test';
+
+import { ShutdownController } from '../../../src/server/shutdown';
+import { migrate } from '../../../src/state/migrations';
+import { SQLiteStateStore } from '../../../src/state/sqlite-store';
+
+function createStore(): SQLiteStateStore {
+  const database = new Database(':memory:');
+  migrate(database);
+  return new SQLiteStateStore(database);
+}
+
+describe('ShutdownController', () => {
+  test('stops accepting requests and interrupts leftover state idempotently', async () => {
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+    const thread = await store.createThread({ workspaceId: workspace.id });
+    const session = await store.reserveBackendSession({
+      workspaceId: workspace.id,
+      threadId: thread.id,
+      backend: 'mock',
+    });
+    await store.activateBackendSession(session, { backendSessionId: 'backend_1' });
+    const turn = await store.createTurn({
+      threadId: thread.id,
+      bridgeSessionId: session.bridgeSessionId,
+      model: 'copilot-agent',
+    });
+    const server = new FakeServer();
+    const shutdown = new ShutdownController({ server, stateStore: store });
+
+    const [first, second] = await Promise.all([shutdown.shutdown(), shutdown.shutdown()]);
+
+    expect(first).toEqual({ interruptedTurnCount: 1, abandonedSessionCount: 1 });
+    expect(second).toBe(first);
+    expect(server.stopCalls).toEqual([false, true]);
+    await expect(store.getTurn(turn.id)).resolves.toMatchObject({ status: 'interrupted' });
+    await expect(store.getBackendSession(session.bridgeSessionId)).resolves.toMatchObject({
+      status: 'abandoned',
+    });
+  });
+});
+
+class FakeServer {
+  readonly stopCalls: boolean[] = [];
+
+  stop(force = false): void {
+    this.stopCalls.push(force);
+  }
+}

@@ -230,6 +230,12 @@ export interface IdleSessionPruneResultInterface {
   prunedSessionCount: number;
 }
 
+export interface ShutdownResultInterface extends StartupRecoveryResultInterface {}
+
+export interface ShutdownControllerInterface {
+  shutdown(): Promise<ShutdownResultInterface>;
+}
+
 export interface WorkspaceResolverInterface {
   resolve(
     hints: WorkspaceHintsInterface,

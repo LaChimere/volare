@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { createApp } from './server/app';
 import { createServerRuntimeConfig } from './server/config';
+import { ShutdownController } from './server/shutdown';
 import { migrate } from './state/migrations';
 import { SQLiteStateStore } from './state/sqlite-store';
 
@@ -19,10 +20,22 @@ if (config.generatedApiKey) {
   console.error(`Agent Loom API token: ${config.apiKey}`);
 }
 
-Bun.serve({
+const server = Bun.serve({
   hostname: config.host,
   port: config.port,
   fetch: createApp({ config, stateStore }).fetch,
 });
+const shutdown = new ShutdownController({ server, stateStore });
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, async () => {
+    try {
+      await shutdown.shutdown();
+      process.exit(0);
+    } catch (error) {
+      console.error(error);
+      process.exit(1);
+    }
+  });
+}
 
 console.error(`Agent Loom listening on http://${config.host}:${config.port}`);
