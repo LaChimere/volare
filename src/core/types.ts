@@ -190,6 +190,13 @@ export interface JournalEventInterface {
   createdAt?: number;
 }
 
+export interface EventJournalInterface {
+  append(event: JournalEventInterface): Promise<void>;
+  listByTurn(turnId: TurnId): Promise<JournalEventInterface[]>;
+  listByThread(threadId: ThreadId): Promise<JournalEventInterface[]>;
+  replay(turnId: TurnId): AsyncIterable<AgentEvent>;
+}
+
 export interface ApprovalRecordInterface {
   id: ApprovalId;
   turnId: TurnId;

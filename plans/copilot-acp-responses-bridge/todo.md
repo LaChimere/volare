@@ -143,9 +143,9 @@
 
 ### Phase 4: Event Journal and Minimal Debugging
 
-- [ ] Implement canonical event journal and replay.
+- [x] Implement canonical event journal and replay.
   - **Acceptance criteria**: Replay orders by sequence, detects gaps, and supports incomplete non-terminal turns without treating them as corruption.
-  - **Expected evidence**: EventJournalInterface replay tests including sequence gap and non-terminal replay cases.
+  - **Expected evidence**: `SQLiteEventJournal` replay tests cover ordered replay, sequence gap detection, incomplete non-terminal replay, thread listing, and malformed canonical JSON corruption errors.
 - [ ] Implement redaction boundary.
   - **Acceptance criteria**: Headers, file contents, commands, URLs, env vars, prompts, and approval payloads follow redaction rules before persistence.
   - **Expected evidence**: Redaction tests for each sensitive payload class.
