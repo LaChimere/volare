@@ -262,27 +262,31 @@ describe('DurableSessionManager', () => {
 
   test('fails resume when the persisted workspace path changes', async () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
-    const store = createStore();
-    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
-    const backend = new TerminalOmittingBackend();
-    const manager = new DurableSessionManager({ store, backend });
-    const first = await manager.startTurn(
-      { model: 'copilot-agent', input: { message: 'hello' } },
-      { workspaceId: workspace.id, requestId: 'request_1' },
-    );
-    await rm(root, { recursive: true, force: true });
+    try {
+      const store = createStore();
+      const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+      const backend = new TerminalOmittingBackend();
+      const manager = new DurableSessionManager({ store, backend });
+      const first = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'hello' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+      await rm(root, { recursive: true, force: true });
 
-    await expect(
-      manager.startTurn(
-        {
-          threadId: first.thread.id,
-          parentTurnId: first.turn.id,
-          model: 'copilot-agent',
-          input: { message: 'resume after delete' },
-        },
-        { workspaceId: workspace.id, requestId: 'request_2' },
-      ),
-    ).rejects.toThrow('Workspace root changed before resume');
+      await expect(
+        manager.startTurn(
+          {
+            threadId: first.thread.id,
+            parentTurnId: first.turn.id,
+            model: 'copilot-agent',
+            input: { message: 'resume after delete' },
+          },
+          { workspaceId: workspace.id, requestId: 'request_2' },
+        ),
+      ).rejects.toThrow('Workspace root changed before resume');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test('delegates non-terminal turn cancellation to the backend', async () => {
