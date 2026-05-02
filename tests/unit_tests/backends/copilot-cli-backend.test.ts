@@ -11,8 +11,22 @@ import {
 import type { AgentEvent, WorkspaceInterface } from '../../../src/core/types';
 
 class FakeCopilotPromptRunner implements CopilotPromptRunnerInterface {
-  async *run(prompt: string, _options: CopilotPromptRunOptionsInterface): AsyncIterable<string> {
+  lastOptions?: CopilotPromptRunOptionsInterface;
+  readonly cancelled: Array<{ backendSessionId: string; forceAfterTimeout?: boolean }> = [];
+  readonly disposed: string[] = [];
+
+  async *run(prompt: string, options: CopilotPromptRunOptionsInterface): AsyncIterable<string> {
+    this.lastOptions = options;
     yield `copilot:${prompt}`;
+  }
+
+  async cancel(backendSessionId: string, options = { timeoutMs: 0, forceAfterTimeout: false }) {
+    this.cancelled.push({ backendSessionId, forceAfterTimeout: options.forceAfterTimeout });
+    return { status: options.forceAfterTimeout ? 'timed_out' : 'cancelled' } as const;
+  }
+
+  async dispose(backendSessionId: string) {
+    this.disposed.push(backendSessionId);
   }
 }
 
@@ -40,7 +54,8 @@ describe('CopilotCliBackend', () => {
 
   test('streams text through the configured runner', async () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
-    const backend = new CopilotCliBackend({ runner: new FakeCopilotPromptRunner() });
+    const runner = new FakeCopilotPromptRunner();
+    const backend = new CopilotCliBackend({ runner });
     const workspace: WorkspaceInterface = {
       id: 'workspace_1',
       rootPath: await realpath(root),
@@ -65,6 +80,52 @@ describe('CopilotCliBackend', () => {
         { type: 'text.delta', turnId: 'turn_1', delta: 'copilot:hello' },
         { type: 'turn.succeeded', turnId: 'turn_1', output: { text: 'copilot:hello' } },
       ]);
+      expect(runner.lastOptions).toMatchObject({
+        backendSessionId: session.backendSessionId,
+        cwd: workspace.rootPath,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('delegates cancellation and disposal to the process runner', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const runner = new FakeCopilotPromptRunner();
+    const backend = new CopilotCliBackend({ runner });
+    const workspace: WorkspaceInterface = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+      const backendSessionId = session.backendSessionId;
+      expect(backendSessionId).toBeDefined();
+      if (!backendSessionId) {
+        throw new Error('expected backend session id');
+      }
+
+      await expect(
+        backend.cancel(session, { timeoutMs: 1, forceAfterTimeout: true }),
+      ).resolves.toEqual({ status: 'timed_out' });
+      await backend.disposeSession(session);
+
+      expect(runner.cancelled).toEqual([{ backendSessionId, forceAfterTimeout: true }]);
+      expect(runner.disposed).toEqual([backendSessionId]);
+      await expect(
+        collectEvents(
+          backend.send(session, {
+            turnId: 'turn_1',
+            threadId: 'thread_1',
+            workspaceId: 'workspace_1',
+            input: { message: 'hello' },
+            model: 'copilot-agent',
+          }),
+        ),
+      ).rejects.toThrow('Backend session workspace was not found');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

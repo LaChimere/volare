@@ -23,6 +23,7 @@ export interface CopilotPromptRunnerInterface {
 }
 
 export interface CopilotPromptRunOptionsInterface {
+  backendSessionId: string;
   cwd: string;
   signal?: AbortSignal;
 }
@@ -111,6 +112,7 @@ export class CopilotCliBackend implements AgentBackendInterface {
 
     let text = '';
     for await (const delta of this.#runner.run(request.input.message, {
+      backendSessionId: session.backendSessionId,
       cwd,
       ...(signal ? { signal } : {}),
     })) {
@@ -164,6 +166,8 @@ async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
 }
 
 export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
+  readonly #processes = new Map<string, ReturnType<typeof Bun.spawn>>();
+
   async *run(prompt: string, options: CopilotPromptRunOptionsInterface): AsyncIterable<string> {
     const proc = Bun.spawn(
       [
@@ -187,6 +191,7 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
         stderr: 'pipe',
       },
     );
+    this.#processes.set(options.backendSessionId, proc);
 
     const abort = () => proc.kill('SIGTERM');
     options.signal?.addEventListener('abort', abort, { once: true });
@@ -230,8 +235,55 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
       }
     } finally {
       options.signal?.removeEventListener('abort', abort);
+      this.#processes.delete(options.backendSessionId);
     }
   }
+
+  async cancel(
+    backendSessionId: string,
+    options: CancelOptionsInterface = { timeoutMs: 0, forceAfterTimeout: false },
+  ): Promise<CancelResultInterface> {
+    const proc = this.#processes.get(backendSessionId);
+    if (!proc) {
+      return { status: 'not_found' };
+    }
+
+    proc.kill('SIGTERM');
+    if (!options.forceAfterTimeout) {
+      return { status: 'cancelled' };
+    }
+
+    const exited = await waitForExit(proc, options.timeoutMs);
+    if (exited) {
+      return { status: 'cancelled' };
+    }
+
+    proc.kill('SIGKILL');
+    return { status: 'timed_out' };
+  }
+
+  async dispose(backendSessionId: string): Promise<void> {
+    const proc = this.#processes.get(backendSessionId);
+    if (!proc) {
+      return;
+    }
+    proc.kill('SIGTERM');
+    if (!(await waitForExit(proc, 250))) {
+      proc.kill('SIGKILL');
+    }
+  }
+}
+
+async function waitForExit(
+  proc: ReturnType<typeof Bun.spawn>,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (timeoutMs <= 0) {
+    return false;
+  }
+  const timeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), timeoutMs));
+  const exited = proc.exited.then(() => true);
+  return await Promise.race([exited, timeout]);
 }
 
 export function extractTextFromCopilotOutput(output: string): string {
