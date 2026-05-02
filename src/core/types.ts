@@ -24,6 +24,7 @@ export type BackendSessionStatus =
   | 'abandoned'
   | 'stale'
   | 'lost';
+export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'timed_out' | 'aborted';
 
 export interface AgentLoomErrorInterface {
   code: string;
@@ -163,6 +164,41 @@ export interface ApprovalPolicyInterface {
   ): Promise<ApprovalEvaluation>;
 }
 
+export interface JournalEventInterface {
+  id?: string;
+  turnId: TurnId;
+  seq?: number;
+  kind: 'northbound' | 'backend' | 'canonical' | 'encoded' | 'security';
+  redactedRawJson?: unknown;
+  canonicalJson?: unknown;
+  encodedJson?: unknown;
+  redactionJson?: unknown;
+  createdAt?: number;
+}
+
+export interface ApprovalRecordInterface {
+  id: ApprovalId;
+  turnId: TurnId;
+  bridgeSessionId: BridgeSessionId;
+  status: ApprovalStatus;
+  request: PermissionRequestInterface;
+  decision?: ApprovalDecision;
+  timeoutAt: number;
+  createdAt: Date;
+  decidedAt?: Date;
+}
+
+export interface ApprovalResolutionInputInterface {
+  approvalId: ApprovalId;
+  decision: ApprovalDecision;
+  journalEvent: JournalEventInterface;
+}
+
+export interface ApprovalResolutionResultInterface {
+  status: 'resolved' | 'already_terminal';
+  decision: ApprovalDecision;
+}
+
 export interface WorkspaceResolverInterface {
   resolve(
     hints: WorkspaceHintsInterface,
@@ -295,6 +331,16 @@ export interface StateStoreInterface {
   ): Promise<boolean>;
   getBackendSession(bridgeSessionId: BridgeSessionId): Promise<BackendSessionInterface | null>;
   getBackendSessionByThread(threadId: ThreadId): Promise<BackendSessionInterface | null>;
+  createApproval(input: {
+    turnId: TurnId;
+    bridgeSessionId: BridgeSessionId;
+    request: PermissionRequestInterface;
+    timeoutAt: number;
+  }): Promise<ApprovalRecordInterface>;
+  getApproval(approvalId: ApprovalId): Promise<ApprovalRecordInterface | null>;
+  resolveApprovalWithJournal(
+    input: ApprovalResolutionInputInterface,
+  ): Promise<ApprovalResolutionResultInterface>;
 }
 
 export interface AgentBackendInterface {

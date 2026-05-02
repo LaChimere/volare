@@ -134,4 +134,114 @@ describe('SQLiteStateStore', () => {
       threadId: thread.id,
     });
   });
+
+  test('creates approvals and resolves them atomically with a journal event', async () => {
+    const store = createStore();
+    const { session, turn } = await createTurnFixture(store);
+    const approval = await store.createApproval({
+      turnId: turn.id,
+      bridgeSessionId: session.bridgeSessionId,
+      request: { action: 'shell:exec', scope: { command: 'bun test' } },
+      timeoutAt: 1234,
+    });
+
+    expect(approval.status).toBe('pending');
+    const result = await store.resolveApprovalWithJournal({
+      approvalId: approval.id,
+      decision: { type: 'deny', scope: 'once', reason: 'test' },
+      journalEvent: {
+        turnId: turn.id,
+        kind: 'canonical',
+        canonicalJson: {
+          type: 'permission.resolved',
+          turnId: turn.id,
+          approvalId: approval.id,
+          decision: 'deny',
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      status: 'resolved',
+      decision: { type: 'deny', scope: 'once', reason: 'test' },
+    });
+    await expect(store.getApproval(approval.id)).resolves.toMatchObject({
+      status: 'denied',
+      decision: { type: 'deny', scope: 'once', reason: 'test' },
+    });
+    expect(
+      store.database
+        .query<{ seq: number; canonical_json: string }, [string]>(
+          'SELECT seq, canonical_json FROM events WHERE turn_id = ?',
+        )
+        .all(turn.id),
+    ).toEqual([
+      {
+        seq: 0,
+        canonical_json: JSON.stringify({
+          type: 'permission.resolved',
+          turnId: turn.id,
+          approvalId: approval.id,
+          decision: 'deny',
+        }),
+      },
+    ]);
+    await expect(
+      store.resolveApprovalWithJournal({
+        approvalId: approval.id,
+        decision: { type: 'allow', scope: 'once' },
+        journalEvent: { turnId: turn.id, kind: 'canonical', canonicalJson: {} },
+      }),
+    ).resolves.toEqual({
+      status: 'already_terminal',
+      decision: { type: 'deny', scope: 'once', reason: 'test' },
+    });
+  });
+
+  test('rolls back approval resolution when journal insertion fails', async () => {
+    const store = createStore();
+    const { session, turn } = await createTurnFixture(store);
+    const approval = await store.createApproval({
+      turnId: turn.id,
+      bridgeSessionId: session.bridgeSessionId,
+      request: { action: 'shell:exec', scope: { command: 'bun test' } },
+      timeoutAt: 1234,
+    });
+
+    await expect(
+      store.resolveApprovalWithJournal({
+        approvalId: approval.id,
+        decision: { type: 'allow', scope: 'once' },
+        journalEvent: {
+          turnId: 'turn_missing',
+          kind: 'canonical',
+          canonicalJson: { type: 'permission.resolved' },
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(store.getApproval(approval.id)).resolves.toMatchObject({
+      status: 'pending',
+    });
+    expect(
+      store.database.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM events').get(),
+    ).toEqual({ count: 0 });
+  });
 });
+
+async function createTurnFixture(store: SQLiteStateStore) {
+  const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+  const thread = await store.createThread({ workspaceId: workspace.id });
+  const session = await store.reserveBackendSession({
+    workspaceId: workspace.id,
+    threadId: thread.id,
+    backend: 'mock',
+  });
+  await store.activateBackendSession(session, { backendSessionId: 'backend_1' });
+  const turn = await store.createTurn({
+    threadId: thread.id,
+    bridgeSessionId: session.bridgeSessionId,
+    model: 'copilot-agent',
+  });
+  return { workspace, thread, session, turn };
+}

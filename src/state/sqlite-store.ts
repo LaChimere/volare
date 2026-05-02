@@ -3,12 +3,18 @@ import type { Database } from 'bun:sqlite';
 import { AgentLoomError } from '../core/errors';
 import { createId } from '../core/ids';
 import type {
+  ApprovalDecision,
+  ApprovalRecordInterface,
+  ApprovalResolutionInputInterface,
+  ApprovalResolutionResultInterface,
+  ApprovalStatus,
   BackendProcessMetadataInterface,
   BackendSessionInterface,
   BackendSessionStatus,
   BridgeSessionId,
   ClientProtocol,
   ClientTurnRefInterface,
+  PermissionRequestInterface,
   StateStoreInterface,
   ThreadId,
   ThreadInterface,
@@ -44,6 +50,17 @@ type BackendSessionRow = {
   thread_id: string;
   backend_session_id: string | null;
   status: BackendSessionStatus;
+};
+type ApprovalRow = {
+  id: string;
+  turn_id: string;
+  bridge_session_id: string;
+  status: ApprovalStatus;
+  redacted_request_json: string;
+  decision_json: string | null;
+  timeout_at: number;
+  created_at: number;
+  decided_at: number | null;
 };
 
 const TERMINAL_TURN_STATUSES = new Set<TurnRecordInterface['status']>([
@@ -302,6 +319,104 @@ export class SQLiteStateStore implements StateStoreInterface {
       .get(threadId);
     return row ? backendSessionFromRow(row) : null;
   }
+
+  async createApproval(input: {
+    turnId: TurnId;
+    bridgeSessionId: BridgeSessionId;
+    request: PermissionRequestInterface;
+    timeoutAt: number;
+  }): Promise<ApprovalRecordInterface> {
+    const id = createId('approval');
+    const now = Date.now();
+    this.database
+      .query(
+        `INSERT INTO approvals
+          (id, turn_id, bridge_session_id, status, redacted_request_json, timeout_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.turnId,
+        input.bridgeSessionId,
+        'pending',
+        JSON.stringify(input.request),
+        input.timeoutAt,
+        now,
+      );
+    return {
+      id,
+      turnId: input.turnId,
+      bridgeSessionId: input.bridgeSessionId,
+      status: 'pending',
+      request: input.request,
+      timeoutAt: input.timeoutAt,
+      createdAt: new Date(now),
+    };
+  }
+
+  async getApproval(approvalId: string): Promise<ApprovalRecordInterface | null> {
+    const row = this.database
+      .query<ApprovalRow, [string]>(
+        `SELECT id, turn_id, bridge_session_id, status, redacted_request_json, decision_json,
+                timeout_at, created_at, decided_at
+         FROM approvals WHERE id = ?`,
+      )
+      .get(approvalId);
+    return row ? approvalFromRow(row) : null;
+  }
+
+  async resolveApprovalWithJournal(
+    input: ApprovalResolutionInputInterface,
+  ): Promise<ApprovalResolutionResultInterface> {
+    const transaction = this.database.transaction(() => {
+      const approval = this.database
+        .query<ApprovalRow, [string]>(
+          `SELECT id, turn_id, bridge_session_id, status, redacted_request_json, decision_json,
+                  timeout_at, created_at, decided_at
+           FROM approvals WHERE id = ?`,
+        )
+        .get(input.approvalId);
+      if (!approval) {
+        throw new AgentLoomError('approval_not_found', 'Approval was not found');
+      }
+      if (approval.status !== 'pending') {
+        return {
+          status: 'already_terminal' as const,
+          decision: parseJson<ApprovalDecision>(approval.decision_json),
+        };
+      }
+
+      const now = Date.now();
+      this.database
+        .query('UPDATE approvals SET status = ?, decision_json = ?, decided_at = ? WHERE id = ?')
+        .run(
+          approvalStatusForDecision(input.decision),
+          JSON.stringify(input.decision),
+          now,
+          approval.id,
+        );
+      const seq = nextEventSeq(this.database, input.journalEvent.turnId);
+      this.database
+        .query(
+          `INSERT INTO events
+            (id, turn_id, seq, kind, redacted_raw_json, canonical_json, encoded_json, redaction_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          input.journalEvent.id ?? createId('event'),
+          input.journalEvent.turnId,
+          input.journalEvent.seq ?? seq,
+          input.journalEvent.kind,
+          jsonOrNull(input.journalEvent.redactedRawJson),
+          jsonOrNull(input.journalEvent.canonicalJson),
+          jsonOrNull(input.journalEvent.encodedJson),
+          jsonOrNull(input.journalEvent.redactionJson),
+          input.journalEvent.createdAt ?? now,
+        );
+      return { status: 'resolved' as const, decision: input.decision };
+    });
+    return transaction();
+  }
 }
 
 function workspaceFromRow(row: WorkspaceRow): WorkspaceInterface {
@@ -344,4 +459,51 @@ function backendSessionFromRow(row: BackendSessionRow): BackendSessionInterface 
     threadId: row.thread_id,
     status: row.status,
   };
+}
+
+function approvalFromRow(row: ApprovalRow): ApprovalRecordInterface {
+  return {
+    id: row.id,
+    turnId: row.turn_id,
+    bridgeSessionId: row.bridge_session_id,
+    status: row.status,
+    request: parseJson<PermissionRequestInterface>(row.redacted_request_json),
+    ...(row.decision_json ? { decision: parseJson<ApprovalDecision>(row.decision_json) } : {}),
+    timeoutAt: row.timeout_at,
+    createdAt: new Date(row.created_at),
+    ...(row.decided_at ? { decidedAt: new Date(row.decided_at) } : {}),
+  };
+}
+
+function approvalStatusForDecision(decision: ApprovalDecision): ApprovalStatus {
+  switch (decision.type) {
+    case 'allow':
+      return 'allowed';
+    case 'deny':
+      return 'denied';
+    case 'timeout':
+      return 'timed_out';
+    case 'aborted':
+      return 'aborted';
+  }
+}
+
+function parseJson<T>(value: string | null): T {
+  if (!value) {
+    throw new AgentLoomError('state_decode_failed', 'Persisted JSON value is missing');
+  }
+  return JSON.parse(value) as T;
+}
+
+function jsonOrNull(value: unknown): string | null {
+  return value === undefined ? null : JSON.stringify(value);
+}
+
+function nextEventSeq(database: Database, turnId: TurnId): number {
+  const row = database
+    .query<{ next_seq: number }, [string]>(
+      'SELECT COALESCE(MAX(seq) + 1, 0) AS next_seq FROM events WHERE turn_id = ?',
+    )
+    .get(turnId);
+  return row?.next_seq ?? 0;
 }
