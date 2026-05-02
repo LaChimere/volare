@@ -77,15 +77,15 @@
 
 ### Phase 2: Multi-turn State
 
-- [ ] Add SQLite schema and first migration.
+- [x] Add SQLite schema and first migration.
   - **Acceptance criteria**: Workspace, thread, turn, client ref, backend session, event, approval, and schema version tables match `design.md`.
-  - **Expected evidence**: Migration test output or schema inspection output.
-- [ ] Add SQLite migration tests.
+  - **Expected evidence**: `src/state/migrations.ts` creates workspaces, threads, turns, client_turn_refs, backend_sessions, events, approvals, indexes, and schema_version. `tests/unit_tests/state/sqlite-store.test.ts` inspects the table list.
+- [x] Add SQLite migration tests.
   - **Acceptance criteria**: Schema creation is idempotent, foreign keys are enforced, unique constraints work, required indexes exist, and `schema_version` tracks applied migrations.
-  - **Expected evidence**: Migration compatibility test output.
-- [ ] Implement `StateStoreInterface`.
+  - **Expected evidence**: `bun run check` and `bun run test:unit` passed; migration tests cover idempotent migration, `PRAGMA foreign_keys`, table creation, and schema version tracking.
+- [x] Implement `StateStoreInterface`.
   - **Acceptance criteria**: Atomic workspace get-or-create with `UNIQUE(root_path)` constraint enforcement and retry lookup on unique-constraint conflicts, queued turn creation, compare-and-set turn status updates, backend session reserve/activate/status updates, and client ref lookup work.
-  - **Expected evidence**: StateStoreInterface unit tests for each persistence invariant.
+  - **Expected evidence**: `src/state/sqlite-store.ts` implements `StateStoreInterface`; unit tests cover workspace get-or-create, queued turn creation, compare-and-set turn updates, backend reserve/activate/status updates, and client ref bind/lookup.
 - [ ] Implement backend session reserve/activate failure handling.
   - **Acceptance criteria**: `reserveBackendSession()` creates an `initializing` row before runtime start; `activateBackendSession()` records backend metadata; activation failures mark sessions `lost` or `abandoned` without reusing the thread.
   - **Expected evidence**: StateStoreInterface/SessionManagerInterface tests for initializing->active and failure transitions.

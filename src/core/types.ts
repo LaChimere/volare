@@ -224,6 +224,48 @@ export interface ResolvedTurnInterface {
   request: AgentRequestInterface;
 }
 
+export interface StateStoreInterface {
+  getOrCreateWorkspace(input: { rootPath: string }): Promise<WorkspaceInterface>;
+  getWorkspace(workspaceId: WorkspaceId): Promise<WorkspaceInterface | null>;
+  getWorkspaceByPath(rootPath: string): Promise<WorkspaceInterface | null>;
+  createThread(input: { workspaceId: WorkspaceId }): Promise<ThreadInterface>;
+  getThread(threadId: ThreadId): Promise<ThreadInterface | null>;
+  createTurn(input: {
+    threadId: ThreadId;
+    parentTurnId?: TurnId;
+    bridgeSessionId: BridgeSessionId;
+    model: string;
+  }): Promise<TurnRecordInterface>;
+  getTurn(turnId: TurnId): Promise<TurnRecordInterface | null>;
+  updateTurnStatus(
+    turnId: TurnId,
+    fromStatus: TurnRecordInterface['status'] | 'any-non-terminal',
+    toStatus: TurnRecordInterface['status'],
+    completedAt?: number,
+  ): Promise<boolean>;
+  bindClientRef(ref: ClientTurnRefInterface): Promise<void>;
+  resolveClientRef(
+    protocol: ClientProtocol,
+    externalId: string,
+  ): Promise<ClientTurnRefInterface | null>;
+  reserveBackendSession(input: {
+    workspaceId: WorkspaceId;
+    threadId: ThreadId;
+    backend: string;
+  }): Promise<BackendSessionInterface>;
+  activateBackendSession(
+    session: BackendSessionInterface,
+    metadata: BackendProcessMetadataInterface,
+  ): Promise<void>;
+  updateBackendSessionStatus(
+    bridgeSessionId: BridgeSessionId,
+    fromStatus: BackendSessionStatus | 'any',
+    toStatus: BackendSessionStatus,
+  ): Promise<boolean>;
+  getBackendSession(bridgeSessionId: BridgeSessionId): Promise<BackendSessionInterface | null>;
+  getBackendSessionByThread(threadId: ThreadId): Promise<BackendSessionInterface | null>;
+}
+
 export interface AgentBackendInterface {
   name: string;
   capabilities(): BackendCapabilitiesInterface;

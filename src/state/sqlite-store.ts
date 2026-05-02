@@ -1,0 +1,341 @@
+import type { Database } from 'bun:sqlite';
+
+import { AgentLoomError } from '../core/errors';
+import { createId } from '../core/ids';
+import type {
+  BackendProcessMetadataInterface,
+  BackendSessionInterface,
+  BackendSessionStatus,
+  BridgeSessionId,
+  ClientProtocol,
+  ClientTurnRefInterface,
+  StateStoreInterface,
+  ThreadId,
+  ThreadInterface,
+  TurnId,
+  TurnRecordInterface,
+  WorkspaceId,
+  WorkspaceInterface,
+} from '../core/types';
+
+type WorkspaceRow = { id: string; root_path: string };
+type ThreadRow = { id: string; workspace_id: string };
+type TurnRow = {
+  id: string;
+  thread_id: string;
+  parent_turn_id: string | null;
+  bridge_session_id: string;
+  status: TurnRecordInterface['status'];
+  model: string;
+  created_at: number;
+  completed_at: number | null;
+};
+type ClientTurnRefRow = {
+  protocol: string;
+  external_id: string;
+  turn_id: string;
+  thread_id: string;
+  parent_protocol: string | null;
+  parent_external_id: string | null;
+};
+type BackendSessionRow = {
+  id: string;
+  workspace_id: string;
+  thread_id: string;
+  backend_session_id: string | null;
+  status: BackendSessionStatus;
+};
+
+const TERMINAL_TURN_STATUSES = new Set<TurnRecordInterface['status']>([
+  'succeeded',
+  'failed',
+  'cancelled',
+  'interrupted',
+]);
+
+export class SQLiteStateStore implements StateStoreInterface {
+  constructor(readonly database: Database) {
+    this.database.run('PRAGMA foreign_keys = ON');
+  }
+
+  async getOrCreateWorkspace(input: { rootPath: string }): Promise<WorkspaceInterface> {
+    const existing = await this.getWorkspaceByPath(input.rootPath);
+    if (existing) {
+      return existing;
+    }
+
+    const id = createId('workspace');
+    try {
+      this.database
+        .query('INSERT INTO workspaces (id, root_path, created_at) VALUES (?, ?, ?)')
+        .run(id, input.rootPath, Date.now());
+    } catch (cause) {
+      const raced = await this.getWorkspaceByPath(input.rootPath);
+      if (raced) {
+        return raced;
+      }
+      throw new AgentLoomError('workspace_create_failed', 'Workspace could not be created', {
+        cause,
+      });
+    }
+
+    return { id, rootPath: input.rootPath };
+  }
+
+  async getWorkspace(workspaceId: WorkspaceId): Promise<WorkspaceInterface | null> {
+    const row = this.database
+      .query<WorkspaceRow, [string]>('SELECT id, root_path FROM workspaces WHERE id = ?')
+      .get(workspaceId);
+    return row ? workspaceFromRow(row) : null;
+  }
+
+  async getWorkspaceByPath(rootPath: string): Promise<WorkspaceInterface | null> {
+    const row = this.database
+      .query<WorkspaceRow, [string]>('SELECT id, root_path FROM workspaces WHERE root_path = ?')
+      .get(rootPath);
+    return row ? workspaceFromRow(row) : null;
+  }
+
+  async createThread(input: { workspaceId: WorkspaceId }): Promise<ThreadInterface> {
+    const id = createId('thread');
+    const now = Date.now();
+    this.database
+      .query('INSERT INTO threads (id, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?)')
+      .run(id, input.workspaceId, now, now);
+    return { id, workspaceId: input.workspaceId };
+  }
+
+  async getThread(threadId: ThreadId): Promise<ThreadInterface | null> {
+    const row = this.database
+      .query<ThreadRow, [string]>('SELECT id, workspace_id FROM threads WHERE id = ?')
+      .get(threadId);
+    return row ? threadFromRow(row) : null;
+  }
+
+  async createTurn(input: {
+    threadId: ThreadId;
+    parentTurnId?: TurnId;
+    bridgeSessionId: BridgeSessionId;
+    model: string;
+  }): Promise<TurnRecordInterface> {
+    const id = createId('turn');
+    const now = Date.now();
+    this.database
+      .query(
+        `INSERT INTO turns
+          (id, thread_id, parent_turn_id, bridge_session_id, status, model, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.threadId,
+        input.parentTurnId ?? null,
+        input.bridgeSessionId,
+        'queued',
+        input.model,
+        now,
+      );
+    return {
+      id,
+      threadId: input.threadId,
+      parentTurnId: input.parentTurnId ?? null,
+      bridgeSessionId: input.bridgeSessionId,
+      status: 'queued',
+      model: input.model,
+      createdAt: new Date(now),
+    };
+  }
+
+  async getTurn(turnId: TurnId): Promise<TurnRecordInterface | null> {
+    const row = this.database
+      .query<TurnRow, [string]>(
+        `SELECT id, thread_id, parent_turn_id, bridge_session_id, status, model, created_at, completed_at
+         FROM turns WHERE id = ?`,
+      )
+      .get(turnId);
+    return row ? turnFromRow(row) : null;
+  }
+
+  async updateTurnStatus(
+    turnId: TurnId,
+    fromStatus: TurnRecordInterface['status'] | 'any-non-terminal',
+    toStatus: TurnRecordInterface['status'],
+    completedAt?: number,
+  ): Promise<boolean> {
+    const current = await this.getTurn(turnId);
+    if (!current) {
+      return false;
+    }
+    if (fromStatus !== 'any-non-terminal' && current.status !== fromStatus) {
+      return false;
+    }
+    if (fromStatus === 'any-non-terminal' && TERMINAL_TURN_STATUSES.has(current.status)) {
+      return false;
+    }
+
+    const result = this.database
+      .query('UPDATE turns SET status = ?, completed_at = ? WHERE id = ? AND status = ?')
+      .run(toStatus, completedAt ?? null, turnId, current.status);
+    return result.changes === 1;
+  }
+
+  async bindClientRef(ref: ClientTurnRefInterface): Promise<void> {
+    this.database
+      .query(
+        `INSERT INTO client_turn_refs
+          (protocol, external_id, turn_id, thread_id, parent_protocol, parent_external_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        ref.protocol,
+        ref.externalId,
+        ref.turnId,
+        ref.threadId,
+        ref.parentProtocol ?? null,
+        ref.parentExternalId ?? null,
+        Date.now(),
+      );
+  }
+
+  async resolveClientRef(
+    protocol: ClientProtocol,
+    externalId: string,
+  ): Promise<ClientTurnRefInterface | null> {
+    const row = this.database
+      .query<ClientTurnRefRow, [string, string]>(
+        `SELECT protocol, external_id, turn_id, thread_id, parent_protocol, parent_external_id
+         FROM client_turn_refs WHERE protocol = ? AND external_id = ?`,
+      )
+      .get(protocol, externalId);
+    return row ? clientTurnRefFromRow(row) : null;
+  }
+
+  async reserveBackendSession(input: {
+    workspaceId: WorkspaceId;
+    threadId: ThreadId;
+    backend: string;
+  }): Promise<BackendSessionInterface> {
+    const id = createId('bridge_session');
+    const now = Date.now();
+    this.database
+      .query(
+        `INSERT INTO backend_sessions
+          (id, workspace_id, thread_id, backend, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, input.workspaceId, input.threadId, input.backend, 'initializing', now, now);
+    return {
+      bridgeSessionId: id,
+      workspaceId: input.workspaceId,
+      threadId: input.threadId,
+      status: 'initializing',
+    };
+  }
+
+  async activateBackendSession(
+    session: BackendSessionInterface,
+    metadata: BackendProcessMetadataInterface,
+  ): Promise<void> {
+    this.database
+      .query(
+        `UPDATE backend_sessions
+         SET backend_session_id = ?, process_id = ?, process_started_at = ?, process_identity_hash = ?,
+             status = ?, updated_at = ?
+         WHERE id = ? AND status = ?`,
+      )
+      .run(
+        metadata.backendSessionId,
+        metadata.processId ?? null,
+        metadata.processStartedAt ?? null,
+        metadata.processIdentityHash ?? null,
+        'active',
+        Date.now(),
+        session.bridgeSessionId,
+        'initializing',
+      );
+  }
+
+  async updateBackendSessionStatus(
+    bridgeSessionId: BridgeSessionId,
+    fromStatus: BackendSessionStatus | 'any',
+    toStatus: BackendSessionStatus,
+  ): Promise<boolean> {
+    const current = await this.getBackendSession(bridgeSessionId);
+    if (!current) {
+      return false;
+    }
+    if (fromStatus !== 'any' && current.status !== fromStatus) {
+      return false;
+    }
+    const result = this.database
+      .query('UPDATE backend_sessions SET status = ?, updated_at = ? WHERE id = ? AND status = ?')
+      .run(toStatus, Date.now(), bridgeSessionId, current.status);
+    return result.changes === 1;
+  }
+
+  async getBackendSession(
+    bridgeSessionId: BridgeSessionId,
+  ): Promise<BackendSessionInterface | null> {
+    const row = this.database
+      .query<BackendSessionRow, [string]>(
+        'SELECT id, workspace_id, thread_id, backend_session_id, status FROM backend_sessions WHERE id = ?',
+      )
+      .get(bridgeSessionId);
+    return row ? backendSessionFromRow(row) : null;
+  }
+
+  async getBackendSessionByThread(threadId: ThreadId): Promise<BackendSessionInterface | null> {
+    const row = this.database
+      .query<BackendSessionRow, [string]>(
+        `SELECT id, workspace_id, thread_id, backend_session_id, status
+         FROM backend_sessions
+         WHERE thread_id = ? AND status IN ('active', 'idle')
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+      )
+      .get(threadId);
+    return row ? backendSessionFromRow(row) : null;
+  }
+}
+
+function workspaceFromRow(row: WorkspaceRow): WorkspaceInterface {
+  return { id: row.id, rootPath: row.root_path };
+}
+
+function threadFromRow(row: ThreadRow): ThreadInterface {
+  return { id: row.id, workspaceId: row.workspace_id };
+}
+
+function turnFromRow(row: TurnRow): TurnRecordInterface {
+  return {
+    id: row.id,
+    threadId: row.thread_id,
+    parentTurnId: row.parent_turn_id,
+    bridgeSessionId: row.bridge_session_id,
+    status: row.status,
+    model: row.model,
+    createdAt: new Date(row.created_at),
+    ...(row.completed_at ? { completedAt: new Date(row.completed_at) } : {}),
+  };
+}
+
+function clientTurnRefFromRow(row: ClientTurnRefRow): ClientTurnRefInterface {
+  return {
+    protocol: row.protocol,
+    externalId: row.external_id,
+    turnId: row.turn_id,
+    threadId: row.thread_id,
+    ...(row.parent_protocol ? { parentProtocol: row.parent_protocol } : {}),
+    ...(row.parent_external_id ? { parentExternalId: row.parent_external_id } : {}),
+  };
+}
+
+function backendSessionFromRow(row: BackendSessionRow): BackendSessionInterface {
+  return {
+    bridgeSessionId: row.id,
+    ...(row.backend_session_id ? { backendSessionId: row.backend_session_id } : {}),
+    workspaceId: row.workspace_id,
+    threadId: row.thread_id,
+    status: row.status,
+  };
+}
