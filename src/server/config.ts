@@ -171,7 +171,7 @@ function isLogLevel(value: string): value is LogLevel {
 }
 
 function parseCopilotPermissionMode(value: string | undefined): CopilotCliPermissionMode {
-  const mode = value?.trim() ?? 'web';
+  const mode = value?.trim() ?? 'full';
   if (mode === 'restricted' || mode === 'web' || mode === 'full') {
     return mode;
   }

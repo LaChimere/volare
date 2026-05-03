@@ -754,7 +754,7 @@ describe('server app', () => {
       eventRetentionDays: 30,
       copilotPermissionMode: 'full',
     });
-    expect(createServerRuntimeConfig({}).copilotPermissionMode).toBe('web');
+    expect(createServerRuntimeConfig({}).copilotPermissionMode).toBe('full');
   });
 
   test('serves redacted debug events for a turn', async () => {

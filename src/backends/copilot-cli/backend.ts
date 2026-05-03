@@ -276,7 +276,7 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
   constructor(
     identityValidator: IProcessIdentityValidator = new DefaultProcessIdentityValidator(),
     command = 'copilot',
-    permissionMode: CopilotCliPermissionMode = 'web',
+    permissionMode: CopilotCliPermissionMode = 'full',
   ) {
     this.#identityValidator = identityValidator;
     this.#command = command;

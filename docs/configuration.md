@@ -32,7 +32,7 @@ If `AGENT_LOOM_API_KEY` is not set, the server generates an ephemeral token and 
 | `AGENT_LOOM_LOG_LEVEL` | `info` | One of `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`. |
 | `AGENT_LOOM_MAX_ACTIVE_SESSIONS` | `10` | Reserved for session limiting. |
 | `AGENT_LOOM_EVENT_RETENTION_DAYS` | unset | When set, terminal-turn events older than the configured days can be pruned. |
-| `AGENT_LOOM_COPILOT_PERMISSION_MODE` | `web` | Copilot CLI permission mode: `restricted` passes no non-interactive grants, `web` allows public URL fetches, and `full` passes Copilot CLI `--allow-all`. |
+| `AGENT_LOOM_COPILOT_PERMISSION_MODE` | `full` | Copilot CLI permission mode: `full` passes Copilot CLI `--allow-all`, `web` allows public URL fetches only, and `restricted` passes no non-interactive grants. |
 
 ## CLI flags
 

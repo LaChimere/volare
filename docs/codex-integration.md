@@ -62,13 +62,13 @@ Agent Loom currently supports the text bridge subset needed by Codex CLI/Desktop
 
 Agent Loom does not yet implement a bridge-owned tool-call broker. It accepts Codex tool definitions so clients can connect, but it does not emit tool calls for Codex to execute.
 
-Copilot CLI is invoked with the configured permission mode. By default, Agent Loom uses `AGENT_LOOM_COPILOT_PERMISSION_MODE=web`, which grants Copilot CLI public URL fetch permission for web-research prompts without granting all tools and paths:
+Copilot CLI is invoked with the configured permission mode. By default, Agent Loom uses `AGENT_LOOM_COPILOT_PERMISSION_MODE=full`, which grants the Copilot CLI subprocess URL, shell/tool, and path permissions for trusted local Codex/Desktop dogfooding:
 
 ```text
-copilot --no-color --no-custom-instructions --disable-builtin-mcps --allow-all-urls --log-level error --stream on --output-format json --prompt <prompt>
+copilot --no-color --no-custom-instructions --disable-builtin-mcps --allow-all --log-level error --stream on --output-format json --prompt <prompt>
 ```
 
-Set `AGENT_LOOM_COPILOT_PERMISSION_MODE=restricted` to restore the old no-grants behavior, or `AGENT_LOOM_COPILOT_PERMISSION_MODE=full` to pass Copilot CLI `--allow-all` in a trusted local environment. The same setting is available as `agent-loom start --copilot-permission-mode <restricted|web|full>`.
+Set `AGENT_LOOM_COPILOT_PERMISSION_MODE=web` to allow only public URL fetches, or `AGENT_LOOM_COPILOT_PERMISSION_MODE=restricted` to pass no non-interactive grants. The same setting is available as `agent-loom start --copilot-permission-mode <restricted|web|full>`.
 
 Codex UI/Desktop "Full access" controls Codex client tools; it is not automatically forwarded through the Responses API to the Copilot CLI subprocess. Use Agent Loom's `full` mode when you intentionally want the Copilot CLI subprocess to have URL, shell/tool, and path grants too.
 

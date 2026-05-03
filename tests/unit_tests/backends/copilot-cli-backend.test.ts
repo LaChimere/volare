@@ -284,7 +284,7 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"hello"}}\\n'
 
       expect(chunks).toEqual(['hello']);
       await expect(readFile(path.join(workspace, 'args.txt'), 'utf8')).resolves.toContain(
-        '--allow-all-urls',
+        '--allow-all',
       );
     } finally {
       await rm(workspace, { recursive: true, force: true });
