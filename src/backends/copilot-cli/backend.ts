@@ -122,7 +122,7 @@ export class CopilotCliBackend implements AgentBackendInterface {
     }
 
     let text = '';
-    for await (const delta of this.#runner.run(request.input.message, {
+    for await (const delta of this.#runner.run(formatCopilotPrompt(request.input), {
       backendSessionId: session.backendSessionId,
       cwd,
       ...(signal ? { signal } : {}),
@@ -160,6 +160,22 @@ export class CopilotCliBackend implements AgentBackendInterface {
       this.#workspaceRoots.delete(session.backendSessionId);
     }
   }
+}
+
+function formatCopilotPrompt(input: AgentRequestInterface['input']): string {
+  const sections: string[] = [];
+  if (input.systemInstructions) {
+    sections.push(`System instructions:\n${input.systemInstructions}`);
+  }
+  if (input.conversationHistory && input.conversationHistory.length > 0) {
+    sections.push(
+      `Conversation so far:\n${input.conversationHistory
+        .map((message) => `${message.role}: ${message.content}`)
+        .join('\n\n')}`,
+    );
+  }
+  sections.push(`User request:\n${input.message}`);
+  return sections.join('\n\n');
 }
 
 async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {

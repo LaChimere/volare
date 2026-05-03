@@ -13,10 +13,12 @@ import type { AgentEvent, WorkspaceInterface } from '../../../src/core/types';
 
 class FakeCopilotPromptRunner implements CopilotPromptRunnerInterface {
   lastOptions?: CopilotPromptRunOptionsInterface;
+  lastPrompt?: string;
   readonly cancelled: Array<{ backendSessionId: string; forceAfterTimeout?: boolean }> = [];
   readonly disposed: string[] = [];
 
   async *run(prompt: string, options: CopilotPromptRunOptionsInterface): AsyncIterable<string> {
+    this.lastPrompt = prompt;
     this.lastOptions = options;
     yield `copilot:${prompt}`;
   }
@@ -78,13 +80,60 @@ describe('CopilotCliBackend', () => {
       );
 
       expect(events).toEqual([
-        { type: 'text.delta', turnId: 'turn_1', delta: 'copilot:hello' },
-        { type: 'turn.succeeded', turnId: 'turn_1', output: { text: 'copilot:hello' } },
+        { type: 'text.delta', turnId: 'turn_1', delta: 'copilot:User request:\nhello' },
+        {
+          type: 'turn.succeeded',
+          turnId: 'turn_1',
+          output: { text: 'copilot:User request:\nhello' },
+        },
       ]);
       expect(runner.lastOptions).toMatchObject({
         backendSessionId: session.backendSessionId,
         cwd: workspace.rootPath,
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('formats full-history input for the single-prompt Copilot CLI surface', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const runner = new FakeCopilotPromptRunner();
+    const backend = new CopilotCliBackend({ runner });
+    const workspace: WorkspaceInterface = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+
+      await collectEvents(
+        backend.send(session, {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          workspaceId: 'workspace_1',
+          input: {
+            message: 'Follow up',
+            systemInstructions: 'Be concise.',
+            conversationHistory: [
+              { role: 'user', content: 'First request' },
+              { role: 'assistant', content: 'First answer' },
+            ],
+          },
+          model: 'copilot-agent',
+        }),
+      );
+
+      expect(runner.lastPrompt).toBe(
+        [
+          'System instructions:\nBe concise.',
+          'Conversation so far:\nuser: First request\n\nassistant: First answer',
+          'User request:\nFollow up',
+        ].join('\n\n'),
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

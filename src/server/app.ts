@@ -11,7 +11,11 @@ import type {
   StateStoreInterface,
 } from '../core/types';
 import { WorkspaceResolver } from '../core/workspace-resolver';
-import { encodeOpenAIError, OpenAIResponsesAdapter } from '../northbound/openai-responses/adapter';
+import {
+  createCodexModelsResponse,
+  encodeOpenAIError,
+  OpenAIResponsesAdapter,
+} from '../northbound/openai-responses/adapter';
 import { requireBearerAuth } from './auth';
 import type { ServerRuntimeConfigInterface } from './config';
 
@@ -74,9 +78,7 @@ export function createApp(dependencies: AppDependenciesInterface): {
         }
 
         if (request.method === 'GET' && url.pathname === '/openai/v1/models') {
-          return Response.json({
-            models: [{ id: 'copilot-agent', object: 'model', owned_by: 'github' }],
-          });
+          return Response.json(createCodexModelsResponse());
         }
 
         const debugEventsMatch = url.pathname.match(/^\/debug\/turns\/([^/]+)\/events$/);

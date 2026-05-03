@@ -80,14 +80,25 @@ describe('server app', () => {
     expect(debug.headers.has('access-control-allow-origin')).toBe(false);
   });
 
-  test('serves the minimal models route', async () => {
+  test('serves a Codex-compatible models route', async () => {
     const app = createApp({ config });
 
-    const response = await app.fetch(request('/openai/v1/models'));
+    const response = await app.fetch(request('/openai/v1/models?client_version=0.0.0-test'));
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      models: [{ id: 'copilot-agent', object: 'model', owned_by: 'github' }],
+    await expect(response.json()).resolves.toMatchObject({
+      models: [
+        {
+          slug: 'copilot-agent',
+          display_name: 'Copilot Agent',
+          shell_type: 'shell_command',
+          visibility: 'list',
+          supported_in_api: true,
+          supported_reasoning_levels: [],
+          truncation_policy: { mode: 'bytes' },
+          input_modalities: ['text'],
+        },
+      ],
     });
   });
 
@@ -325,7 +336,7 @@ describe('server app', () => {
     const firstResponseId = /"id":"(resp_[^"]+)"/.exec(firstStream)?.[1];
     expect(firstResponseId).toBeDefined();
     expect(firstStream).toContain(
-      `"type":"response.completed","sequence_number":3,"response":{"id":"${firstResponseId}"`,
+      `"type":"response.completed","sequence_number":5,"response":{"id":"${firstResponseId}"`,
     );
 
     const secondResponse = await app.fetch(
@@ -471,7 +482,7 @@ describe('server app', () => {
     });
   });
 
-  test('rejects unsupported tool parameters', async () => {
+  test('accepts Codex request tool metadata without requiring tool-call execution', async () => {
     const app = createApp({ config });
 
     const response = await app.fetch(
@@ -480,18 +491,17 @@ describe('server app', () => {
         body: JSON.stringify({
           model: 'copilot-agent',
           input: 'hello',
-          tools: [{ type: 'function', name: 'do_work' }],
+          tools: [{ type: 'function', name: 'update_plan' }],
+          tool_choice: 'auto',
+          parallel_tool_calls: true,
+          stream: true,
+          store: false,
         }),
       }),
     );
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      error: {
-        type: 'unsupported_parameter',
-        message: 'Client-side tools are not supported in the MVP',
-      },
-    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('response.completed');
   });
 
   test('rejects clearly too-short configured tokens', () => {

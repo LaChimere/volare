@@ -35,7 +35,7 @@ describe('OpenAIResponsesAdapter', () => {
     ).resolves.toEqual({ source: 'process-cwd' });
   });
 
-  test('rejects OpenAI client-side tools honestly', async () => {
+  test('accepts Codex tool definitions without invoking client-side tools', async () => {
     const adapter = new OpenAIResponsesAdapter();
 
     await expect(
@@ -48,12 +48,14 @@ describe('OpenAIResponsesAdapter', () => {
             model: 'copilot-agent',
             input: 'hello',
             tools: [{ type: 'function', name: 'do_work' }],
+            tool_choice: 'auto',
+            parallel_tool_calls: true,
           },
         },
         { workspaceId: 'workspace_1', requestId: 'request_1' },
       ),
-    ).rejects.toMatchObject({
-      code: 'unsupported_parameter',
+    ).resolves.toMatchObject({
+      input: { message: 'hello' },
     });
   });
 
@@ -70,6 +72,14 @@ describe('OpenAIResponsesAdapter', () => {
           },
         ],
         expected: 'hello\nworld',
+      },
+      {
+        input: [
+          { role: 'user', content: [{ type: 'input_text', text: 'first' }] },
+          { role: 'assistant', content: [{ type: 'output_text', text: 'answer' }] },
+          { role: 'user', content: [{ type: 'input_text', text: 'second' }] },
+        ],
+        expected: 'second',
       },
     ];
 
@@ -100,6 +110,65 @@ describe('OpenAIResponsesAdapter', () => {
     ).rejects.toMatchObject({ code: 'invalid_request' });
   });
 
+  test('extracts full-history Responses input into latest message and conversation history', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+
+    await expect(
+      adapter.parseRequest(
+        {
+          transport: 'http',
+          method: 'POST',
+          path: '/openai/v1/responses',
+          body: {
+            model: 'copilot-agent',
+            instructions: 'Be concise.',
+            input: [
+              { role: 'system', content: [{ text: 'Project context.' }] },
+              { role: 'user', content: [{ text: 'First request' }] },
+              { role: 'assistant', content: [{ text: 'First answer' }] },
+              { role: 'user', content: [{ text: 'Follow-up' }] },
+            ],
+          },
+        },
+        { workspaceId: 'workspace_1', requestId: 'request_1' },
+      ),
+    ).resolves.toMatchObject({
+      input: {
+        message: 'Follow-up',
+        systemInstructions: 'Be concise.\n\nProject context.',
+        conversationHistory: [
+          { role: 'user', content: 'First request' },
+          { role: 'assistant', content: 'First answer' },
+        ],
+      },
+    });
+  });
+
+  test('rejects full-history Responses input that does not end with a user message', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+
+    await expect(
+      adapter.parseRequest(
+        {
+          transport: 'http',
+          method: 'POST',
+          path: '/openai/v1/responses',
+          body: {
+            model: 'copilot-agent',
+            input: [
+              { role: 'user', content: [{ text: 'Question' }] },
+              { role: 'assistant', content: [{ text: 'Answer' }] },
+            ],
+          },
+        },
+        { workspaceId: 'workspace_1', requestId: 'request_1' },
+      ),
+    ).rejects.toMatchObject({
+      code: 'invalid_request',
+      message: 'Responses request input must end with a user message',
+    });
+  });
+
   test('encodes terminal and non-terminal stored response snapshots', () => {
     const adapter = new OpenAIResponsesAdapter();
     const createdAt = new Date('2026-05-02T00:00:00.000Z');
@@ -121,6 +190,11 @@ describe('OpenAIResponsesAdapter', () => {
       id: 'resp_1',
       status: 'in_progress',
       output: [{ content: [{ text: 'hello' }] }],
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+      },
     });
 
     expect(
@@ -143,6 +217,11 @@ describe('OpenAIResponsesAdapter', () => {
       previous_response_id: 'resp_parent',
       status: 'completed',
       output: [{ content: [{ text: 'done' }] }],
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+      },
     });
   });
 
@@ -190,7 +269,7 @@ describe('OpenAIResponsesAdapter', () => {
       }),
     );
 
-    expect(encoded.slice(0, 3)).toEqual([
+    expect(encoded.slice(0, 4)).toEqual([
       {
         type: 'response.created',
         sequence_number: 0,
@@ -202,24 +281,47 @@ describe('OpenAIResponsesAdapter', () => {
         response: { id: 'resp_golden', object: 'response', status: 'in_progress' },
       },
       {
-        type: 'response.output_text.delta',
+        type: 'response.output_item.added',
         sequence_number: 2,
+        output_index: 0,
+        item: {
+          id: 'msg_resp_golden',
+          type: 'message',
+          status: 'in_progress',
+          role: 'assistant',
+          content: [],
+        },
+      },
+      {
+        type: 'response.output_text.delta',
+        sequence_number: 3,
         item_id: 'msg_resp_golden',
         output_index: 0,
         content_index: 0,
         delta: 'hello',
       },
     ]);
-    expect(encoded[3]).toMatchObject({
+    expect(encoded[4]).toMatchObject({
+      type: 'response.output_item.done',
+      sequence_number: 4,
+      item: {
+        id: 'msg_resp_golden',
+        type: 'message',
+        status: 'completed',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'hello' }],
+      },
+    });
+    expect(encoded[5]).toMatchObject({
       type: 'response.completed',
-      sequence_number: 3,
+      sequence_number: 5,
       response: {
         id: 'resp_golden',
         status: 'completed',
         output: [{ content: [{ text: 'hello' }] }],
       },
     });
-    expect(encoded[4]).toBe('[DONE]');
+    expect(encoded[6]).toBe('[DONE]');
   });
 
   test('encodes failed and interrupted terminal stream events', async () => {
@@ -253,14 +355,72 @@ describe('OpenAIResponsesAdapter', () => {
 
     expect(failed[2]).toMatchObject({
       type: 'response.failed',
-      response: { id: 'resp_failed', status: 'failed', error: 'boom' },
+      response: {
+        id: 'resp_failed',
+        status: 'failed',
+        error: { code: 'internal_error', message: 'boom' },
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          total_tokens: 0,
+        },
+      },
     });
     expect(failed[3]).toBe('[DONE]');
     expect(interrupted[2]).toMatchObject({
       type: 'response.incomplete',
-      response: { id: 'resp_interrupted', status: 'incomplete' },
+      response: {
+        id: 'resp_interrupted',
+        status: 'incomplete',
+        incomplete_details: { reason: 'cancelled' },
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          total_tokens: 0,
+        },
+      },
     });
     expect(interrupted[3]).toBe('[DONE]');
+  });
+
+  test('closes partial text output items before failed terminal stream events', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+    const failed = await collectSse(
+      adapter.encodeStream(
+        (async function* () {
+          yield { type: 'text.delta' as const, turnId: 'turn_1', delta: 'partial' };
+          yield { type: 'turn.failed' as const, turnId: 'turn_1', error: 'boom' };
+        })(),
+        {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          externalResponseId: 'resp_failed',
+          previousResponseId: null,
+        },
+      ),
+    );
+
+    expect(failed[2]).toMatchObject({
+      type: 'response.output_item.added',
+      item: { id: 'msg_resp_failed', status: 'in_progress' },
+    });
+    expect(failed[3]).toMatchObject({
+      type: 'response.output_text.delta',
+      delta: 'partial',
+    });
+    expect(failed[4]).toMatchObject({
+      type: 'response.output_item.done',
+      item: {
+        id: 'msg_resp_failed',
+        status: 'incomplete',
+        content: [{ type: 'output_text', text: 'partial' }],
+      },
+    });
+    expect(failed[5]).toMatchObject({
+      type: 'response.failed',
+      response: { id: 'resp_failed', status: 'failed' },
+    });
+    expect(failed[6]).toBe('[DONE]');
   });
 });
 
