@@ -30,10 +30,26 @@ Configuration defaults are local and restrictive: host `127.0.0.1`, port `8000`,
 
 ## Agent Loom CLI
 
-The npm package exposes an `agent-loom` executable for Bun-native usage:
+The package exposes an `agent-loom` executable for Bun-native usage. After the package is published to npm, run it with:
 
 ```bash
 bunx agent-loom start
+```
+
+Before npm publication, use the local source entrypoint from this repository:
+
+```bash
+bun run src/cli.ts help
+bun run src/cli.ts start
+bun run src/cli.ts config codex
+```
+
+Use `bun run`, not `bunx run`, for the local source entrypoint. `bunx` is for npm package executables and will try to resolve packages instead of running the repository source directly.
+
+You can smoke-test the package contents before publishing:
+
+```bash
+bun pm pack --dry-run
 ```
 
 Useful commands:
@@ -71,16 +87,16 @@ Agent Loom can be configured as a Codex custom Responses provider. Start the loc
 
 ```bash
 export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
-bunx agent-loom start
+bun run src/cli.ts start
 ```
 
 Then configure Codex:
 
 ```bash
-bunx agent-loom config codex
+bun run src/cli.ts config codex
 ```
 
-For local development from this repository, the equivalent commands are `bun run dev` and `bun run config:codex`. The config command safely creates or updates `~/.codex/config.toml`, preserving unrelated Codex config and writing a `.agent-loom-backup-*` backup before changing an existing file. It writes the equivalent provider and profile config:
+After npm publication, the equivalent one-off commands are `bunx agent-loom start` and `bunx agent-loom config codex`. For local development from this repository, `bun run dev` and `bun run config:codex` also remain available. The config command safely creates or updates `~/.codex/config.toml`, preserving unrelated Codex config and writing a `.agent-loom-backup-*` backup before changing an existing file. It writes the equivalent provider and profile config:
 
 ```toml
 profile = "agent-loom"
