@@ -1,8 +1,17 @@
 {
   "name": "agent-loom",
+  "version": "0.1.0",
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
+  "private": false,
+  "bin": {
+    "agent-loom": "src/cli.ts"
+  },
+  "files": [
+    "src",
+    "scripts",
+    "README.md"
+  ],
   "scripts": {
     "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
@@ -13,7 +22,7 @@
     "check": "biome check . && tsc --noEmit",
     "fix": "biome check --write .",
     "config:codex": "bun run scripts/config-codex.ts",
-    "package": "bun build --compile src/index.ts --outfile dist/agent-loom",
+    "package": "bun build --compile src/cli.ts --outfile dist/agent-loom",
     "postinstall": "if [ -d .git ] && command -v lefthook >/dev/null 2>&1; then lefthook install; fi",
     "hooks:install": "lefthook install",
     "hooks:run": "lefthook run pre-commit --force",

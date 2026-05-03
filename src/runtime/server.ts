@@ -11,6 +11,7 @@ import { createLogger } from '../logging/logger';
 import { createApp } from '../server/app';
 import {
   createServerRuntimeConfig,
+  readServerRuntimeEnv,
   type ServerRuntimeConfigInterface,
   type ServerRuntimeEnvInterface,
 } from '../server/config';
@@ -31,7 +32,7 @@ export interface AgentLoomRuntimeInterface {
 export async function startAgentLoomRuntime(
   options: AgentLoomRuntimeOptionsInterface = {},
 ): Promise<AgentLoomRuntimeInterface> {
-  const config = createServerRuntimeConfig(options.env);
+  const config = createServerRuntimeConfig({ ...readServerRuntimeEnv(), ...options.env });
   const logger = createLogger({ level: config.logLevel });
   const runtimeLogger = logger.child({ component: 'runtime' });
   if (config.stateDatabasePath !== ':memory:') {

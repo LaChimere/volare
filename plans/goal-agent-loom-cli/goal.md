@@ -3,7 +3,7 @@
 objective: "好的，你可以调研一下，然后看看支持 bunx 这样来用 agent-loom start/config 或者其他的命令（相当于我们 agent-loom 的 cli）要怎么做。你可能需要先设计一下 agent-loom 要支持哪些命令，然后设定一个要实现的 scope 和目标，然后实现。 记得及时更新文档。"
 status: active
 slug: "goal-agent-loom-cli"
-turns_used: 0
+turns_used: 1
 turn_budget: null
 created_at: "2026-05-03T22:19:38.173+08:00"
 updated_at: "2026-05-03T22:19:38.173+08:00"
@@ -21,6 +21,7 @@ updated_at: "2026-05-03T22:19:38.173+08:00"
 ## Progress log
 
 - Turn 0: Goal registered. Assumption: the first implementation slice should favor a Bun-native `bunx` package executable over a full platform-specific compiled binary release matrix.
+- Turn 1: Researched Bun package executable behavior and standalone executable support, defined the MVP command scope, extracted runtime startup, added the Bun-native `agent-loom` CLI with foreground/daemon start and Codex config commands, and documented the new user-facing CLI path.
 
 ## Deferred items
 

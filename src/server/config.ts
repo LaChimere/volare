@@ -123,7 +123,7 @@ export function createServerRuntimeConfig(
   };
 }
 
-function readServerRuntimeEnv(): ServerRuntimeEnvInterface {
+export function readServerRuntimeEnv(): ServerRuntimeEnvInterface {
   return {
     AGENT_LOOM_API_KEY: Bun.env['AGENT_LOOM_API_KEY'],
     AGENT_LOOM_HOST: Bun.env['AGENT_LOOM_HOST'],
