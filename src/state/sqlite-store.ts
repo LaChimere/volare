@@ -535,7 +535,13 @@ function parseJson<T>(value: string | null): T {
   if (!value) {
     throw new AgentLoomError('state_decode_failed', 'Persisted JSON value is missing');
   }
-  return JSON.parse(value) as T;
+  try {
+    return JSON.parse(value) as T;
+  } catch (cause) {
+    throw new AgentLoomError('state_decode_failed', 'Persisted JSON value is malformed', {
+      cause,
+    });
+  }
 }
 
 function jsonOrNull(value: unknown): string | null {

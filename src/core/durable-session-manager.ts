@@ -175,7 +175,6 @@ export class DurableSessionManager implements SessionManagerInterface {
       });
     } catch (error) {
       const agentError = toAgentLoomError(error);
-      await this.#store.updateTurnStatus(turn.id, 'cancelling', 'failed', Date.now());
       this.#appendEvent(turn.id, { type: 'turn.failed', turnId: turn.id, error });
       this.#logger.error(
         {
@@ -186,6 +185,7 @@ export class DurableSessionManager implements SessionManagerInterface {
         },
         'turn cancel failed',
       );
+      await this.#markTurnFailedAfterError(turn.id, error, 'turn.cancel.cleanup_failed');
       throw error;
     }
 
@@ -316,12 +316,6 @@ export class DurableSessionManager implements SessionManagerInterface {
     } catch (error) {
       const agentError = toAgentLoomError(error);
       sawTerminal = true;
-      await this.#store.updateTurnStatus(
-        resolved.turn.id,
-        'any-non-terminal',
-        'failed',
-        Date.now(),
-      );
       yield this.#record(resolved.turn.id, {
         type: 'turn.failed',
         turnId: resolved.turn.id,
@@ -337,6 +331,7 @@ export class DurableSessionManager implements SessionManagerInterface {
         },
         'turn stream failed',
       );
+      await this.#markTurnFailedAfterError(resolved.turn.id, error, 'turn.stream.cleanup_failed');
     }
 
     if (!sawTerminal) {
@@ -426,11 +421,6 @@ export class DurableSessionManager implements SessionManagerInterface {
       return (await this.#store.getBackendSession(reserved.bridgeSessionId)) ?? created;
     } catch (error) {
       const agentError = toAgentLoomError(error);
-      await this.#store.updateBackendSessionStatus(
-        reserved.bridgeSessionId,
-        'initializing',
-        'lost',
-      );
       this.#logger.error(
         {
           event: 'backend.session.create_failed',
@@ -442,6 +432,26 @@ export class DurableSessionManager implements SessionManagerInterface {
         },
         'backend session creation failed',
       );
+      try {
+        await this.#store.updateBackendSessionStatus(
+          reserved.bridgeSessionId,
+          'initializing',
+          'lost',
+        );
+      } catch (cleanupError) {
+        const cleanupAgentError = toAgentLoomError(cleanupError);
+        this.#logger.error(
+          {
+            event: 'backend.session.create_cleanup_failed',
+            workspaceId: thread.workspaceId,
+            threadId: thread.id,
+            bridgeSessionId: reserved.bridgeSessionId,
+            errorCode: cleanupAgentError.code,
+            error: cleanupAgentError,
+          },
+          'backend session creation cleanup failed',
+        );
+      }
       throw error;
     }
   }
@@ -597,6 +607,28 @@ export class DurableSessionManager implements SessionManagerInterface {
       return;
     }
     events.push(event);
+  }
+
+  async #markTurnFailedAfterError(
+    turnId: string,
+    originalError: unknown,
+    cleanupEvent: string,
+  ): Promise<void> {
+    try {
+      await this.#store.updateTurnStatus(turnId, 'any-non-terminal', 'failed', Date.now());
+    } catch (cleanupError) {
+      const cleanupAgentError = toAgentLoomError(cleanupError);
+      this.#logger.error(
+        {
+          event: cleanupEvent,
+          turnId,
+          originalErrorCode: toAgentLoomError(originalError).code,
+          errorCode: cleanupAgentError.code,
+          error: cleanupAgentError,
+        },
+        'turn failure cleanup failed',
+      );
+    }
   }
 }
 

@@ -136,6 +136,25 @@ describe('server app', () => {
     expect(debug.headers.has('access-control-allow-origin')).toBe(false);
   });
 
+  test('returns invalid_request for malformed JSON response bodies', async () => {
+    const app = createApp({ config });
+
+    const response = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: '{',
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        type: 'invalid_request',
+        message: 'Malformed JSON body',
+      },
+    });
+  });
+
   test('serves a Codex-compatible models route', async () => {
     const app = createApp({ config });
 

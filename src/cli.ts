@@ -380,8 +380,19 @@ async function startDaemon(
     if (child.pid === undefined) {
       throw new CliUsageError('Daemon process did not report a pid');
     }
+    try {
+      await waitForDaemonStart(child.pid, env);
+    } catch (error) {
+      await terminateDaemonAfterStartupFailure(child.pid);
+      throw error;
+    }
+    try {
+      await writeFile(paths.pidPath, `${child.pid}\n`);
+    } catch (error) {
+      await terminateDaemonAfterStartupFailure(child.pid);
+      throw error;
+    }
     child.unref();
-    await writeFile(paths.pidPath, `${child.pid}\n`);
     return { pid: child.pid, logPath: paths.logPath, pidPath: paths.pidPath };
   } finally {
     closeSync(stdout);
@@ -422,10 +433,108 @@ async function stopDaemon(): Promise<DaemonStopResultInterface> {
     return { stopped: false, pidPath: paths.pidPath };
   }
   if (isProcessRunning(pid)) {
-    process.kill(pid, 'SIGTERM');
+    await terminateProcess(pid, 10_000);
   }
   await rm(paths.pidPath, { force: true });
   return { stopped: true, pid, pidPath: paths.pidPath };
+}
+
+async function waitForDaemonStart(
+  pid: number,
+  env: Record<string, string | undefined>,
+): Promise<void> {
+  const apiKey = env['AGENT_LOOM_API_KEY'];
+  if (!apiKey) {
+    await delay(750);
+    if (!isProcessRunning(pid)) {
+      throw new CliUsageError('Daemon process exited before it became ready');
+    }
+    return;
+  }
+
+  const host = env['AGENT_LOOM_HOST'] ?? '127.0.0.1';
+  const port = env['AGENT_LOOM_PORT'] ?? '8000';
+  const healthUrl = `http://${host}:${port}/healthz`;
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (!isProcessRunning(pid)) {
+      throw new CliUsageError('Daemon process exited before it became ready');
+    }
+    try {
+      const response = await fetch(healthUrl, {
+        headers: { authorization: `Bearer ${apiKey}` },
+      });
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // The process can be alive before Bun.serve starts listening.
+    }
+    await delay(100);
+  }
+  throw new CliUsageError(`Daemon did not become healthy at ${healthUrl}`);
+}
+
+async function terminateProcess(pid: number, timeoutMs: number): Promise<void> {
+  if (!isProcessRunning(pid)) {
+    return;
+  }
+  if (!signalProcess(pid, 'SIGTERM')) {
+    return;
+  }
+  if (await waitForProcessExit(pid, timeoutMs)) {
+    return;
+  }
+  if (!signalProcess(pid, 'SIGKILL')) {
+    return;
+  }
+  if (!(await waitForProcessExit(pid, 2000))) {
+    throw new CliUsageError(`Daemon process ${pid} did not exit`);
+  }
+}
+
+function signalProcess(pid: number, signal: NodeJS.Signals): boolean {
+  try {
+    process.kill(pid, signal);
+    return true;
+  } catch (error) {
+    if (isSystemError(error) && error.code === 'ESRCH') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function terminateDaemonAfterStartupFailure(pid: number): Promise<void> {
+  if (!isProcessRunning(pid)) {
+    return;
+  }
+  try {
+    await terminateProcess(pid, 2000);
+  } catch (cleanupError) {
+    process.stderr.write(
+      `Warning: failed to terminate daemon process ${pid} after startup failure: ${errorMessage(cleanupError)}\n`,
+    );
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessRunning(pid)) {
+      return true;
+    }
+    await delay(100);
+  }
+  return !isProcessRunning(pid);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function readPid(pidPath: string): Promise<number | undefined> {

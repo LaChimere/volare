@@ -35,9 +35,11 @@ export class ShutdownController implements ShutdownControllerInterface {
 
   async #shutdown(): Promise<ShutdownResultInterface> {
     await this.#server.stop(false);
-    const result = await this.#stateStore.recoverStartupState();
-    await this.#server.stop(true);
-    return result;
+    try {
+      return await this.#stateStore.recoverStartupState();
+    } finally {
+      await this.#server.stop(true);
+    }
   }
 
   get started(): boolean {

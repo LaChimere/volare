@@ -175,6 +175,19 @@ describe('SQLiteEventJournal', () => {
     ).toEqual([{ redacted_raw_json: null }]);
   });
 
+  test('does not mask redaction failures when the security marker cannot be persisted', async () => {
+    const { database } = createFixture();
+    const journal = new SQLiteEventJournal(database, new FailingRedactor());
+
+    await expect(
+      journal.append({
+        turnId: 'turn_missing',
+        kind: 'northbound',
+        redactedRawJson: { prompt: 'unredacted secret' },
+      }),
+    ).rejects.toThrow('Redaction failed before journal persistence');
+  });
+
   test('prunes only whole terminal-turn journals and leaves replay tombstones', async () => {
     const { store, journal } = createFixture();
     const { turn: terminalTurn } = await createTurn(store);

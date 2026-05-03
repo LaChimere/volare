@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-import { AgentLoomError } from '../core/errors';
+import { AgentLoomError, toAgentLoomError } from '../core/errors';
 import { createId } from '../core/ids';
 import type {
   AgentEvent,
@@ -46,7 +46,6 @@ export class SQLiteEventJournal implements EventJournalInterface {
       redacted = this.#redactEvent(event);
     } catch (error) {
       if (error instanceof RedactionFailedError) {
-        insertSecurityRedactionFailure(this.database, event.turnId, now);
         this.#logger.error(
           {
             event: 'journal.redaction_failed',
@@ -56,6 +55,21 @@ export class SQLiteEventJournal implements EventJournalInterface {
           },
           'journal event redaction failed',
         );
+        try {
+          insertSecurityRedactionFailure(this.database, event.turnId, now);
+        } catch (markerError) {
+          const markerAgentError = toAgentLoomError(markerError);
+          this.#logger.error(
+            {
+              event: 'journal.redaction_marker_failed',
+              turnId: event.turnId,
+              kind: event.kind,
+              errorCode: markerAgentError.code,
+              error: markerAgentError,
+            },
+            'journal redaction failure marker could not be persisted',
+          );
+        }
       }
       throw error;
     }

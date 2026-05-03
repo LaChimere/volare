@@ -188,7 +188,8 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
               { previousResponseId: context.previousResponseId ?? null },
             ),
           });
-          break;
+          yield encoder.encode('data: [DONE]\n\n');
+          return;
         case 'turn.failed':
           if (textStarted) {
             yield encodeSse({
@@ -215,7 +216,8 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
               usage: ZERO_USAGE,
             },
           });
-          break;
+          yield encoder.encode('data: [DONE]\n\n');
+          return;
         case 'turn.cancelled':
         case 'turn.interrupted':
           if (textStarted) {
@@ -243,7 +245,8 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
               usage: ZERO_USAGE,
             },
           });
-          break;
+          yield encoder.encode('data: [DONE]\n\n');
+          return;
         default:
           break;
       }

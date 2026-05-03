@@ -132,7 +132,7 @@ export function createApp(dependencies: AppDependenciesInterface): {
         }
 
         if (request.method === 'POST' && url.pathname === '/openai/v1/responses') {
-          const body = await request.json();
+          const body = await parseJsonBody(request);
           const northboundRequest = {
             transport: 'http' as const,
             method: request.method,
@@ -313,6 +313,14 @@ export function createApp(dependencies: AppDependenciesInterface): {
       }
     },
   };
+}
+
+async function parseJsonBody(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch (cause) {
+    throw new AgentLoomError('invalid_request', 'Malformed JSON body', { cause });
+  }
 }
 
 async function* journalCanonicalEvents(

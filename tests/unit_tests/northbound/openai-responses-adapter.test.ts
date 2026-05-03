@@ -422,6 +422,31 @@ describe('OpenAIResponsesAdapter', () => {
     });
     expect(failed[6]).toBe('[DONE]');
   });
+
+  test('stops encoding after the first terminal stream event', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+    const encoded = await collectSse(
+      adapter.encodeStream(
+        (async function* () {
+          yield { type: 'turn.succeeded' as const, turnId: 'turn_1' };
+          yield { type: 'text.delta' as const, turnId: 'turn_1', delta: 'late' };
+          yield { type: 'turn.failed' as const, turnId: 'turn_1', error: 'late failure' };
+        })(),
+        {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          externalResponseId: 'resp_terminal',
+          previousResponseId: null,
+        },
+      ),
+    );
+
+    expect(
+      encoded.map((event) =>
+        typeof event === 'string' ? event : (event as { type?: string }).type,
+      ),
+    ).toEqual(['response.created', 'response.in_progress', 'response.completed', '[DONE]']);
+  });
 });
 
 async function collectSse(chunks: AsyncIterable<Uint8Array>): Promise<unknown[]> {

@@ -198,6 +198,24 @@ describe('SQLiteStateStore', () => {
     });
   });
 
+  test('fails approval JSON corruption with a typed state error', async () => {
+    const store = createStore();
+    const { session, turn } = await createTurnFixture(store);
+    const approval = await store.createApproval({
+      turnId: turn.id,
+      bridgeSessionId: session.bridgeSessionId,
+      request: { action: 'shell:exec', scope: { command: 'bun test' } },
+      timeoutAt: 1234,
+    });
+    store.database
+      .query('UPDATE approvals SET redacted_request_json = ? WHERE id = ?')
+      .run('{bad json', approval.id);
+
+    await expect(store.getApproval(approval.id)).rejects.toMatchObject({
+      code: 'state_decode_failed',
+    });
+  });
+
   test('rolls back approval resolution when journal insertion fails', async () => {
     const store = createStore();
     const { session, turn } = await createTurnFixture(store);

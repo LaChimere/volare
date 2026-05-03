@@ -40,12 +40,36 @@ describe('ShutdownController', () => {
       status: 'abandoned',
     });
   });
+
+  test('force-stops the server when state recovery fails', async () => {
+    const server = new FakeServer();
+    const shutdown = new ShutdownController({
+      server,
+      stateStore: createFailingRecoveryStore(),
+    });
+
+    await expect(shutdown.shutdown()).rejects.toThrow('recovery failed');
+
+    expect(server.stopCalls).toEqual([false, true]);
+  });
 });
+
+function createFailingRecoveryStore(): SQLiteStateStore {
+  const database = new Database(':memory:');
+  migrate(database);
+  return new FailingRecoveryStore(database);
+}
 
 class FakeServer {
   readonly stopCalls: boolean[] = [];
 
   stop(force = false): void {
     this.stopCalls.push(force);
+  }
+}
+
+class FailingRecoveryStore extends SQLiteStateStore {
+  override async recoverStartupState(): Promise<never> {
+    throw new Error('recovery failed');
   }
 }
