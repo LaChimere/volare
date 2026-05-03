@@ -68,7 +68,9 @@ Copilot CLI is invoked with the configured permission mode. By default, Agent Lo
 copilot --no-color --no-custom-instructions --disable-builtin-mcps --allow-all-urls --log-level error --stream on --output-format json --prompt <prompt>
 ```
 
-Set `AGENT_LOOM_COPILOT_PERMISSION_MODE=restricted` to restore the old no-grants behavior, or `AGENT_LOOM_COPILOT_PERMISSION_MODE=full` to pass Copilot CLI `--allow-all` in a trusted local environment. Codex UI/Desktop "Full access" controls Codex client tools; it is not automatically forwarded through the Responses API to the Copilot CLI subprocess.
+Set `AGENT_LOOM_COPILOT_PERMISSION_MODE=restricted` to restore the old no-grants behavior, or `AGENT_LOOM_COPILOT_PERMISSION_MODE=full` to pass Copilot CLI `--allow-all` in a trusted local environment. The same setting is available as `agent-loom start --copilot-permission-mode <restricted|web|full>`.
+
+Codex UI/Desktop "Full access" controls Codex client tools; it is not automatically forwarded through the Responses API to the Copilot CLI subprocess. Use Agent Loom's `full` mode when you intentionally want the Copilot CLI subprocess to have URL, shell/tool, and path grants too.
 
 Agent Loom observes stdout/stderr and process lifecycle but does not broker individual Copilot CLI internal tools as OpenAI Responses tool calls. Full Codex client-executed tool calls require a future bridge-owned tool-call broker.
 

@@ -245,6 +245,13 @@ function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
       index = parsed.index;
       continue;
     }
+    if (arg === '--copilot-permission-mode' || arg.startsWith('--copilot-permission-mode=')) {
+      const parsed = readFlagValue(args, index, '--copilot-permission-mode');
+      env.AGENT_LOOM_COPILOT_PERMISSION_MODE = parsed.value;
+      daemonArgs.push('--copilot-permission-mode', parsed.value);
+      index = parsed.index;
+      continue;
+    }
     throw new CliUsageError(`Unknown start option: ${arg}`);
   }
 
@@ -587,6 +594,8 @@ Start options:
       --projectless-workspace-root <path>
                                         Set AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT
       --log-level <level>              Set AGENT_LOOM_LOG_LEVEL
+      --copilot-permission-mode <mode> Set AGENT_LOOM_COPILOT_PERMISSION_MODE
+                                        (restricted, web, or full)
 
 Config options:
       --config, --config-path <path>   Codex config path

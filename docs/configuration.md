@@ -52,6 +52,7 @@ Common `start` flags:
 | `--workspace-root <path>` | `AGENT_LOOM_WORKSPACE_ROOT` |
 | `--projectless-workspace-root <path>` | `AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT` |
 | `--log-level <level>` | `AGENT_LOOM_LOG_LEVEL` |
+| `--copilot-permission-mode <mode>` | `AGENT_LOOM_COPILOT_PERMISSION_MODE` |
 | `-d`, `--daemon` | Starts a background daemon. |
 
 ## Daemon paths

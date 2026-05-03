@@ -72,6 +72,7 @@ describe('Agent Loom CLI', () => {
         '--projectless-workspace-root=/tmp/projectless',
         '--log-level',
         'debug',
+        '--copilot-permission-mode=full',
       ]),
     ).toEqual({
       type: 'start',
@@ -83,6 +84,7 @@ describe('Agent Loom CLI', () => {
         AGENT_LOOM_WORKSPACE_ROOT: '/tmp/workspace',
         AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: '/tmp/projectless',
         AGENT_LOOM_LOG_LEVEL: 'debug',
+        AGENT_LOOM_COPILOT_PERMISSION_MODE: 'full',
       },
       daemonArgs: [
         'start',
@@ -98,6 +100,8 @@ describe('Agent Loom CLI', () => {
         '/tmp/projectless',
         '--log-level',
         'debug',
+        '--copilot-permission-mode',
+        'full',
       ],
     });
   });
@@ -141,7 +145,7 @@ describe('Agent Loom CLI', () => {
     const { io, stdout } = memoryIo();
     const calls: unknown[] = [];
     const exitCode = await runCli(
-      ['start', '--daemon', '--port', '8765'],
+      ['start', '--daemon', '--port', '8765', '--copilot-permission-mode', 'web'],
       testDependencies({
         startDaemon: async (command) => {
           calls.push(command);
@@ -160,8 +164,8 @@ describe('Agent Loom CLI', () => {
     expect(calls[0]).toMatchObject({
       type: 'start',
       daemon: true,
-      env: { AGENT_LOOM_PORT: '8765' },
-      daemonArgs: ['start', '--port', '8765'],
+      env: { AGENT_LOOM_PORT: '8765', AGENT_LOOM_COPILOT_PERMISSION_MODE: 'web' },
+      daemonArgs: ['start', '--port', '8765', '--copilot-permission-mode', 'web'],
     });
     expect(stdout.text()).toContain('Agent Loom daemon started (pid 4242)');
   });

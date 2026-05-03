@@ -315,10 +315,23 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
       expect(restrictedArgs).not.toContain('--allow-all-urls');
       expect(restrictedArgs).not.toContain('--allow-all');
 
+      const web = new BunCopilotPromptRunner(undefined, bin, 'web');
+      const webChunks: string[] = [];
+      for await (const chunk of web.run('hello', {
+        backendSessionId: 'backend_session_2',
+        cwd: workspace,
+      })) {
+        webChunks.push(chunk);
+      }
+      expect(webChunks).toEqual(['ok']);
+      const webArgs = (await readFile(path.join(workspace, 'args.txt'), 'utf8')).split(/\r?\n/);
+      expect(webArgs).toContain('--allow-all-urls');
+      expect(webArgs).not.toContain('--allow-all');
+
       const full = new BunCopilotPromptRunner(undefined, bin, 'full');
       const fullChunks: string[] = [];
       for await (const chunk of full.run('hello', {
-        backendSessionId: 'backend_session_2',
+        backendSessionId: 'backend_session_3',
         cwd: workspace,
       })) {
         fullChunks.push(chunk);
