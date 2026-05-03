@@ -1,10 +1,11 @@
-import { DefaultApprovalPolicy } from '../approvals/policy';
-import { ApprovalProvider } from '../approvals/provider';
-import { MockBackend } from '../backends/mock/backend';
-import { DurableSessionManager } from '../core/durable-session-manager';
 import { AgentLoomError, toAgentLoomError } from '../core/errors';
-import { InMemorySessionManager } from '../core/in-memory-session-manager';
-import type { AgentEvent, IEventJournal, ISessionManager, IStateStore } from '../core/types';
+import type {
+  AgentEvent,
+  IEventJournal,
+  ISessionManager,
+  IStateStore,
+  IWorkspaceResolver,
+} from '../core/types';
 import { WorkspaceResolver } from '../core/workspace-resolver';
 import { type ILogFields, type ILogger, NoopLogger } from '../logging/logger';
 import {
@@ -18,7 +19,7 @@ import type { IServerRuntimeConfig } from './config';
 export interface IAppDependencies {
   config: IServerRuntimeConfig;
   adapter?: OpenAIResponsesAdapter;
-  workspaceResolver?: WorkspaceResolver;
+  workspaceResolver?: IWorkspaceResolver;
   sessionManager?: ISessionManager;
   stateStore?: IStateStore;
   eventJournal?: IEventJournal;
@@ -38,21 +39,7 @@ export function createApp(dependencies: IAppDependencies): {
     dependencies.workspaceResolver ?? new WorkspaceResolver({ logger: baseLogger });
   const startedAt = Date.now();
   let requestsTotal = 0;
-  let sessionManager =
-    dependencies.sessionManager ??
-    (stateStore
-      ? new DurableSessionManager({
-          store: stateStore,
-          backend: new MockBackend(),
-          approvalProvider: new ApprovalProvider({
-            store: stateStore,
-            policy: new DefaultApprovalPolicy({ timeoutMs: dependencies.config.approvalTimeoutMs }),
-            logger: baseLogger,
-          }),
-          cancelTimeoutMs: dependencies.config.cancelTimeoutMs,
-          logger: baseLogger,
-        })
-      : undefined);
+  const sessionManager = dependencies.sessionManager;
 
   return {
     async fetch(request: Request): Promise<Response> {
@@ -154,13 +141,13 @@ export function createApp(dependencies: IAppDependencies): {
             },
             'workspace selected',
           );
-          if (!sessionManager) {
-            sessionManager = new InMemorySessionManager({ workspace: persistedWorkspace });
-          }
           const input = await adapter.parseRequest(northboundRequest, {
             workspaceId: persistedWorkspace.id,
             requestId,
           });
+          if (!sessionManager) {
+            throw new AgentLoomError('internal_error', 'Session manager is not configured');
+          }
           const resolved = await sessionManager.startTurn(input, {
             workspaceId: persistedWorkspace.id,
             requestId,

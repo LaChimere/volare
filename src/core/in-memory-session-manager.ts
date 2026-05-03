@@ -1,4 +1,3 @@
-import { MockBackend } from '../backends/mock/backend';
 import { AgentLoomError } from './errors';
 import { createId } from './ids';
 import type {
@@ -20,8 +19,8 @@ export class InMemorySessionManager implements ISessionManager {
   readonly #turns = new Map<string, ITurnRecord>();
   readonly #events = new Map<string, AgentEvent[]>();
 
-  constructor(options: { backend?: IAgentBackend; workspace: IWorkspace }) {
-    this.#backend = options.backend ?? new MockBackend();
+  constructor(options: { backend: IAgentBackend; workspace: IWorkspace }) {
+    this.#backend = options.backend;
     this.#workspace = options.workspace;
   }
 

@@ -8,8 +8,8 @@ import type {
   ICancelResult,
   ICreateSessionOptions,
   IWorkspace,
-} from '../../core/types';
-import { createEstimatedUsage } from '../../core/usage';
+} from '../../../src/core/types';
+import { createEstimatedUsage } from '../../../src/core/usage';
 
 export class MockBackend implements IAgentBackend {
   readonly name = 'mock';

@@ -1,12 +1,18 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { mkdir, realpath } from 'node:fs/promises';
+import { DefaultApprovalPolicy } from '../../../src/approvals/policy';
+import { ApprovalProvider } from '../../../src/approvals/provider';
+import { DurableSessionManager } from '../../../src/core/durable-session-manager';
+import { InMemorySessionManager } from '../../../src/core/in-memory-session-manager';
+import type { IWorkspace, IWorkspaceResolver } from '../../../src/core/types';
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
 import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
-import { createApp } from '../../../src/server/app';
+import { createApp, type IAppDependencies } from '../../../src/server/app';
 import { createServerRuntimeConfig } from '../../../src/server/config';
 import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
+import { MockBackend } from '../../support/backends/mock-backend';
 
 const config = createServerRuntimeConfig({
   AGENT_LOOM_API_KEY: '0123456789abcdef',
@@ -33,6 +39,45 @@ async function getProjectlessWorkspace(store: SQLiteStateStore) {
   await mkdir(config.projectlessWorkspaceRoot, { recursive: true });
   return await store.getOrCreateWorkspace({
     rootPath: await realpath(config.projectlessWorkspaceRoot),
+  });
+}
+
+function createInMemoryApp(overrides: Partial<IAppDependencies> = {}) {
+  const workspace: IWorkspace = {
+    id: 'workspace_test',
+    rootPath: process.cwd(),
+  };
+  const workspaceResolver: IWorkspaceResolver = {
+    async resolve() {
+      return workspace;
+    },
+  };
+
+  return createApp({
+    config,
+    workspaceResolver,
+    sessionManager: new InMemorySessionManager({
+      backend: new MockBackend(),
+      workspace,
+    }),
+    ...overrides,
+  });
+}
+
+function createDurableApp(stateStore: SQLiteStateStore, overrides: Partial<IAppDependencies> = {}) {
+  return createApp({
+    config,
+    stateStore,
+    sessionManager: new DurableSessionManager({
+      store: stateStore,
+      backend: new MockBackend({ persistentSessions: true }),
+      approvalProvider: new ApprovalProvider({
+        store: stateStore,
+        policy: new DefaultApprovalPolicy({ timeoutMs: config.approvalTimeoutMs }),
+      }),
+      cancelTimeoutMs: config.cancelTimeoutMs,
+    }),
+    ...overrides,
   });
 }
 
@@ -151,6 +196,28 @@ describe('server app', () => {
     });
   });
 
+  test('fails response creation when no session manager is configured', async () => {
+    const app = createApp({ config });
+
+    const response = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'hello',
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        type: 'internal_error',
+        message: 'Session manager is not configured',
+      },
+    });
+  });
+
   test('serves a Codex-compatible models route', async () => {
     const app = createApp({ config });
 
@@ -222,7 +289,7 @@ describe('server app', () => {
   });
 
   test('streams a text response and serves a stored response snapshot', async () => {
-    const app = createApp({ config });
+    const app = createInMemoryApp();
 
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
@@ -252,7 +319,7 @@ describe('server app', () => {
   });
 
   test('serves a non-terminal response snapshot without blocking', async () => {
-    const app = createApp({ config, disconnectGraceMs: 0 });
+    const app = createInMemoryApp({ disconnectGraceMs: 0 });
 
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
@@ -281,7 +348,7 @@ describe('server app', () => {
   });
 
   test('cancels an in-progress response by response id', async () => {
-    const app = createApp({ config, disconnectGraceMs: 0 });
+    const app = createInMemoryApp({ disconnectGraceMs: 0 });
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
         method: 'POST',
@@ -315,7 +382,7 @@ describe('server app', () => {
   });
 
   test('rejects unauthenticated and missing response cancellations', async () => {
-    const app = createApp({ config });
+    const app = createInMemoryApp();
 
     const unauthenticated = await app.fetch(
       new Request('http://127.0.0.1:8000/openai/v1/responses/resp_missing/cancel', {
@@ -331,7 +398,7 @@ describe('server app', () => {
   });
 
   test('returns already-terminal responses from cancel without changing completion', async () => {
-    const app = createApp({ config });
+    const app = createInMemoryApp();
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
         method: 'POST',
@@ -358,7 +425,7 @@ describe('server app', () => {
   });
 
   test('cancels an in-progress response when the SSE stream disconnects', async () => {
-    const app = createApp({ config, disconnectGraceMs: 10 });
+    const app = createInMemoryApp({ disconnectGraceMs: 10 });
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
         method: 'POST',
@@ -390,7 +457,7 @@ describe('server app', () => {
   });
 
   test('fails previous_response_id explicitly until durable state lands', async () => {
-    const app = createApp({ config });
+    const app = createInMemoryApp();
 
     const response = await app.fetch(
       request('/openai/v1/responses', {
@@ -415,7 +482,7 @@ describe('server app', () => {
   test('continues durable responses through previous_response_id on the same backend session', async () => {
     const stateStore = createStateStore();
     const workspace = await getProjectlessWorkspace(stateStore);
-    const app = createApp({ config, stateStore });
+    const app = createDurableApp(stateStore);
 
     const firstResponse = await app.fetch(
       request('/openai/v1/responses', {
@@ -481,7 +548,7 @@ describe('server app', () => {
   test('journals streamed canonical events for debug replay', async () => {
     const stateStore = createStateStore();
     const eventJournal = new SQLiteEventJournal(stateStore.database);
-    const app = createApp({ config, stateStore, eventJournal });
+    const app = createDurableApp(stateStore, { eventJournal });
 
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
@@ -511,7 +578,7 @@ describe('server app', () => {
   });
 
   test('fails missing durable parents explicitly', async () => {
-    const app = createApp({ config, stateStore: createStateStore() });
+    const app = createDurableApp(createStateStore());
 
     const response = await app.fetch(
       request('/openai/v1/responses', {
@@ -554,7 +621,7 @@ describe('server app', () => {
       threadId: thread.id,
       turnId: turn.id,
     });
-    const app = createApp({ config, stateStore });
+    const app = createDurableApp(stateStore);
 
     const response = await app.fetch(
       request('/openai/v1/responses', {
@@ -577,7 +644,7 @@ describe('server app', () => {
   });
 
   test('accepts Codex request tool metadata without requiring tool-call execution', async () => {
-    const app = createApp({ config });
+    const app = createInMemoryApp();
 
     const response = await app.fetch(
       request('/openai/v1/responses', {

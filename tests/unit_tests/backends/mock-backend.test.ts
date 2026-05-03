@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
-import { MockBackend } from '../../../src/backends/mock/backend';
 import type { AgentEvent, IAgentRequest, IWorkspace } from '../../../src/core/types';
+import { MockBackend } from '../../support/backends/mock-backend';
 
 async function collectEvents(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
   const collected: AgentEvent[] = [];

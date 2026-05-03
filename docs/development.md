@@ -8,7 +8,6 @@ Agent Loom is a Bun/TypeScript project. Use Bun for dependency management, scrip
 src/
   approvals/                  approval policy/provider
   backends/copilot-cli/        Copilot CLI backend process integration
-  backends/mock/               deterministic test backend
   core/                        protocol-neutral runtime types and session logic
   events/                      journal persistence and redaction
   logging/                     structured logger abstraction
@@ -17,7 +16,7 @@ src/
   server/                      HTTP app, auth, config, shutdown
   state/                       SQLite migrations and state store
 scripts/                      local helper scripts
-tests/                        unit and integration tests
+tests/                        unit and integration tests plus test-only helpers
 docs/                         project documentation
 plans/                        goal/plan history
 ```
