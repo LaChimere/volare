@@ -97,6 +97,14 @@ export interface AgentOutputInterface {
   metadata?: Record<string, unknown>;
 }
 
+export interface AgentUsageInterface {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  estimated: boolean;
+  source?: string;
+}
+
 export type AgentEvent =
   | { type: 'turn.created'; turnId: TurnId; emittedAt?: number }
   | { type: 'text.delta'; turnId: TurnId; delta: string; emittedAt?: number }
@@ -127,7 +135,7 @@ export type AgentEvent =
       type: 'turn.succeeded';
       turnId: TurnId;
       output?: AgentOutputInterface;
-      usage?: unknown;
+      usage?: AgentUsageInterface;
       emittedAt?: number;
     }
   | { type: 'turn.failed'; turnId: TurnId; error: unknown; emittedAt?: number }
@@ -294,6 +302,7 @@ export interface ResponseContextInterface {
   threadId: ThreadId;
   externalResponseId?: string;
   previousResponseId?: string | null;
+  requestInput?: AgentInputInterface;
 }
 
 export interface AgentRequestInputInterface {

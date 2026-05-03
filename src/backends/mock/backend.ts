@@ -9,6 +9,7 @@ import type {
   CreateSessionOptionsInterface,
   WorkspaceInterface,
 } from '../../core/types';
+import { createEstimatedUsage } from '../../core/usage';
 
 export class MockBackend implements AgentBackendInterface {
   readonly name = 'mock';
@@ -71,6 +72,7 @@ export class MockBackend implements AgentBackendInterface {
       type: 'turn.succeeded',
       turnId: request.turnId,
       output: { text: request.input.message },
+      usage: createEstimatedUsage(request.input.message, request.input.message),
     };
   }
 

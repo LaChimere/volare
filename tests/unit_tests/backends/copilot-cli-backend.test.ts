@@ -79,14 +79,22 @@ describe('CopilotCliBackend', () => {
         }),
       );
 
-      expect(events).toEqual([
-        { type: 'text.delta', turnId: 'turn_1', delta: 'copilot:User request:\nhello' },
-        {
-          type: 'turn.succeeded',
-          turnId: 'turn_1',
-          output: { text: 'copilot:User request:\nhello' },
+      expect(events[0]).toEqual({
+        type: 'text.delta',
+        turnId: 'turn_1',
+        delta: 'copilot:User request:\nhello',
+      });
+      expect(events[1]).toMatchObject({
+        type: 'turn.succeeded',
+        turnId: 'turn_1',
+        output: { text: 'copilot:User request:\nhello' },
+        usage: {
+          inputTokens: 5,
+          outputTokens: 7,
+          totalTokens: 12,
+          estimated: true,
         },
-      ]);
+      });
       expect(runner.lastOptions).toMatchObject({
         backendSessionId: session.backendSessionId,
         cwd: workspace.rootPath,

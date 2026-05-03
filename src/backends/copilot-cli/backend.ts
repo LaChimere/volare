@@ -12,6 +12,7 @@ import type {
   CreateSessionOptionsInterface,
   WorkspaceInterface,
 } from '../../core/types';
+import { createEstimatedUsage } from '../../core/usage';
 import { type LoggerInterface, NoopLogger } from '../../logging/logger';
 import {
   createProcessIdentity,
@@ -129,6 +130,7 @@ export class CopilotCliBackend implements AgentBackendInterface {
     }
 
     let text = '';
+    const promptText = formatCopilotPrompt(request.input);
     const startedAt = Date.now();
     const logger = this.#logger.child({
       backendSessionId: session.backendSessionId,
@@ -138,7 +140,7 @@ export class CopilotCliBackend implements AgentBackendInterface {
     });
     logger.info({ event: 'backend.turn.started' }, 'backend turn started');
     try {
-      for await (const delta of this.#runner.run(formatCopilotPrompt(request.input), {
+      for await (const delta of this.#runner.run(promptText, {
         backendSessionId: session.backendSessionId,
         cwd,
         ...(signal ? { signal } : {}),
@@ -176,6 +178,7 @@ export class CopilotCliBackend implements AgentBackendInterface {
       type: 'turn.succeeded',
       turnId: request.turnId,
       output: { text },
+      usage: createEstimatedUsage(promptText, text),
     };
   }
 

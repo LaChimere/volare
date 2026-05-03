@@ -193,6 +193,7 @@ export function createApp(dependencies: AppDependenciesInterface): {
                 threadId: resolved.thread.id,
                 externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
                 previousResponseId: input.clientRef?.parentExternalId ?? null,
+                requestInput: input.input,
               },
             ),
             async () => {

@@ -4,6 +4,7 @@ import type {
   AgentEvent,
   AgentLoomErrorInterface,
   AgentRequestInputInterface,
+  AgentUsageInterface,
   NorthboundAdapterInterface,
   NorthboundCapabilitiesInterface,
   NorthboundRequestInterface,
@@ -13,13 +14,13 @@ import type {
   TurnRecordInterface,
   WorkspaceHintsInterface,
 } from '../../core/types';
+import {
+  createEstimatedUsageFromTokens,
+  estimateAgentInputTokens,
+  estimateTextTokens,
+} from '../../core/usage';
 
 const encoder = new TextEncoder();
-const ZERO_USAGE = {
-  input_tokens: 0,
-  output_tokens: 0,
-  total_tokens: 0,
-};
 
 export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
   readonly protocol = 'openai-responses-v1';
@@ -213,7 +214,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
               object: 'response',
               status: 'failed',
               error: toResponseError(event.error),
-              usage: ZERO_USAGE,
+              usage: usageForStream(event, context, text),
             },
           });
           yield encoder.encode('data: [DONE]\n\n');
@@ -242,7 +243,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
               object: 'response',
               status: 'incomplete',
               incomplete_details: { reason: incompleteReason(event) },
-              usage: ZERO_USAGE,
+              usage: usageForStream(event, context, text),
             },
           });
           yield encoder.encode('data: [DONE]\n\n');
@@ -287,7 +288,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
       output,
       error: errorFromEvents(events),
       incomplete_details: incompleteDetailsFromEvents(events),
-      usage: usageFromEvents(events),
+      usage: usageFromEvents(events, text),
       previous_response_id: options.previousResponseId ?? null,
     };
   }
@@ -518,12 +519,44 @@ function incompleteReason(
   return 'cancelled';
 }
 
-function usageFromEvents(events: AgentEvent[]): unknown {
+function usageFromEvents(events: AgentEvent[], outputText: string): unknown {
   const succeeded = events.find(
     (event): event is Extract<AgentEvent, { type: 'turn.succeeded' }> =>
       event.type === 'turn.succeeded',
   );
-  return succeeded?.usage ?? ZERO_USAGE;
+  return succeeded?.usage
+    ? toResponsesUsage(succeeded.usage)
+    : toResponsesUsage(createEstimatedUsageFromTokens(0, estimateTextTokens(outputText)));
+}
+
+function usageForStream(
+  event:
+    | Extract<AgentEvent, { type: 'turn.succeeded' }>
+    | Extract<AgentEvent, { type: 'turn.failed' }>
+    | Extract<AgentEvent, { type: 'turn.cancelled' }>
+    | Extract<AgentEvent, { type: 'turn.interrupted' }>,
+  context: ResponseContextInterface,
+  outputText: string,
+): unknown {
+  if (event.type === 'turn.succeeded' && event.usage) {
+    return toResponsesUsage(event.usage);
+  }
+  return toResponsesUsage(
+    createEstimatedUsageFromTokens(
+      context.requestInput ? estimateAgentInputTokens(context.requestInput) : 0,
+      estimateTextTokens(outputText),
+    ),
+  );
+}
+
+function toResponsesUsage(usage: AgentUsageInterface): unknown {
+  return {
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+    total_tokens: usage.totalTokens,
+    input_tokens_details: { cached_tokens: 0 },
+    output_tokens_details: { reasoning_tokens: 0 },
+  };
 }
 
 function statusForErrorCode(code: string): number {

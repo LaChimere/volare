@@ -51,10 +51,18 @@ describe('MockBackend', () => {
 
     const events = await collectEvents(backend.send(session, request));
 
-    expect(events).toEqual([
-      { type: 'text.delta', turnId: 'turn_1', delta: 'hello' },
-      { type: 'turn.succeeded', turnId: 'turn_1', output: { text: 'hello' } },
-    ]);
+    expect(events[0]).toEqual({ type: 'text.delta', turnId: 'turn_1', delta: 'hello' });
+    expect(events[1]).toMatchObject({
+      type: 'turn.succeeded',
+      turnId: 'turn_1',
+      output: { text: 'hello' },
+      usage: {
+        inputTokens: 2,
+        outputTokens: 2,
+        totalTokens: 4,
+        estimated: true,
+      },
+    });
   });
 
   test('fails closed on workspace or thread mismatch', async () => {

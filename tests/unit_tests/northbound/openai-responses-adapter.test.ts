@@ -192,8 +192,8 @@ describe('OpenAIResponsesAdapter', () => {
       output: [{ content: [{ text: 'hello' }] }],
       usage: {
         input_tokens: 0,
-        output_tokens: 0,
-        total_tokens: 0,
+        output_tokens: 2,
+        total_tokens: 2,
       },
     });
 
@@ -219,8 +219,8 @@ describe('OpenAIResponsesAdapter', () => {
       output: [{ content: [{ text: 'done' }] }],
       usage: {
         input_tokens: 0,
-        output_tokens: 0,
-        total_tokens: 0,
+        output_tokens: 1,
+        total_tokens: 1,
       },
     });
   });
@@ -319,9 +319,56 @@ describe('OpenAIResponsesAdapter', () => {
         id: 'resp_golden',
         status: 'completed',
         output: [{ content: [{ text: 'hello' }] }],
+        usage: {
+          input_tokens: 0,
+          output_tokens: 2,
+          total_tokens: 2,
+        },
       },
     });
     expect(encoded[6]).toBe('[DONE]');
+  });
+
+  test('preserves backend-provided usage in completed stream events', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+    const encoded = await collectSse(
+      adapter.encodeStream(
+        (async function* () {
+          yield { type: 'text.delta' as const, turnId: 'turn_1', delta: 'done' };
+          yield {
+            type: 'turn.succeeded' as const,
+            turnId: 'turn_1',
+            output: { text: 'done' },
+            usage: {
+              inputTokens: 12,
+              outputTokens: 4,
+              totalTokens: 16,
+              estimated: true,
+              source: 'backend-estimate',
+            },
+          };
+        })(),
+        {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          externalResponseId: 'resp_usage',
+          previousResponseId: null,
+          requestInput: { message: 'ignored because backend usage wins' },
+        },
+      ),
+    );
+
+    expect(encoded[5]).toMatchObject({
+      type: 'response.completed',
+      response: {
+        id: 'resp_usage',
+        usage: {
+          input_tokens: 12,
+          output_tokens: 4,
+          total_tokens: 16,
+        },
+      },
+    });
   });
 
   test('encodes failed and interrupted terminal stream events', async () => {
@@ -336,6 +383,7 @@ describe('OpenAIResponsesAdapter', () => {
           threadId: 'thread_1',
           externalResponseId: 'resp_failed',
           previousResponseId: null,
+          requestInput: { message: 'please fail' },
         },
       ),
     );
@@ -349,6 +397,7 @@ describe('OpenAIResponsesAdapter', () => {
           threadId: 'thread_1',
           externalResponseId: 'resp_interrupted',
           previousResponseId: null,
+          requestInput: { message: 'please cancel' },
         },
       ),
     );
@@ -360,9 +409,9 @@ describe('OpenAIResponsesAdapter', () => {
         status: 'failed',
         error: { code: 'internal_error', message: 'boom' },
         usage: {
-          input_tokens: 0,
+          input_tokens: 3,
           output_tokens: 0,
-          total_tokens: 0,
+          total_tokens: 3,
         },
       },
     });
@@ -374,9 +423,9 @@ describe('OpenAIResponsesAdapter', () => {
         status: 'incomplete',
         incomplete_details: { reason: 'cancelled' },
         usage: {
-          input_tokens: 0,
+          input_tokens: 4,
           output_tokens: 0,
-          total_tokens: 0,
+          total_tokens: 4,
         },
       },
     });
