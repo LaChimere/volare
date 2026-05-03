@@ -246,11 +246,12 @@ export interface WorkspaceResolverInterface {
 export interface ServerConfigInterface {
   defaultWorkspaceRoot?: string;
   allowedWorkspaceRoots?: string[];
+  projectlessWorkspaceRoot?: string;
 }
 
 export interface WorkspaceHintsInterface {
   requestedRoot?: string;
-  source: 'server-config' | 'client-metadata' | 'process-cwd';
+  source: 'server-config' | 'client-metadata' | 'process-cwd' | 'projectless';
 }
 
 export interface NorthboundAdapterInterface {

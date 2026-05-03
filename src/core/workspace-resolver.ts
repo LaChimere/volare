@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises';
+import { mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { type LoggerInterface, NoopLogger } from '../logging/logger';
@@ -25,11 +25,19 @@ export class WorkspaceResolver implements WorkspaceResolverInterface {
     hints: WorkspaceHintsInterface,
     config: ServerConfigInterface,
   ): Promise<WorkspaceInterface> {
-    const requestedRoot = hints.requestedRoot ?? config.defaultWorkspaceRoot ?? process.cwd();
-    const rootPath = await this.#canonicalize(requestedRoot);
+    const projectless =
+      !hints.requestedRoot &&
+      (hints.source === 'process-cwd' || hints.source === 'projectless') &&
+      config.projectlessWorkspaceRoot !== undefined;
+    const requestedRoot =
+      hints.requestedRoot ??
+      (projectless ? config.projectlessWorkspaceRoot : undefined) ??
+      config.defaultWorkspaceRoot ??
+      process.cwd();
+    const rootPath = await this.#canonicalize(requestedRoot, { createIfMissing: projectless });
     const allowedRoots = await Promise.all(
-      (config.allowedWorkspaceRoots ?? [config.defaultWorkspaceRoot ?? process.cwd()]).map((root) =>
-        this.#canonicalize(root),
+      allowedRootCandidates(config).map((root) =>
+        this.#canonicalize(root, { createIfMissing: root === config.projectlessWorkspaceRoot }),
       ),
     );
 
@@ -37,7 +45,7 @@ export class WorkspaceResolver implements WorkspaceResolverInterface {
       this.#logger.warn(
         {
           event: 'workspace.resolve.forbidden',
-          workspaceId: `workspace_${hashPath(rootPath)}`,
+          workspaceKey: `workspace_${hashPath(rootPath)}`,
           requestedRootSource: sourceForRequestedRoot(hints, config),
           allowedRootCount: allowedRoots.length,
         },
@@ -52,8 +60,9 @@ export class WorkspaceResolver implements WorkspaceResolverInterface {
     this.#logger.info(
       {
         event: 'workspace.resolved',
-        workspaceId: `workspace_${hashPath(rootPath)}`,
+        workspaceKey: `workspace_${hashPath(rootPath)}`,
         requestedRootSource: sourceForRequestedRoot(hints, config),
+        projectless,
         allowedRootCount: allowedRoots.length,
       },
       'workspace resolved',
@@ -64,9 +73,13 @@ export class WorkspaceResolver implements WorkspaceResolverInterface {
     };
   }
 
-  async #canonicalize(root: string): Promise<string> {
+  async #canonicalize(root: string, options: { createIfMissing?: boolean } = {}): Promise<string> {
     try {
-      return await realpath(path.resolve(root));
+      const resolved = path.resolve(root);
+      if (options.createIfMissing) {
+        await mkdir(resolved, { recursive: true });
+      }
+      return await realpath(resolved);
     } catch (cause) {
       throw new AgentLoomError(
         'workspace_canonicalization_failed',
@@ -82,14 +95,32 @@ export class WorkspaceResolver implements WorkspaceResolverInterface {
 function sourceForRequestedRoot(
   hints: WorkspaceHintsInterface,
   config: ServerConfigInterface,
-): 'request' | 'config' | 'cwd' {
+): 'request' | 'projectless' | 'config' | 'cwd' {
   if (hints.requestedRoot) {
     return 'request';
+  }
+  if (
+    (hints.source === 'process-cwd' || hints.source === 'projectless') &&
+    config.projectlessWorkspaceRoot
+  ) {
+    return 'projectless';
   }
   if (config.defaultWorkspaceRoot) {
     return 'config';
   }
   return 'cwd';
+}
+
+function allowedRootCandidates(config: ServerConfigInterface): string[] {
+  if (config.allowedWorkspaceRoots) {
+    return config.projectlessWorkspaceRoot
+      ? [...config.allowedWorkspaceRoots, config.projectlessWorkspaceRoot]
+      : config.allowedWorkspaceRoots;
+  }
+  return [
+    config.defaultWorkspaceRoot ?? process.cwd(),
+    ...(config.projectlessWorkspaceRoot ? [config.projectlessWorkspaceRoot] : []),
+  ];
 }
 
 function isInsideOrEqual(candidate: string, allowedRoot: string): boolean {

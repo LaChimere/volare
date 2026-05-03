@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { AgentLoomError } from '../core/errors';
 import type { LogLevel } from '../logging/logger';
 
@@ -17,6 +19,7 @@ export interface ServerRuntimeConfigInterface {
   eventRetentionDays?: number;
   defaultWorkspaceRoot?: string;
   allowedWorkspaceRoots?: string[];
+  projectlessWorkspaceRoot: string;
 }
 
 export interface ServerRuntimeEnvInterface {
@@ -24,6 +27,7 @@ export interface ServerRuntimeEnvInterface {
   AGENT_LOOM_HOST: string | undefined;
   AGENT_LOOM_PORT: string | undefined;
   AGENT_LOOM_WORKSPACE_ROOT: string | undefined;
+  AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: string | undefined;
   AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: string | undefined;
   AGENT_LOOM_STATE_DB_PATH: string | undefined;
   AGENT_LOOM_CORS_MODE: string | undefined;
@@ -57,6 +61,11 @@ export function createServerRuntimeConfig(
     env.AGENT_LOOM_WORKSPACE_ROOT,
   );
   const allowedWorkspaceRoots = parseAllowedWorkspaceRoots(env.AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS);
+  const projectlessWorkspaceRoot =
+    parseWorkspaceRoot(
+      'AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT',
+      env.AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT,
+    ) ?? join(tmpdir(), 'al-projectless-workspace');
   const eventRetentionDays = optionalIntegerInRange(
     'AGENT_LOOM_EVENT_RETENTION_DAYS',
     env.AGENT_LOOM_EVENT_RETENTION_DAYS,
@@ -110,6 +119,7 @@ export function createServerRuntimeConfig(
     ...(eventRetentionDays ? { eventRetentionDays } : {}),
     ...(defaultWorkspaceRoot ? { defaultWorkspaceRoot } : {}),
     ...(allowedWorkspaceRoots ? { allowedWorkspaceRoots } : {}),
+    projectlessWorkspaceRoot,
   };
 }
 
@@ -119,6 +129,7 @@ function readServerRuntimeEnv(): ServerRuntimeEnvInterface {
     AGENT_LOOM_HOST: Bun.env['AGENT_LOOM_HOST'],
     AGENT_LOOM_PORT: Bun.env['AGENT_LOOM_PORT'],
     AGENT_LOOM_WORKSPACE_ROOT: Bun.env['AGENT_LOOM_WORKSPACE_ROOT'],
+    AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: Bun.env['AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT'],
     AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: Bun.env['AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS'],
     AGENT_LOOM_STATE_DB_PATH: Bun.env['AGENT_LOOM_STATE_DB_PATH'],
     AGENT_LOOM_CORS_MODE: Bun.env['AGENT_LOOM_CORS_MODE'],

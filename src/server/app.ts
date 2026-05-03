@@ -140,13 +140,25 @@ export function createApp(dependencies: AppDependenciesInterface): {
             headers: request.headers,
             body,
           };
-          const workspace = await workspaceResolver.resolve(
-            await adapter.extractWorkspaceHints(northboundRequest),
-            dependencies.config,
-          );
+          const workspaceHints = await adapter.extractWorkspaceHints(northboundRequest);
+          const workspace = await workspaceResolver.resolve(workspaceHints, dependencies.config);
           const persistedWorkspace = stateStore
             ? await stateStore.getOrCreateWorkspace({ rootPath: workspace.rootPath })
             : workspace;
+          logger.info(
+            {
+              event: 'workspace.selected',
+              requestId,
+              workspaceId: persistedWorkspace.id,
+              requestedRootSource: workspaceHints.source,
+              projectless:
+                !workspaceHints.requestedRoot &&
+                (workspaceHints.source === 'process-cwd' ||
+                  workspaceHints.source === 'projectless') &&
+                dependencies.config.projectlessWorkspaceRoot !== undefined,
+            },
+            'workspace selected',
+          );
           if (!sessionManager) {
             sessionManager = new InMemorySessionManager({ workspace: persistedWorkspace });
           }

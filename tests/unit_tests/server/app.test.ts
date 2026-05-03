@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
+import { mkdir, realpath } from 'node:fs/promises';
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
 import type {
   LogBindingsInterface,
@@ -30,6 +31,13 @@ function createStateStore(): SQLiteStateStore {
   const database = new Database(':memory:');
   migrate(database);
   return new SQLiteStateStore(database);
+}
+
+async function getProjectlessWorkspace(store: SQLiteStateStore) {
+  await mkdir(config.projectlessWorkspaceRoot, { recursive: true });
+  return await store.getOrCreateWorkspace({
+    rootPath: await realpath(config.projectlessWorkspaceRoot),
+  });
 }
 
 class CapturingLogger implements LoggerInterface {
@@ -391,7 +399,7 @@ describe('server app', () => {
 
   test('continues durable responses through previous_response_id on the same backend session', async () => {
     const stateStore = createStateStore();
-    const workspace = await stateStore.getOrCreateWorkspace({ rootPath: process.cwd() });
+    const workspace = await getProjectlessWorkspace(stateStore);
     const app = createApp({ config, stateStore });
 
     const firstResponse = await app.fetch(
@@ -512,7 +520,7 @@ describe('server app', () => {
 
   test('fails durable continuation when the backend session is lost', async () => {
     const stateStore = createStateStore();
-    const workspace = await stateStore.getOrCreateWorkspace({ rootPath: process.cwd() });
+    const workspace = await getProjectlessWorkspace(stateStore);
     const thread = await stateStore.createThread({ workspaceId: workspace.id });
     const session = await stateStore.reserveBackendSession({
       workspaceId: workspace.id,
@@ -617,6 +625,9 @@ describe('server app', () => {
     expect(() => createServerRuntimeConfig({ AGENT_LOOM_WORKSPACE_ROOT: '*' })).toThrow(
       'AGENT_LOOM_WORKSPACE_ROOT must be a concrete workspace path',
     );
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: '*' })).toThrow(
+      'AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT must be a concrete workspace path',
+    );
     expect(() => createServerRuntimeConfig({ AGENT_LOOM_PORT: '0' })).toThrow(
       'AGENT_LOOM_PORT must be an integer',
     );
@@ -642,6 +653,7 @@ describe('server app', () => {
         AGENT_LOOM_DISCONNECT_GRACE_MS: '5000',
         AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: '0',
         AGENT_LOOM_LOG_LEVEL: 'debug',
+        AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: '/tmp/neutralctx',
         AGENT_LOOM_MAX_ACTIVE_SESSIONS: '10',
         AGENT_LOOM_EVENT_RETENTION_DAYS: '30',
       }),
@@ -651,6 +663,7 @@ describe('server app', () => {
       disconnectGraceMs: 5000,
       httpIdleTimeoutSeconds: 0,
       logLevel: 'debug',
+      projectlessWorkspaceRoot: '/tmp/neutralctx',
       maxActiveSessions: 10,
       eventRetentionDays: 30,
     });
