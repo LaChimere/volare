@@ -9,5 +9,5 @@
 - `codex-tests`: Done. Covered Codex-like requests, streaming terminal shapes, models, full-history input, and cancellation-adjacent stored response behavior.
 - `review-and-verify`: Done. Ran checks/package and two review rounds; fixed material findings.
 - `codex-cli-l3`: Done. Validated real Codex CLI single-turn and `resume --last` against local Agent Loom.
-- `codex-desktop-l3`: Deferred. User narrowed validation to Codex CLI only for now.
+- `codex-desktop-l3`: Done for current scope. User narrowed validation to Codex CLI only for now, so Desktop validation is deferred out of this completion.
 - `docs-and-evidence`: Done. Updated README setup and goal evidence.
