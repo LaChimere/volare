@@ -79,22 +79,22 @@ describe('CopilotCliBackend', () => {
         }),
       );
 
-      expect(events[0]).toEqual({
+      expect(events[0]).toMatchObject({
         type: 'text.delta',
         turnId: 'turn_1',
-        delta: 'copilot:User request:\nhello',
+        delta: expect.stringContaining('User request:\nhello'),
       });
       expect(events[1]).toMatchObject({
         type: 'turn.succeeded',
         turnId: 'turn_1',
-        output: { text: 'copilot:User request:\nhello' },
+        output: { text: expect.stringContaining('User request:\nhello') },
         usage: {
-          inputTokens: 5,
-          outputTokens: 7,
-          totalTokens: 12,
           estimated: true,
         },
       });
+      expect(
+        (events[1] as Extract<AgentEvent, { type: 'turn.succeeded' }>).usage?.inputTokens,
+      ).toBeGreaterThan(5);
       expect(runner.lastOptions).toMatchObject({
         backendSessionId: session.backendSessionId,
         cwd: workspace.rootPath,
@@ -135,13 +135,52 @@ describe('CopilotCliBackend', () => {
         }),
       );
 
-      expect(runner.lastPrompt).toBe(
-        [
-          'System instructions:\nBe concise.',
-          'Conversation so far:\nuser: First request\n\nassistant: First answer',
-          'User request:\nFollow up',
-        ].join('\n\n'),
+      expect(runner.lastPrompt).toContain('Agent Loom bridge context:');
+      expect(runner.lastPrompt).toContain(
+        'No explicit client workspace_root metadata was provided.',
       );
+      expect(runner.lastPrompt).toContain(
+        `Backend workspace root is a neutral projectless workspace: ${workspace.rootPath}`,
+      );
+      expect(runner.lastPrompt).toContain('System instructions:\nBe concise.');
+      expect(runner.lastPrompt).toContain(
+        'Conversation so far:\nuser: First request\n\nassistant: First answer',
+      );
+      expect(runner.lastPrompt).toContain('User request:\nFollow up');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('marks explicitly requested workspace metadata in the bridge context', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const runner = new FakeCopilotPromptRunner();
+    const backend = new CopilotCliBackend({ runner });
+    const workspace: IWorkspace = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+
+      await collectEvents(
+        backend.send(session, {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          workspaceId: 'workspace_1',
+          input: { message: 'Inspect the workspace' },
+          metadata: { workspace_root: '/tmp/client-workspace' },
+          model: 'copilot-agent',
+        }),
+      );
+
+      expect(runner.lastPrompt).toContain(
+        'Client explicitly requested workspace root: /tmp/client-workspace',
+      );
+      expect(runner.lastPrompt).toContain(`Backend workspace root: ${workspace.rootPath}`);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

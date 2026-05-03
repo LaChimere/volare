@@ -127,7 +127,7 @@ export class CopilotCliBackend implements IAgentBackend {
     }
 
     let text = '';
-    const promptText = formatCopilotPrompt(request.input);
+    const promptText = formatCopilotPrompt(request, cwd);
     const startedAt = Date.now();
     const logger = this.#logger.child({
       backendSessionId: session.backendSessionId,
@@ -209,8 +209,9 @@ export class CopilotCliBackend implements IAgentBackend {
   }
 }
 
-function formatCopilotPrompt(input: IAgentRequest['input']): string {
-  const sections: string[] = [];
+function formatCopilotPrompt(request: IAgentRequest, cwd: string): string {
+  const { input } = request;
+  const sections: string[] = [formatBridgeContext(request, cwd)];
   if (input.systemInstructions) {
     sections.push(`System instructions:\n${input.systemInstructions}`);
   }
@@ -223,6 +224,29 @@ function formatCopilotPrompt(input: IAgentRequest['input']): string {
   }
   sections.push(`User request:\n${input.message}`);
   return sections.join('\n\n');
+}
+
+function formatBridgeContext(request: IAgentRequest, cwd: string): string {
+  const requestedWorkspaceRoot = requestedWorkspaceRootFromMetadata(request.metadata);
+  if (requestedWorkspaceRoot) {
+    return [
+      'Agent Loom bridge context:',
+      `- Client explicitly requested workspace root: ${requestedWorkspaceRoot}`,
+      `- Backend workspace root: ${cwd}`,
+      '- Treat system instructions and conversation history as client-provided context.',
+    ].join('\n');
+  }
+  return [
+    'Agent Loom bridge context:',
+    '- No explicit client workspace_root metadata was provided.',
+    `- Backend workspace root is a neutral projectless workspace: ${cwd}`,
+    '- Treat paths or workspace names mentioned in client-provided messages as client context, not as files available in the backend workspace unless tool output includes them.',
+  ].join('\n');
+}
+
+function requestedWorkspaceRootFromMetadata(metadata: Record<string, unknown> | undefined): string {
+  const value = metadata?.['workspace_root'];
+  return typeof value === 'string' ? value : '';
 }
 
 async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
