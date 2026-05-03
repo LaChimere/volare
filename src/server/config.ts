@@ -1,4 +1,5 @@
 import { AgentLoomError } from '../core/errors';
+import type { LogLevel } from '../logging/logger';
 
 export interface ServerRuntimeConfigInterface {
   host: string;
@@ -11,6 +12,7 @@ export interface ServerRuntimeConfigInterface {
   cancelTimeoutMs: number;
   disconnectGraceMs: number;
   httpIdleTimeoutSeconds: number;
+  logLevel: LogLevel;
   maxActiveSessions: number;
   eventRetentionDays?: number;
   defaultWorkspaceRoot?: string;
@@ -30,6 +32,7 @@ export interface ServerRuntimeEnvInterface {
   AGENT_LOOM_CANCEL_TIMEOUT_MS: string | undefined;
   AGENT_LOOM_DISCONNECT_GRACE_MS: string | undefined;
   AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: string | undefined;
+  AGENT_LOOM_LOG_LEVEL: string | undefined;
   AGENT_LOOM_MAX_ACTIVE_SESSIONS: string | undefined;
   AGENT_LOOM_EVENT_RETENTION_DAYS: string | undefined;
 }
@@ -96,6 +99,7 @@ export function createServerRuntimeConfig(
       255,
       0,
     ),
+    logLevel: parseLogLevel(env.AGENT_LOOM_LOG_LEVEL),
     maxActiveSessions: integerInRange(
       'AGENT_LOOM_MAX_ACTIVE_SESSIONS',
       env.AGENT_LOOM_MAX_ACTIVE_SESSIONS,
@@ -123,6 +127,7 @@ function readServerRuntimeEnv(): ServerRuntimeEnvInterface {
     AGENT_LOOM_CANCEL_TIMEOUT_MS: Bun.env['AGENT_LOOM_CANCEL_TIMEOUT_MS'],
     AGENT_LOOM_DISCONNECT_GRACE_MS: Bun.env['AGENT_LOOM_DISCONNECT_GRACE_MS'],
     AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: Bun.env['AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS'],
+    AGENT_LOOM_LOG_LEVEL: Bun.env['AGENT_LOOM_LOG_LEVEL'],
     AGENT_LOOM_MAX_ACTIVE_SESSIONS: Bun.env['AGENT_LOOM_MAX_ACTIVE_SESSIONS'],
     AGENT_LOOM_EVENT_RETENTION_DAYS: Bun.env['AGENT_LOOM_EVENT_RETENTION_DAYS'],
   };
@@ -132,6 +137,21 @@ function generateApiKey(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function parseLogLevel(value: string | undefined): LogLevel {
+  const level = value?.trim() ?? 'info';
+  if (isLogLevel(level)) {
+    return level;
+  }
+  throw new AgentLoomError(
+    'invalid_config',
+    'AGENT_LOOM_LOG_LEVEL must be one of trace, debug, info, warn, error, fatal, or silent',
+  );
+}
+
+function isLogLevel(value: string): value is LogLevel {
+  return ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'].includes(value);
 }
 
 function validateCorsConfig(env: Partial<ServerRuntimeEnvInterface>): void {

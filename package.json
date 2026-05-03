@@ -27,5 +27,8 @@
     "@types/bun": "latest",
     "lefthook": "^2.1.6",
     "typescript": "^6"
+  },
+  "dependencies": {
+    "pino": "^10.3.1"
   }
 }

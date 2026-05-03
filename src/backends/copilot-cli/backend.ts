@@ -1,6 +1,6 @@
 import { realpath } from 'node:fs/promises';
 
-import { AgentLoomError } from '../../core/errors';
+import { AgentLoomError, toAgentLoomError } from '../../core/errors';
 import type {
   AgentBackendInterface,
   AgentEvent,
@@ -12,6 +12,7 @@ import type {
   CreateSessionOptionsInterface,
   WorkspaceInterface,
 } from '../../core/types';
+import { type LoggerInterface, NoopLogger } from '../../logging/logger';
 import {
   createProcessIdentity,
   DefaultProcessIdentityValidator,
@@ -41,15 +42,21 @@ export interface CopilotPromptRunOptionsInterface {
 
 export interface CopilotCliBackendOptionsInterface {
   runner?: CopilotPromptRunnerInterface;
+  logger?: LoggerInterface;
 }
 
 export class CopilotCliBackend implements AgentBackendInterface {
   readonly name = 'copilot-cli';
   readonly #runner: CopilotPromptRunnerInterface;
+  readonly #logger: LoggerInterface;
   readonly #workspaceRoots = new Map<string, string>();
 
   constructor(options: CopilotCliBackendOptionsInterface = {}) {
     this.#runner = options.runner ?? new BunCopilotPromptRunner();
+    this.#logger = (options.logger ?? new NoopLogger()).child({
+      component: 'backend',
+      backend: this.name,
+    });
   }
 
   capabilities(): BackendCapabilitiesInterface {
@@ -122,19 +129,49 @@ export class CopilotCliBackend implements AgentBackendInterface {
     }
 
     let text = '';
-    for await (const delta of this.#runner.run(formatCopilotPrompt(request.input), {
+    const startedAt = Date.now();
+    const logger = this.#logger.child({
       backendSessionId: session.backendSessionId,
-      cwd,
-      ...(signal ? { signal } : {}),
-    })) {
-      text += delta;
-      yield {
-        type: 'text.delta',
-        turnId: request.turnId,
-        delta,
-      };
+      workspaceId: request.workspaceId,
+      threadId: request.threadId,
+      turnId: request.turnId,
+    });
+    logger.info({ event: 'backend.turn.started' }, 'backend turn started');
+    try {
+      for await (const delta of this.#runner.run(formatCopilotPrompt(request.input), {
+        backendSessionId: session.backendSessionId,
+        cwd,
+        ...(signal ? { signal } : {}),
+      })) {
+        text += delta;
+        yield {
+          type: 'text.delta',
+          turnId: request.turnId,
+          delta,
+        };
+      }
+    } catch (error) {
+      const agentError = toAgentLoomError(error);
+      logger.error(
+        {
+          event: 'backend.turn.failed',
+          durationMs: Date.now() - startedAt,
+          errorCode: agentError.code,
+          error: agentError,
+        },
+        'backend turn failed',
+      );
+      throw error;
     }
 
+    logger.info(
+      {
+        event: 'backend.turn.completed',
+        durationMs: Date.now() - startedAt,
+        outputChars: text.length,
+      },
+      'backend turn completed',
+    );
     yield {
       type: 'turn.succeeded',
       turnId: request.turnId,
@@ -149,15 +186,28 @@ export class CopilotCliBackend implements AgentBackendInterface {
     if (!session.backendSessionId) {
       return { status: 'not_found' };
     }
-    return (
-      (await this.#runner.cancel?.(session.backendSessionId, options)) ?? { status: 'cancelled' }
+    const result = (await this.#runner.cancel?.(session.backendSessionId, options)) ?? {
+      status: 'cancelled',
+    };
+    this.#logger.info(
+      {
+        event: 'backend.session.cancelled',
+        backendSessionId: session.backendSessionId,
+        status: result.status,
+      },
+      'backend session cancelled',
     );
+    return result;
   }
 
   async disposeSession(session: BackendSessionInterface): Promise<void> {
     if (session.backendSessionId) {
       await this.#runner.dispose?.(session.backendSessionId);
       this.#workspaceRoots.delete(session.backendSessionId);
+      this.#logger.info(
+        { event: 'backend.session.disposed', backendSessionId: session.backendSessionId },
+        'backend session disposed',
+      );
     }
   }
 }

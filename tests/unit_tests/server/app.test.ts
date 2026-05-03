@@ -1,6 +1,11 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
+import type {
+  LogBindingsInterface,
+  LogFieldsInterface,
+  LoggerInterface,
+} from '../../../src/logging/logger';
 import { createApp } from '../../../src/server/app';
 import { createServerRuntimeConfig } from '../../../src/server/config';
 import { migrate } from '../../../src/state/migrations';
@@ -25,6 +30,49 @@ function createStateStore(): SQLiteStateStore {
   const database = new Database(':memory:');
   migrate(database);
   return new SQLiteStateStore(database);
+}
+
+class CapturingLogger implements LoggerInterface {
+  constructor(
+    readonly entries: Array<{ level: string; fields: LogFieldsInterface; message?: string }> = [],
+    readonly bindings: LogBindingsInterface = {},
+  ) {}
+
+  child(bindings: LogBindingsInterface): LoggerInterface {
+    return new CapturingLogger(this.entries, { ...this.bindings, ...bindings });
+  }
+
+  trace(fields: LogFieldsInterface, message?: string): void {
+    this.push('trace', fields, message);
+  }
+
+  debug(fields: LogFieldsInterface, message?: string): void {
+    this.push('debug', fields, message);
+  }
+
+  info(fields: LogFieldsInterface, message?: string): void {
+    this.push('info', fields, message);
+  }
+
+  warn(fields: LogFieldsInterface, message?: string): void {
+    this.push('warn', fields, message);
+  }
+
+  error(fields: LogFieldsInterface, message?: string): void {
+    this.push('error', fields, message);
+  }
+
+  fatal(fields: LogFieldsInterface, message?: string): void {
+    this.push('fatal', fields, message);
+  }
+
+  private push(level: string, fields: LogFieldsInterface, message?: string): void {
+    this.entries.push({
+      level,
+      fields: { ...this.bindings, ...fields },
+      ...(message === undefined ? {} : { message }),
+    });
+  }
 }
 
 describe('server app', () => {
@@ -100,6 +148,29 @@ describe('server app', () => {
         },
       ],
     });
+  });
+
+  test('logs structured request completion fields', async () => {
+    const logger = new CapturingLogger();
+    const app = createApp({ config, logger });
+
+    const response = await app.fetch(request('/openai/v1/models?client_version=0.0.0-test'));
+
+    expect(response.status).toBe(200);
+    expect(logger.entries).toHaveLength(1);
+    expect(logger.entries[0]).toMatchObject({
+      level: 'info',
+      message: 'http request completed',
+      fields: {
+        component: 'server',
+        event: 'http.request.completed',
+        method: 'GET',
+        path: '/openai/v1/models',
+        status: 200,
+      },
+    });
+    expect(typeof logger.entries[0]?.fields['requestId']).toBe('string');
+    expect(typeof logger.entries[0]?.fields['durationMs']).toBe('number');
   });
 
   test('serves authenticated health and metrics routes', async () => {
@@ -558,6 +629,9 @@ describe('server app', () => {
     expect(() =>
       createServerRuntimeConfig({ AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: '256' }),
     ).toThrow('AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS must be an integer');
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_LOG_LEVEL: 'verbose' })).toThrow(
+      'AGENT_LOOM_LOG_LEVEL must be one of trace, debug, info, warn, error, fatal, or silent',
+    );
   });
 
   test('parses safe timeout and retention configuration values', () => {
@@ -567,6 +641,7 @@ describe('server app', () => {
         AGENT_LOOM_CANCEL_TIMEOUT_MS: '10000',
         AGENT_LOOM_DISCONNECT_GRACE_MS: '5000',
         AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: '0',
+        AGENT_LOOM_LOG_LEVEL: 'debug',
         AGENT_LOOM_MAX_ACTIVE_SESSIONS: '10',
         AGENT_LOOM_EVENT_RETENTION_DAYS: '30',
       }),
@@ -575,6 +650,7 @@ describe('server app', () => {
       cancelTimeoutMs: 10_000,
       disconnectGraceMs: 5000,
       httpIdleTimeoutSeconds: 0,
+      logLevel: 'debug',
       maxActiveSessions: 10,
       eventRetentionDays: 30,
     });

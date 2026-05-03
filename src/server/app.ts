@@ -2,7 +2,7 @@ import { DefaultApprovalPolicy } from '../approvals/policy';
 import { ApprovalProvider } from '../approvals/provider';
 import { MockBackend } from '../backends/mock/backend';
 import { DurableSessionManager } from '../core/durable-session-manager';
-import { AgentLoomError } from '../core/errors';
+import { AgentLoomError, toAgentLoomError } from '../core/errors';
 import { InMemorySessionManager } from '../core/in-memory-session-manager';
 import type {
   AgentEvent,
@@ -11,6 +11,7 @@ import type {
   StateStoreInterface,
 } from '../core/types';
 import { WorkspaceResolver } from '../core/workspace-resolver';
+import { type LogFieldsInterface, type LoggerInterface, NoopLogger } from '../logging/logger';
 import {
   createCodexModelsResponse,
   encodeOpenAIError,
@@ -26,6 +27,7 @@ export interface AppDependenciesInterface {
   sessionManager?: SessionManagerInterface;
   stateStore?: StateStoreInterface;
   eventJournal?: EventJournalInterface;
+  logger?: LoggerInterface;
   disconnectGraceMs?: number;
   healthStatus?: () => 'recovering' | 'ready';
 }
@@ -36,6 +38,7 @@ export function createApp(dependencies: AppDependenciesInterface): {
   const stateStore = dependencies.stateStore;
   const adapter = dependencies.adapter ?? new OpenAIResponsesAdapter(stateStore);
   const workspaceResolver = dependencies.workspaceResolver ?? new WorkspaceResolver();
+  const logger = (dependencies.logger ?? new NoopLogger()).child({ component: 'server' });
   const startedAt = Date.now();
   let requestsTotal = 0;
   let sessionManager =
@@ -55,41 +58,73 @@ export function createApp(dependencies: AppDependenciesInterface): {
   return {
     async fetch(request: Request): Promise<Response> {
       requestsTotal += 1;
+      const requestStartedAt = Date.now();
+      const requestId = crypto.randomUUID();
+      const url = new URL(request.url);
+      const logFields = {
+        requestId,
+        method: request.method,
+        path: url.pathname,
+      };
       try {
         requireBearerAuth(request, dependencies.config.apiKey);
-        const url = new URL(request.url);
 
         if (request.method === 'GET' && url.pathname === '/healthz') {
           const status = dependencies.healthStatus?.() ?? 'ready';
-          return Response.json(
-            {
-              status,
-            },
-            { status: status === 'ready' ? 200 : 503 },
+          return logHttpResponse(
+            logger,
+            logFields,
+            requestStartedAt,
+            Response.json(
+              {
+                status,
+              },
+              { status: status === 'ready' ? 200 : 503 },
+            ),
           );
         }
 
         if (request.method === 'GET' && url.pathname === '/metrics') {
-          return Response.json({
-            status: dependencies.healthStatus?.() ?? 'ready',
-            uptime_ms: Date.now() - startedAt,
-            requests_total: requestsTotal,
-          });
+          return logHttpResponse(
+            logger,
+            logFields,
+            requestStartedAt,
+            Response.json({
+              status: dependencies.healthStatus?.() ?? 'ready',
+              uptime_ms: Date.now() - startedAt,
+              requests_total: requestsTotal,
+            }),
+          );
         }
 
         if (request.method === 'GET' && url.pathname === '/openai/v1/models') {
-          return Response.json(createCodexModelsResponse());
+          return logHttpResponse(
+            logger,
+            logFields,
+            requestStartedAt,
+            Response.json(createCodexModelsResponse()),
+          );
         }
 
         const debugEventsMatch = url.pathname.match(/^\/debug\/turns\/([^/]+)\/events$/);
         if (request.method === 'GET' && debugEventsMatch?.[1]) {
           if (!dependencies.eventJournal) {
-            return encodeOpenAIError(new AgentLoomError('not_found', 'Debug events not found'));
+            return logHttpResponse(
+              logger,
+              logFields,
+              requestStartedAt,
+              encodeOpenAIError(new AgentLoomError('not_found', 'Debug events not found')),
+            );
           }
-          return Response.json({
-            turn_id: debugEventsMatch[1],
-            events: await dependencies.eventJournal.listByTurn(debugEventsMatch[1]),
-          });
+          return logHttpResponse(
+            logger,
+            logFields,
+            requestStartedAt,
+            Response.json({
+              turn_id: debugEventsMatch[1],
+              events: await dependencies.eventJournal.listByTurn(debugEventsMatch[1]),
+            }),
+          );
         }
 
         if (request.method === 'POST' && url.pathname === '/openai/v1/responses') {
@@ -111,7 +146,6 @@ export function createApp(dependencies: AppDependenciesInterface): {
           if (!sessionManager) {
             sessionManager = new InMemorySessionManager({ workspace: persistedWorkspace });
           }
-          const requestId = crypto.randomUUID();
           const input = await adapter.parseRequest(northboundRequest, {
             workspaceId: persistedWorkspace.id,
             requestId,
@@ -120,12 +154,23 @@ export function createApp(dependencies: AppDependenciesInterface): {
             workspaceId: persistedWorkspace.id,
             requestId,
           });
+          const streamLogger = logger.child({
+            requestId,
+            workspaceId: persistedWorkspace.id,
+            threadId: resolved.thread.id,
+            turnId: resolved.turn.id,
+            responseId: resolved.externalResponseId ?? resolved.turn.id,
+          });
+          streamLogger.info({ event: 'responses.stream.started' }, 'responses stream started');
           const streamAbort = new AbortController();
           const stream = asyncIterableToStream(
             adapter.encodeStream(
-              journalCanonicalEvents(
-                sessionManager.streamTurn(resolved, streamAbort.signal),
-                dependencies.eventJournal,
+              logAgentEventStream(
+                journalCanonicalEvents(
+                  sessionManager.streamTurn(resolved, streamAbort.signal),
+                  dependencies.eventJournal,
+                ),
+                streamLogger,
               ),
               {
                 turnId: resolved.turn.id,
@@ -138,32 +183,56 @@ export function createApp(dependencies: AppDependenciesInterface): {
               await delay(dependencies.disconnectGraceMs ?? dependencies.config.disconnectGraceMs);
               streamAbort.abort();
               await sessionManager?.cancelTurn(resolved.turn.id);
+              streamLogger.warn(
+                { event: 'responses.stream.cancelled' },
+                'responses stream cancelled',
+              );
             },
           );
-          return new Response(stream, {
-            headers: {
-              'Content-Type': 'text/event-stream; charset=utf-8',
-              'Cache-Control': 'no-cache',
-            },
-          });
+          return logHttpResponse(
+            logger,
+            logFields,
+            requestStartedAt,
+            new Response(stream, {
+              headers: {
+                'Content-Type': 'text/event-stream; charset=utf-8',
+                'Cache-Control': 'no-cache',
+              },
+            }),
+          );
         }
 
         const responseMatch = url.pathname.match(/^\/openai\/v1\/responses\/([^/]+)$/);
         if (request.method === 'GET' && responseMatch?.[1]) {
           if (!sessionManager) {
-            return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
+            return logHttpResponse(
+              logger,
+              logFields,
+              requestStartedAt,
+              encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
+            );
           }
           const clientRef = await stateStore?.resolveClientRef(adapter.protocol, responseMatch[1]);
           const turnId = clientRef?.turnId ?? responseMatch[1];
           const turn = await sessionManager.getTurn(turnId);
           if (!turn) {
-            return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
+            return logHttpResponse(
+              logger,
+              logFields,
+              requestStartedAt,
+              encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
+            );
           }
-          return Response.json(
-            adapter.encodeStoredResponse(
-              clientRef ? { ...turn, id: clientRef.externalId } : turn,
-              sessionManager.getEvents(turn.id),
-              { previousResponseId: clientRef?.parentExternalId ?? null },
+          return logHttpResponse(
+            logger,
+            logFields,
+            requestStartedAt,
+            Response.json(
+              adapter.encodeStoredResponse(
+                clientRef ? { ...turn, id: clientRef.externalId } : turn,
+                sessionManager.getEvents(turn.id),
+                { previousResponseId: clientRef?.parentExternalId ?? null },
+              ),
             ),
           );
         }
@@ -171,30 +240,60 @@ export function createApp(dependencies: AppDependenciesInterface): {
         const cancelMatch = url.pathname.match(/^\/openai\/v1\/responses\/([^/]+)\/cancel$/);
         if (request.method === 'POST' && cancelMatch?.[1]) {
           if (!sessionManager) {
-            return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
+            return logHttpResponse(
+              logger,
+              logFields,
+              requestStartedAt,
+              encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
+            );
           }
           const clientRef = await stateStore?.resolveClientRef(adapter.protocol, cancelMatch[1]);
           const turnId = clientRef?.turnId ?? cancelMatch[1];
           const result = await sessionManager.cancelTurn(turnId);
           if (result.status === 'not_found') {
-            return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
+            return logHttpResponse(
+              logger,
+              logFields,
+              requestStartedAt,
+              encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
+            );
           }
           const turn = await sessionManager.getTurn(turnId);
           if (!turn) {
-            return encodeOpenAIError(new AgentLoomError('not_found', 'Response not found'));
+            return logHttpResponse(
+              logger,
+              logFields,
+              requestStartedAt,
+              encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
+            );
           }
-          return Response.json(
-            adapter.encodeStoredResponse(
-              clientRef ? { ...turn, id: clientRef.externalId } : turn,
-              sessionManager.getEvents(turn.id),
-              { previousResponseId: clientRef?.parentExternalId ?? null },
+          return logHttpResponse(
+            logger,
+            logFields,
+            requestStartedAt,
+            Response.json(
+              adapter.encodeStoredResponse(
+                clientRef ? { ...turn, id: clientRef.externalId } : turn,
+                sessionManager.getEvents(turn.id),
+                { previousResponseId: clientRef?.parentExternalId ?? null },
+              ),
             ),
           );
         }
 
-        return encodeOpenAIError(new AgentLoomError('not_found', 'Route not found'));
+        return logHttpResponse(
+          logger,
+          logFields,
+          requestStartedAt,
+          encodeOpenAIError(new AgentLoomError('not_found', 'Route not found')),
+        );
       } catch (error) {
-        return encodeOpenAIError(error);
+        const response = encodeOpenAIError(error);
+        const agentError = toAgentLoomError(error);
+        return logHttpResponse(logger, logFields, requestStartedAt, response, {
+          errorCode: agentError.code,
+          ...(response.status >= 500 ? { error: agentError } : {}),
+        });
       }
     },
   };
@@ -214,6 +313,69 @@ async function* journalCanonicalEvents(
     }
     yield event;
   }
+}
+
+async function* logAgentEventStream(
+  events: AsyncIterable<AgentEvent>,
+  logger: LoggerInterface,
+): AsyncIterable<AgentEvent> {
+  const startedAt = Date.now();
+  let completed = false;
+  let failed = false;
+  try {
+    for await (const event of events) {
+      yield event;
+    }
+    completed = true;
+    logger.info(
+      { event: 'responses.stream.completed', durationMs: Date.now() - startedAt },
+      'responses stream completed',
+    );
+  } catch (error) {
+    failed = true;
+    const agentError = toAgentLoomError(error);
+    logger.error(
+      {
+        event: 'responses.stream.failed',
+        durationMs: Date.now() - startedAt,
+        errorCode: agentError.code,
+        error: agentError,
+      },
+      'responses stream failed',
+    );
+    throw error;
+  } finally {
+    if (!completed && !failed) {
+      logger.warn(
+        { event: 'responses.stream.interrupted', durationMs: Date.now() - startedAt },
+        'responses stream interrupted',
+      );
+    }
+  }
+}
+
+function logHttpResponse(
+  logger: LoggerInterface,
+  fields: { requestId: string; method: string; path: string },
+  startedAt: number,
+  response: Response,
+  extra: LogFieldsInterface = {},
+): Response {
+  const logFields = {
+    event: 'http.request.completed',
+    ...fields,
+    ...extra,
+    status: response.status,
+    durationMs: Date.now() - startedAt,
+  };
+  if (response.status >= 500) {
+    logger.error(logFields, 'http request completed');
+  } else if (response.status >= 400) {
+    logger.warn(logFields, 'http request completed');
+  } else {
+    logger.info(logFields, 'http request completed');
+  }
+  return response;
 }
 
 function asyncIterableToStream(
