@@ -38,9 +38,12 @@ export interface ICopilotPromptRunOptions {
   signal?: AbortSignal;
 }
 
+export type CopilotCliPermissionMode = 'restricted' | 'web' | 'full';
+
 export interface ICopilotCliBackendOptions {
   runner?: ICopilotPromptRunner;
   logger?: ILogger;
+  permissionMode?: CopilotCliPermissionMode;
 }
 
 export class CopilotCliBackend implements IAgentBackend {
@@ -50,7 +53,8 @@ export class CopilotCliBackend implements IAgentBackend {
   readonly #workspaceRoots = new Map<string, string>();
 
   constructor(options: ICopilotCliBackendOptions = {}) {
-    this.#runner = options.runner ?? new BunCopilotPromptRunner();
+    this.#runner =
+      options.runner ?? new BunCopilotPromptRunner(undefined, 'copilot', options.permissionMode);
     this.#logger = (options.logger ?? new NoopLogger()).child({
       component: 'backend',
       backend: this.name,
@@ -267,13 +271,16 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #processes = new Map<string, Set<TrackedProcess>>();
   readonly #identityValidator: IProcessIdentityValidator;
   readonly #command: string;
+  readonly #permissionMode: CopilotCliPermissionMode;
 
   constructor(
     identityValidator: IProcessIdentityValidator = new DefaultProcessIdentityValidator(),
     command = 'copilot',
+    permissionMode: CopilotCliPermissionMode = 'web',
   ) {
     this.#identityValidator = identityValidator;
     this.#command = command;
+    this.#permissionMode = permissionMode;
   }
 
   async *run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string> {
@@ -283,6 +290,7 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
         '--no-color',
         '--no-custom-instructions',
         '--disable-builtin-mcps',
+        ...permissionArgs(this.#permissionMode),
         '--log-level',
         'error',
         '--stream',
@@ -419,6 +427,17 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
   #kill(tracked: TrackedProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
     this.#identityValidator.assertMatches(tracked.identity, String(tracked.proc.pid));
     tracked.proc.kill(signal);
+  }
+}
+
+function permissionArgs(mode: CopilotCliPermissionMode): string[] {
+  switch (mode) {
+    case 'restricted':
+      return [];
+    case 'web':
+      return ['--allow-all-urls'];
+    case 'full':
+      return ['--allow-all'];
   }
 }
 

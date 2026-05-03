@@ -725,6 +725,9 @@ describe('server app', () => {
     expect(() => createServerRuntimeConfig({ AGENT_LOOM_LOG_LEVEL: 'verbose' })).toThrow(
       'AGENT_LOOM_LOG_LEVEL must be one of trace, debug, info, warn, error, fatal, or silent',
     );
+    expect(() => createServerRuntimeConfig({ AGENT_LOOM_COPILOT_PERMISSION_MODE: 'ask' })).toThrow(
+      'AGENT_LOOM_COPILOT_PERMISSION_MODE must be restricted, web, or full',
+    );
   });
 
   test('parses safe timeout and retention configuration values', () => {
@@ -738,6 +741,7 @@ describe('server app', () => {
         AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: '/tmp/neutralctx',
         AGENT_LOOM_MAX_ACTIVE_SESSIONS: '10',
         AGENT_LOOM_EVENT_RETENTION_DAYS: '30',
+        AGENT_LOOM_COPILOT_PERMISSION_MODE: 'full',
       }),
     ).toMatchObject({
       approvalTimeoutMs: 60_000,
@@ -748,7 +752,9 @@ describe('server app', () => {
       projectlessWorkspaceRoot: '/tmp/neutralctx',
       maxActiveSessions: 10,
       eventRetentionDays: 30,
+      copilotPermissionMode: 'full',
     });
+    expect(createServerRuntimeConfig({}).copilotPermissionMode).toBe('web');
   });
 
   test('serves redacted debug events for a turn', async () => {

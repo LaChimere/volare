@@ -45,7 +45,7 @@ export async function startAgentLoomRuntime(
   await stateStore.recoverStartupState();
   const sessionManager = new DurableSessionManager({
     store: stateStore,
-    backend: new CopilotCliBackend({ logger }),
+    backend: new CopilotCliBackend({ logger, permissionMode: config.copilotPermissionMode }),
     approvalProvider: new ApprovalProvider({
       store: stateStore,
       policy: new DefaultApprovalPolicy({ timeoutMs: config.approvalTimeoutMs }),
@@ -67,6 +67,7 @@ export async function startAgentLoomRuntime(
       port: config.port,
       stateDatabasePath: config.stateDatabasePath,
       httpIdleTimeoutSeconds: config.httpIdleTimeoutSeconds,
+      copilotPermissionMode: config.copilotPermissionMode,
       logLevel: config.logLevel,
     },
     'Agent Loom starting',

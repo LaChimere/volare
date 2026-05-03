@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { CopilotCliPermissionMode } from '../backends/copilot-cli/backend';
 import { AgentLoomError } from '../core/errors';
 import type { LogLevel } from '../logging/logger';
 
@@ -17,6 +18,7 @@ export interface IServerRuntimeConfig {
   logLevel: LogLevel;
   maxActiveSessions: number;
   eventRetentionDays?: number;
+  copilotPermissionMode: CopilotCliPermissionMode;
   defaultWorkspaceRoot?: string;
   allowedWorkspaceRoots?: string[];
   projectlessWorkspaceRoot: string;
@@ -39,6 +41,7 @@ export interface IServerRuntimeEnv {
   AGENT_LOOM_LOG_LEVEL: string | undefined;
   AGENT_LOOM_MAX_ACTIVE_SESSIONS: string | undefined;
   AGENT_LOOM_EVENT_RETENTION_DAYS: string | undefined;
+  AGENT_LOOM_COPILOT_PERMISSION_MODE: string | undefined;
 }
 
 export function createServerRuntimeConfig(
@@ -109,6 +112,7 @@ export function createServerRuntimeConfig(
       0,
     ),
     logLevel: parseLogLevel(env.AGENT_LOOM_LOG_LEVEL),
+    copilotPermissionMode: parseCopilotPermissionMode(env.AGENT_LOOM_COPILOT_PERMISSION_MODE),
     maxActiveSessions: integerInRange(
       'AGENT_LOOM_MAX_ACTIVE_SESSIONS',
       env.AGENT_LOOM_MAX_ACTIVE_SESSIONS,
@@ -141,6 +145,7 @@ export function readServerRuntimeEnv(): IServerRuntimeEnv {
     AGENT_LOOM_LOG_LEVEL: Bun.env['AGENT_LOOM_LOG_LEVEL'],
     AGENT_LOOM_MAX_ACTIVE_SESSIONS: Bun.env['AGENT_LOOM_MAX_ACTIVE_SESSIONS'],
     AGENT_LOOM_EVENT_RETENTION_DAYS: Bun.env['AGENT_LOOM_EVENT_RETENTION_DAYS'],
+    AGENT_LOOM_COPILOT_PERMISSION_MODE: Bun.env['AGENT_LOOM_COPILOT_PERMISSION_MODE'],
   };
 }
 
@@ -163,6 +168,17 @@ function parseLogLevel(value: string | undefined): LogLevel {
 
 function isLogLevel(value: string): value is LogLevel {
   return ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'].includes(value);
+}
+
+function parseCopilotPermissionMode(value: string | undefined): CopilotCliPermissionMode {
+  const mode = value?.trim() ?? 'web';
+  if (mode === 'restricted' || mode === 'web' || mode === 'full') {
+    return mode;
+  }
+  throw new AgentLoomError(
+    'invalid_config',
+    'AGENT_LOOM_COPILOT_PERMISSION_MODE must be restricted, web, or full',
+  );
 }
 
 function validateCorsConfig(env: Partial<IServerRuntimeEnv>): void {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -267,6 +267,7 @@ describe('CopilotCliBackend', () => {
     const bin = await installFakeCopilot(
       'stream',
       `#!/bin/sh
+printf '%s\\n' "$@" > "$PWD/args.txt"
 printf '{"type":"session.mcp_servers_loaded","data":{"servers":[]}}\\n'
 printf '{"type":"assistant.message_delta","data":{"deltaContent":"hello"}}\\n'
 `,
@@ -282,6 +283,50 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"hello"}}\\n'
       }
 
       expect(chunks).toEqual(['hello']);
+      await expect(readFile(path.join(workspace, 'args.txt'), 'utf8')).resolves.toContain(
+        '--allow-all-urls',
+      );
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(path.dirname(bin), { recursive: true, force: true });
+    }
+  });
+
+  test('maps configured Copilot permission modes to CLI flags', async () => {
+    const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const bin = await installFakeCopilot(
+      'permission-mode',
+      `#!/bin/sh
+printf '%s\\n' "$@" > "$PWD/args.txt"
+printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
+`,
+    );
+    try {
+      const restricted = new BunCopilotPromptRunner(undefined, bin, 'restricted');
+      const restrictedChunks: string[] = [];
+      for await (const chunk of restricted.run('hello', {
+        backendSessionId: 'backend_session_1',
+        cwd: workspace,
+      })) {
+        restrictedChunks.push(chunk);
+      }
+      expect(restrictedChunks).toEqual(['ok']);
+      const restrictedArgs = await readFile(path.join(workspace, 'args.txt'), 'utf8');
+      expect(restrictedArgs).not.toContain('--allow-all-urls');
+      expect(restrictedArgs).not.toContain('--allow-all');
+
+      const full = new BunCopilotPromptRunner(undefined, bin, 'full');
+      const fullChunks: string[] = [];
+      for await (const chunk of full.run('hello', {
+        backendSessionId: 'backend_session_2',
+        cwd: workspace,
+      })) {
+        fullChunks.push(chunk);
+      }
+      expect(fullChunks).toEqual(['ok']);
+      await expect(readFile(path.join(workspace, 'args.txt'), 'utf8')).resolves.toContain(
+        '--allow-all',
+      );
     } finally {
       await rm(workspace, { recursive: true, force: true });
       await rm(path.dirname(bin), { recursive: true, force: true });

@@ -62,13 +62,15 @@ Agent Loom currently supports the text bridge subset needed by Codex CLI/Desktop
 
 Agent Loom does not yet implement a bridge-owned tool-call broker. It accepts Codex tool definitions so clients can connect, but it does not emit tool calls for Codex to execute.
 
-Copilot CLI is invoked with:
+Copilot CLI is invoked with the configured permission mode. By default, Agent Loom uses `AGENT_LOOM_COPILOT_PERMISSION_MODE=web`, which grants Copilot CLI public URL fetch permission for web-research prompts without granting all tools and paths:
 
 ```text
-copilot --no-color --no-custom-instructions --disable-builtin-mcps --log-level error --stream on --output-format json --prompt <prompt>
+copilot --no-color --no-custom-instructions --disable-builtin-mcps --allow-all-urls --log-level error --stream on --output-format json --prompt <prompt>
 ```
 
-That means Copilot CLI owns its internal tool and permission behavior. Agent Loom observes stdout/stderr and process lifecycle but does not broker individual Copilot CLI internal tools as OpenAI Responses tool calls.
+Set `AGENT_LOOM_COPILOT_PERMISSION_MODE=restricted` to restore the old no-grants behavior, or `AGENT_LOOM_COPILOT_PERMISSION_MODE=full` to pass Copilot CLI `--allow-all` in a trusted local environment. Codex UI/Desktop "Full access" controls Codex client tools; it is not automatically forwarded through the Responses API to the Copilot CLI subprocess.
+
+Agent Loom observes stdout/stderr and process lifecycle but does not broker individual Copilot CLI internal tools as OpenAI Responses tool calls. Full Codex client-executed tool calls require a future bridge-owned tool-call broker.
 
 ## Context and workspace expectations
 
