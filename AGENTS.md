@@ -31,6 +31,7 @@ This repository is a Bun/TypeScript project for a local OpenAI Responses-compati
 
 - Keep `README.md` concise and link to detailed docs under `docs/`.
 - Update docs when behavior, configuration, CLI commands, protocol compatibility, or operational workflows change.
+- Do not reference concrete `plans/<slug>/...` paths outside `plans/`; completed slugs may be deleted.
 - Preserve projectless workspace isolation in examples: generic Codex/Desktop chats should not inherit the Agent Loom repository context unless the client explicitly sends `metadata.workspace_root`.
 
 ## Security and privacy

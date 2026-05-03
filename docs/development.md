@@ -72,3 +72,4 @@ Update `docs/` when changing:
 - Development conventions.
 
 Keep `README.md` short and link to the detailed docs rather than duplicating them.
+Do not reference concrete `plans/<slug>/...` paths from non-`plans/` documentation because completed slugs can be cleaned up.
