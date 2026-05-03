@@ -12,7 +12,7 @@ Target user experience:
 
 ```text
 Codex Desktop / Codex CLI
-  -> OpenAI Responses-compatible NorthboundAdapterInterface
+  -> OpenAI Responses-compatible INorthboundAdapter
 Agent Loom
   -> Copilot CLI / Copilot SDK / ACP-style agent runtime
   -> real coding-agent execution
@@ -78,16 +78,16 @@ wire_api = "responses"
 flowchart TD
   A1[Codex Desktop / CLI] -->|OpenAI Responses| B[Local HTTP Server]
   A2[Future Clients] -->|Future Northbound Protocols| B
-  B --> C[NorthboundAdapterInterface]
+  B --> C[INorthboundAdapter]
   C --> C1[OpenAIResponsesAdapter]
   C --> C2[Future Adapters]
   C1 --> D[AgentRuntime Core]
   C2 --> D
-  D --> E[SessionManagerInterface]
-  D --> F[StateStoreInterface]
-  D --> G[EventJournalInterface]
-  D --> H[ApprovalProviderInterface]
-  D --> I[AgentBackendInterface]
+  D --> E[ISessionManager]
+  D --> F[IStateStore]
+  D --> G[IEventJournal]
+  D --> H[IApprovalProvider]
+  D --> I[IAgentBackend]
   I --> J[Copilot CLI / SDK Backend]
   I --> M[Future Backends]
   J --> K[Copilot Agent Runtime]
@@ -100,7 +100,7 @@ Agent Loom owns protocol translation and orchestration. Northbound adapters tran
 
 The core runtime should not know about HTTP, Bun, Node, SQLite, or Copilot-specific transport details. It should operate on stable domain objects.
 
-All TypeScript interface names in Agent Loom should use an explicit `Interface` suffix, for example `NorthboundAdapterInterface`, `AgentBackendInterface`, and `StateStoreInterface`. Concrete implementations should not use that suffix.
+All TypeScript interface names in Agent Loom should use an explicit `I` prefix, for example `INorthboundAdapter`, `IAgentBackend`, and `IStateStore`. Concrete implementations should not use that suffix.
 
 ```ts
 type WorkspaceId = string;
@@ -112,24 +112,24 @@ type ApprovalId = string;
 type ClientProtocol = string;
 type BackendSessionStatus = "initializing" | "active" | "idle" | "disposing" | "disposed" | "abandoned" | "stale" | "lost";
 
-interface AgentLoomErrorInterface {
+interface IAgentLoomError {
   code: string;
   message: string;
   cause?: unknown;
 }
 
-interface WorkspaceInterface {
+interface IWorkspace {
   id: WorkspaceId;
-  // Absolute, symlink-resolved, normalized path produced by WorkspaceResolverInterface.
+  // Absolute, symlink-resolved, normalized path produced by IWorkspaceResolver.
   rootPath: string;
 }
 
-interface ThreadInterface {
+interface IThread {
   id: ThreadId;
   workspaceId: WorkspaceId;
 }
 
-interface TurnRecordInterface {
+interface ITurnRecord {
   id: TurnId;
   threadId: ThreadId;
   parentTurnId: TurnId | null;
@@ -140,7 +140,7 @@ interface TurnRecordInterface {
   completedAt?: Date;
 }
 
-interface ClientTurnRefInterface {
+interface IClientTurnRef {
   // Lowercase, version-stable identifier such as "openai-responses-v1".
   protocol: ClientProtocol;
   externalId: string;
@@ -150,40 +150,40 @@ interface ClientTurnRefInterface {
   parentExternalId?: string;
 }
 
-Protocol identifiers must be lowercase, version-stable strings such as `openai-responses-v1`. If a wire protocol changes incompatibly, implement it as a new adapter protocol ID and keep old IDs readable during migration windows. `StateStoreInterface.resolveClientRef()` returns `null` for unknown protocol IDs; adapters must handle missing parent refs explicitly instead of silently continuing the wrong thread.
+Protocol identifiers must be lowercase, version-stable strings such as `openai-responses-v1`. If a wire protocol changes incompatibly, implement it as a new adapter protocol ID and keep old IDs readable during migration windows. `IStateStore.resolveClientRef()` returns `null` for unknown protocol IDs; adapters must handle missing parent refs explicitly instead of silently continuing the wrong thread.
 
 When a protocol version changes, adapters may set `parentProtocol` to the previous version so parent lookups can span a migration window. If `parentProtocol` is absent, parent refs are resolved within the same protocol.
 
-interface AgentRequestInterface {
+interface IAgentRequest {
   turnId: TurnId;
   threadId: ThreadId;
   workspaceId: WorkspaceId;
-  input: AgentInputInterface;
+  input: IAgentInput;
   model: string;
   metadata?: Record<string, unknown>;
 }
 
-interface AgentInputInterface {
+interface IAgentInput {
   message: string;
-  conversationHistory?: ConversationMessageInterface[];
+  conversationHistory?: IConversationMessage[];
   systemInstructions?: string;
-  attachments?: AgentAttachmentInterface[];
+  attachments?: IAgentAttachment[];
   metadata?: Record<string, unknown>;
 }
 
-interface ConversationMessageInterface {
+interface IConversationMessage {
   role: "user" | "assistant" | "system";
   content: string;
 }
 
-interface AgentAttachmentInterface {
+interface IAgentAttachment {
   kind: "image" | "file" | "other";
   mediaType?: string;
   data?: Uint8Array;
   uri?: string;
 }
 
-interface AgentOutputInterface {
+interface IAgentOutput {
   text?: string;
   items?: unknown[];
   metadata?: Record<string, unknown>;
@@ -196,14 +196,14 @@ type AgentEvent =
   | { type: "text.delta"; turnId: TurnId; delta: string; emittedAt?: number }
   | { type: "progress"; turnId: TurnId; message: string; data?: unknown; emittedAt?: number }
   | { type: "tool.observed"; turnId: TurnId; toolName: string; input?: unknown; output?: unknown; emittedAt?: number }
-  | { type: "permission.required"; turnId: TurnId; approvalId: ApprovalId; request: PermissionRequestInterface; emittedAt?: number }
+  | { type: "permission.required"; turnId: TurnId; approvalId: ApprovalId; request: IPermissionRequest; emittedAt?: number }
   | { type: "permission.resolved"; turnId: TurnId; approvalId: ApprovalId; decision: "allow" | "deny"; emittedAt?: number }
-  | { type: "turn.succeeded"; turnId: TurnId; output?: AgentOutputInterface; usage?: unknown; emittedAt?: number }
+  | { type: "turn.succeeded"; turnId: TurnId; output?: IAgentOutput; usage?: unknown; emittedAt?: number }
   | { type: "turn.failed"; turnId: TurnId; error: unknown; emittedAt?: number }
   | { type: "turn.cancelled"; turnId: TurnId; emittedAt?: number }
   | { type: "turn.interrupted"; turnId: TurnId; reason: string; emittedAt?: number };
 
-interface PermissionRequestInterface {
+interface IPermissionRequest {
   action: "filesystem:write" | "shell:exec" | "network:http" | "destructive" | string;
   scope: {
     path?: string;
@@ -232,21 +232,21 @@ Terminal statuses are `succeeded`, `failed`, `cancelled`, and `interrupted`. Sta
 
 ## Component Design
 
-### `WorkspaceResolverInterface`
+### `IWorkspaceResolver`
 
 Workspace resolution happens before request parsing so all adapters receive an explicit workspace boundary.
 
 ```ts
-interface WorkspaceResolverInterface {
-  resolve(hints: WorkspaceHintsInterface, config: ServerConfigInterface): Promise<WorkspaceInterface>;
+interface IWorkspaceResolver {
+  resolve(hints: IWorkspaceHints, config: IServerConfig): Promise<IWorkspace>;
 }
 
-interface ServerConfigInterface {
+interface IServerConfig {
   defaultWorkspaceRoot?: string;
   allowedWorkspaceRoots?: string[];
 }
 
-interface WorkspaceHintsInterface {
+interface IWorkspaceHints {
   requestedRoot?: string;
   source: "server-config" | "client-metadata" | "process-cwd";
 }
@@ -258,38 +258,38 @@ MVP resolution order:
 2. explicit request metadata from an authenticated local client;
 3. bridge process current working directory as a local-development fallback.
 
-Northbound adapters extract protocol-specific workspace hints; `WorkspaceResolverInterface` turns those hints into a canonical workspace. This keeps workspace resolution usable for HTTP clients, CLI clients, and future non-HTTP adapters.
+Northbound adapters extract protocol-specific workspace hints; `IWorkspaceResolver` turns those hints into a canonical workspace. This keeps workspace resolution usable for HTTP clients, CLI clients, and future non-HTTP adapters.
 
 For the MVP, authenticated request metadata must still be constrained by either a single configured workspace root, an explicit allowlist, or the bridge process cwd fallback. Bearer authentication proves the caller may use Agent Loom; it does not grant arbitrary filesystem workspace selection.
 
-The resolver must canonicalize paths and create or fetch the workspace through `StateStoreInterface.getOrCreateWorkspace()` before the adapter creates an `AgentRequestInputInterface`. Canonicalization means absolute path resolution, symlink resolution via platform-native `realpath` or equivalent, removal of trailing separators, and consistent case handling on case-insensitive filesystems. Canonicalization failures, including dangling symlinks and permission-denied intermediate directories, must return `workspace_canonicalization_failed`. If `allowedWorkspaceRoots` is non-empty, the resolved root must be inside that allowlist after canonicalization; otherwise return `workspace_forbidden`.
+The resolver must canonicalize paths and create or fetch the workspace through `IStateStore.getOrCreateWorkspace()` before the adapter creates an `IAgentRequestInput`. Canonicalization means absolute path resolution, symlink resolution via platform-native `realpath` or equivalent, removal of trailing separators, and consistent case handling on case-insensitive filesystems. Canonicalization failures, including dangling symlinks and permission-denied intermediate directories, must return `workspace_canonicalization_failed`. If `allowedWorkspaceRoots` is non-empty, the resolved root must be inside that allowlist after canonicalization; otherwise return `workspace_forbidden`.
 
-`WorkspaceResolverInterface.resolve()` should throw typed `AgentLoomErrorInterface`s for `workspace_forbidden`, `workspace_not_found`, and `workspace_canonicalization_failed`; adapters encode those errors into their protocol-specific error response. Before resuming a persisted backend session, `SessionManagerInterface` must re-canonicalize the stored workspace path and compare it with the request workspace. If the path no longer exists or resolves differently, fail the turn with `workspace_changed` rather than reusing the session.
+`IWorkspaceResolver.resolve()` should throw typed `IAgentLoomError`s for `workspace_forbidden`, `workspace_not_found`, and `workspace_canonicalization_failed`; adapters encode those errors into their protocol-specific error response. Before resuming a persisted backend session, `ISessionManager` must re-canonicalize the stored workspace path and compare it with the request workspace. If the path no longer exists or resolves differently, fail the turn with `workspace_changed` rather than reusing the session.
 
-### `NorthboundAdapterInterface`
+### `INorthboundAdapter`
 
 The northbound side must be an interface. OpenAI Responses is the first implementation, not the architectural center.
 
 ```ts
-interface NorthboundAdapterInterface {
+interface INorthboundAdapter {
   readonly protocol: ClientProtocol;
 
-  extractWorkspaceHints(request: NorthboundRequestInterface): Promise<WorkspaceHintsInterface>;
-  parseRequest(request: NorthboundRequestInterface, context: RequestContextInterface): Promise<AgentRequestInputInterface>;
+  extractWorkspaceHints(request: INorthboundRequest): Promise<IWorkspaceHints>;
+  parseRequest(request: INorthboundRequest, context: IRequestContext): Promise<IAgentRequestInput>;
 
   encodeStream(
     events: AsyncIterable<AgentEvent>,
-    context: ResponseContextInterface
+    context: IResponseContext
   ): AsyncIterable<Uint8Array>;
 
-  encodeStoredResponse(record: TurnRecordInterface, events: AgentEvent[]): unknown;
+  encodeStoredResponse(record: ITurnRecord, events: AgentEvent[]): unknown;
 
-  encodeError(error: AgentLoomErrorInterface): unknown;
+  encodeError(error: IAgentLoomError): unknown;
 
-  capabilities(): NorthboundCapabilitiesInterface;
+  capabilities(): INorthboundCapabilities;
 }
 
-interface NorthboundRequestInterface {
+interface INorthboundRequest {
   transport: "http" | "cli" | "custom";
   method: string;
   path: string;
@@ -298,23 +298,23 @@ interface NorthboundRequestInterface {
   body: unknown;
 }
 
-interface RequestContextInterface {
+interface IRequestContext {
   workspaceId: WorkspaceId;
   authSubject?: string;
   requestId: string;
 }
 
-interface ResponseContextInterface {
+interface IResponseContext {
   turnId: TurnId;
   threadId: ThreadId;
   externalResponseId?: string;
 }
 
-interface AgentRequestInputInterface {
+interface IAgentRequestInput {
   threadId?: ThreadId;
   parentTurnId?: TurnId;
   model: string;
-  input: AgentInputInterface;
+  input: IAgentInput;
   metadata?: Record<string, unknown>;
   clientRef?: {
     externalId?: string;
@@ -322,7 +322,7 @@ interface AgentRequestInputInterface {
   };
 }
 
-interface NorthboundCapabilitiesInterface {
+interface INorthboundCapabilities {
   streaming: boolean;
   resumableTurns: boolean;
   clientSideToolCalls: boolean;
@@ -348,18 +348,18 @@ CliAdapter
 
 These future adapters are extension points, not MVP deliverables. The MVP should only implement `OpenAIResponsesAdapter`; the interface exists to prevent Codex/OpenAI concepts from entering the core.
 
-The core runtime should never branch on "Codex" or "OpenAI". It should receive `AgentRequestInterface`, produce `AgentEvent`, and let the selected `NorthboundAdapterInterface` decide how to encode those events for its client protocol.
+The core runtime should never branch on "Codex" or "OpenAI". It should receive `IAgentRequest`, produce `AgentEvent`, and let the selected `INorthboundAdapter` decide how to encode those events for its client protocol.
 
 ### `OpenAIResponsesAdapter`
 
 Responsibilities:
 
-- Use the stable protocol identifier `openai-responses-v1` for `ClientTurnRefInterface.protocol`.
+- Use the stable protocol identifier `openai-responses-v1` for `IClientTurnRef.protocol`.
 - Parse OpenAI Responses-compatible requests.
 - Validate request shape.
 - Resolve unsupported parameters.
-- Map OpenAI `previous_response_id` to canonical `parentTurnId` / `threadId` through `StateStoreInterface`.
-- Convert request input into `AgentRequestInterface`.
+- Map OpenAI `previous_response_id` to canonical `parentTurnId` / `threadId` through `IStateStore`.
+- Convert request input into `IAgentRequest`.
 - Convert `AgentEvent` streams into OpenAI Responses SSE.
 - Encode terminal response objects for `GET /responses/:id`.
 - For non-terminal `GET /responses/:id`, return a snapshot of the current canonical turn state and accumulated events; do not block waiting for completion.
@@ -370,7 +370,7 @@ MVP behavior:
 - Reject or explicitly ignore unsupported `tools`, audio, background mode, and OpenAI client-side function-call workflows.
 - Map canonical terminal events to OpenAI terminal events: `turn.succeeded -> response.completed`, `turn.failed -> response.failed`, `turn.cancelled` or `turn.interrupted -> response.incomplete`.
 
-### `SessionManagerInterface`
+### `ISessionManager`
 
 Responsibilities:
 
@@ -394,95 +394,95 @@ POST /responses
 ```
 
 ```ts
-interface SessionManagerInterface {
-  startTurn(input: AgentRequestInputInterface, context: RequestContextInterface): Promise<ResolvedTurnInterface>;
-  getTurn(turnId: TurnId): Promise<TurnRecordInterface | null>;
-  cancelTurn(turnId: TurnId): Promise<CancelResultInterface>;
+interface ISessionManager {
+  startTurn(input: IAgentRequestInput, context: IRequestContext): Promise<IResolvedTurn>;
+  getTurn(turnId: TurnId): Promise<ITurnRecord | null>;
+  cancelTurn(turnId: TurnId): Promise<ICancelResult>;
 }
 
-interface ResolvedTurnInterface {
-  turn: TurnRecordInterface;
-  thread: ThreadInterface;
-  session: BackendSessionInterface;
-  request: AgentRequestInterface;
+interface IResolvedTurn {
+  turn: ITurnRecord;
+  thread: IThread;
+  session: IBackendSession;
+  request: IAgentRequest;
 }
 ```
 
-The `OpenAIResponsesAdapter` owns OpenAI-specific lookup of `previous_response_id` through `StateStoreInterface.resolveClientRef()`. `SessionManagerInterface` only receives canonical `threadId` / `parentTurnId` values.
+The `OpenAIResponsesAdapter` owns OpenAI-specific lookup of `previous_response_id` through `IStateStore.resolveClientRef()`. `ISessionManager` only receives canonical `threadId` / `parentTurnId` values.
 
 A thread has at most one active backend session at a time. If that backend session is disposed, crashes, or cannot be resumed, the MVP should fail the next turn with a `session_lost` error rather than silently creating a contextless replacement. Post-MVP recovery may create a replacement backend session, but every turn must keep its original `bridgeSessionId` for auditability.
 
-`SessionManagerInterface` depends on `StateStoreInterface`, `AgentBackendInterface`, and `EventJournalInterface`. It should not depend on any concrete northbound adapter.
+`ISessionManager` depends on `IStateStore`, `IAgentBackend`, and `IEventJournal`. It should not depend on any concrete northbound adapter.
 
-`SessionManagerInterface.startTurn()` owns the core streaming loop and watchdog timers. It wraps `AgentBackendInterface.send()`, records emitted events, enforces terminal-event guarantees, starts approval and backend inactivity timers, and calls `AgentBackendInterface.cancel()` when a watchdog expires.
+`ISessionManager.startTurn()` owns the core streaming loop and watchdog timers. It wraps `IAgentBackend.send()`, records emitted events, enforces terminal-event guarantees, starts approval and backend inactivity timers, and calls `IAgentBackend.cancel()` when a watchdog expires.
 
-Creation order is explicit and transactional where persistence is involved: resolve/create workspace, create thread, reserve a backend session row in `initializing`, call `AgentBackendInterface.createSession()` with that reserved `bridgeSessionId`, activate the row with `backendSessionId` and process metadata, then create the turn referencing `bridgeSessionId`. `BackendSessionInterface.workspaceId` and `BackendSessionInterface.threadId` are immutable metadata set at creation time. `AgentBackendInterface.createSession()` must only be called with a thread and backend session reservation that already exist in `StateStoreInterface`. If activation fails after a process-backed session starts, the newly created backend session must be disposed immediately and the reserved row marked `lost` or `abandoned`; the thread should remain unused rather than attached to a later unrelated session.
+Creation order is explicit and transactional where persistence is involved: resolve/create workspace, create thread, reserve a backend session row in `initializing`, call `IAgentBackend.createSession()` with that reserved `bridgeSessionId`, activate the row with `backendSessionId` and process metadata, then create the turn referencing `bridgeSessionId`. `IBackendSession.workspaceId` and `IBackendSession.threadId` are immutable metadata set at creation time. `IAgentBackend.createSession()` must only be called with a thread and backend session reservation that already exist in `IStateStore`. If activation fails after a process-backed session starts, the newly created backend session must be disposed immediately and the reserved row marked `lost` or `abandoned`; the thread should remain unused rather than attached to a later unrelated session.
 
-The streaming wrapper must use a `try/finally` around the `AgentBackendInterface.send()` iterator. If the iterator throws, is abandoned, times out, or completes without a terminal event, `SessionManagerInterface` appends exactly one synthesized terminal event (`turn.failed` or `turn.interrupted`) and updates the turn status before returning control to the adapter.
+The streaming wrapper must use a `try/finally` around the `IAgentBackend.send()` iterator. If the iterator throws, is abandoned, times out, or completes without a terminal event, `ISessionManager` appends exactly one synthesized terminal event (`turn.failed` or `turn.interrupted`) and updates the turn status before returning control to the adapter.
 
-`cancelTurn(turnId)` must load the `TurnRecordInterface`, then load the matching `BackendSessionInterface` with `StateStoreInterface.getBackendSession(turn.bridgeSessionId)`, validate thread/workspace continuity, and pass the full `BackendSessionInterface` to `AgentBackendInterface.cancel()`. Backend adapters should only use `BackendSessionInterface.backendSessionId` when calling their runtime.
+`cancelTurn(turnId)` must load the `ITurnRecord`, then load the matching `IBackendSession` with `IStateStore.getBackendSession(turn.bridgeSessionId)`, validate thread/workspace continuity, and pass the full `IBackendSession` to `IAgentBackend.cancel()`. Backend adapters should only use `IBackendSession.backendSessionId` when calling their runtime.
 
-`TurnRecordInterface` values returned from `getTurn()` are immutable snapshots. Callers that need fresh state should call `getTurn()` again rather than mutating a record in memory.
+`ITurnRecord` values returned from `getTurn()` are immutable snapshots. Callers that need fresh state should call `getTurn()` again rather than mutating a record in memory.
 
-### `StateStoreInterface`
+### `IStateStore`
 
 The persistence layer is an interface. SQLite is the first implementation, not a core dependency.
 
 ```ts
-interface StateStoreInterface {
-  getOrCreateWorkspace(input: { rootPath: string }): Promise<WorkspaceInterface>;
-  getWorkspace(workspaceId: WorkspaceId): Promise<WorkspaceInterface | null>;
-  getWorkspaceByPath(rootPath: string): Promise<WorkspaceInterface | null>;
+interface IStateStore {
+  getOrCreateWorkspace(input: { rootPath: string }): Promise<IWorkspace>;
+  getWorkspace(workspaceId: WorkspaceId): Promise<IWorkspace | null>;
+  getWorkspaceByPath(rootPath: string): Promise<IWorkspace | null>;
 
-  createThread(input: { workspaceId: WorkspaceId }): Promise<ThreadInterface>;
-  getThread(threadId: ThreadId): Promise<ThreadInterface | null>;
+  createThread(input: { workspaceId: WorkspaceId }): Promise<IThread>;
+  getThread(threadId: ThreadId): Promise<IThread | null>;
 
   createTurn(input: {
     threadId: ThreadId;
     parentTurnId?: TurnId;
     bridgeSessionId: BridgeSessionId;
     model: string;
-  }): Promise<TurnRecordInterface>;
-  getTurn(turnId: TurnId): Promise<TurnRecordInterface | null>;
+  }): Promise<ITurnRecord>;
+  getTurn(turnId: TurnId): Promise<ITurnRecord | null>;
   updateTurnStatus(
     turnId: TurnId,
-    fromStatus: TurnRecordInterface["status"] | "any-non-terminal",
-    toStatus: TurnRecordInterface["status"],
+    fromStatus: ITurnRecord["status"] | "any-non-terminal",
+    toStatus: ITurnRecord["status"],
     completedAt?: number
   ): Promise<boolean>;
 
-  bindClientRef(ref: ClientTurnRefInterface): Promise<void>;
-  resolveClientRef(protocol: ClientProtocol, externalId: string): Promise<ClientTurnRefInterface | null>;
+  bindClientRef(ref: IClientTurnRef): Promise<void>;
+  resolveClientRef(protocol: ClientProtocol, externalId: string): Promise<IClientTurnRef | null>;
 
-  resolveApprovalWithJournal(input: ApprovalResolutionInputInterface): Promise<ApprovalResolutionResultInterface>;
+  resolveApprovalWithJournal(input: IApprovalResolutionInput): Promise<IApprovalResolutionResult>;
 
-  reserveBackendSession(input: { workspaceId: WorkspaceId; threadId: ThreadId; backend: string }): Promise<BackendSessionInterface>;
-  activateBackendSession(session: BackendSessionInterface, metadata: BackendProcessMetadataInterface): Promise<void>;
+  reserveBackendSession(input: { workspaceId: WorkspaceId; threadId: ThreadId; backend: string }): Promise<IBackendSession>;
+  activateBackendSession(session: IBackendSession, metadata: IBackendProcessMetadata): Promise<void>;
   updateBackendSessionStatus(bridgeSessionId: BridgeSessionId, fromStatus: BackendSessionStatus | "any", toStatus: BackendSessionStatus): Promise<boolean>;
-  getBackendSession(bridgeSessionId: BridgeSessionId): Promise<BackendSessionInterface | null>;
-  getBackendSessionByThread(threadId: ThreadId): Promise<BackendSessionInterface | null>;
+  getBackendSession(bridgeSessionId: BridgeSessionId): Promise<IBackendSession | null>;
+  getBackendSessionByThread(threadId: ThreadId): Promise<IBackendSession | null>;
 }
 ```
 
 `getOrCreateWorkspace()` must be atomic; the SQLite implementation should enforce `UNIQUE(root_path)` and retry lookup on unique-constraint conflicts. `createTurn()` always creates turns in `queued` status. `updateTurnStatus()` must enforce the allowed transition table above with a compare-and-set update and return `false` when the stored status does not match `fromStatus` or when `any-non-terminal` sees an already terminal turn. `resolveApprovalWithJournal()` is the single persistence boundary for approval resolution: it must compare-and-set a pending approval to a terminal decision and append the matching `permission.resolved` journal event in one transaction. `reserveBackendSession()` creates an `initializing` row before a process-backed runtime is started; `activateBackendSession()` fills in backend/runtime metadata after creation succeeds.
 
-### `AgentBackendInterface`
+### `IAgentBackend`
 
 The southbound backend is an interface, not a hardcoded Copilot implementation.
 
 ```ts
-interface AgentBackendInterface {
+interface IAgentBackend {
   name: string;
-  capabilities(): BackendCapabilitiesInterface;
-  createSession(workspace: WorkspaceInterface, options: CreateSessionOptionsInterface): Promise<BackendSessionInterface>;
-  resumeSession(session: BackendSessionInterface): Promise<BackendSessionInterface>;
-  send(session: BackendSessionInterface, request: AgentRequestInterface, signal?: AbortSignal): AsyncIterable<AgentEvent>;
-  submitApprovalDecision?(session: BackendSessionInterface, approvalId: ApprovalId, decision: ApprovalDecision): Promise<void>;
-  cancel(session: BackendSessionInterface, options?: CancelOptionsInterface): Promise<CancelResultInterface>;
-  disposeSession(session: BackendSessionInterface): Promise<void>;
+  capabilities(): IBackendCapabilities;
+  createSession(workspace: IWorkspace, options: ICreateSessionOptions): Promise<IBackendSession>;
+  resumeSession(session: IBackendSession): Promise<IBackendSession>;
+  send(session: IBackendSession, request: IAgentRequest, signal?: AbortSignal): AsyncIterable<AgentEvent>;
+  submitApprovalDecision?(session: IBackendSession, approvalId: ApprovalId, decision: ApprovalDecision): Promise<void>;
+  cancel(session: IBackendSession, options?: ICancelOptions): Promise<ICancelResult>;
+  disposeSession(session: IBackendSession): Promise<void>;
 }
 
-interface BackendSessionInterface {
+interface IBackendSession {
   bridgeSessionId: BridgeSessionId;
   backendSessionId?: BackendSessionId;
   workspaceId: WorkspaceId;
@@ -490,29 +490,29 @@ interface BackendSessionInterface {
   status: BackendSessionStatus;
 }
 
-interface BackendProcessMetadataInterface {
+interface IBackendProcessMetadata {
   backendSessionId: BackendSessionId;
   processId?: string;
   processStartedAt?: number;
   processIdentityHash?: string;
 }
 
-interface CreateSessionOptionsInterface {
+interface ICreateSessionOptions {
   bridgeSessionId: BridgeSessionId;
   threadId: ThreadId;
   model?: string;
 }
 
-interface CancelOptionsInterface {
+interface ICancelOptions {
   timeoutMs: number;
   forceAfterTimeout: boolean;
 }
 
-interface CancelResultInterface {
+interface ICancelResult {
   status: "cancelled" | "timed_out" | "not_found";
 }
 
-interface BackendCapabilitiesInterface {
+interface IBackendCapabilities {
   persistentSessions: boolean;
   serverSideTools: boolean;
   permissionRequests: boolean;
@@ -542,17 +542,17 @@ idle -> lost
 lost -> stale
 ```
 
-`workspaceId` and `threadId` are immutable once a backend session is created. Before every send/resume/cancel, `SessionManagerInterface` must validate both `session.workspaceId === request.workspaceId` and `session.threadId === request.threadId`.
+`workspaceId` and `threadId` are immutable once a backend session is created. Before every send/resume/cancel, `ISessionManager` must validate both `session.workspaceId === request.workspaceId` and `session.threadId === request.threadId`.
 
 `resumeSession()`, `send()`, `submitApprovalDecision()`, `cancel()`, and `disposeSession()` must reject reserved sessions that have no `backendSessionId`; only active or previously activated sessions may reach backend runtime APIs.
 
-`AgentBackendInterface.send()` should try to emit exactly one terminal event. The core runtime must still wrap all backend streams and synthesize `turn.failed` or `turn.interrupted` if the backend iterator throws, exits without a terminal event, or exceeds a configured watchdog timeout.
+`IAgentBackend.send()` should try to emit exactly one terminal event. The core runtime must still wrap all backend streams and synthesize `turn.failed` or `turn.interrupted` if the backend iterator throws, exits without a terminal event, or exceeds a configured watchdog timeout.
 
-Backends should yield exactly one terminal event when possible. They may throw when a terminal event cannot be yielded; `SessionManagerInterface` must catch iterator errors, persist all already-yielded events, synthesize `turn.failed`, and use `updateTurnStatus(..., "any-non-terminal", "failed")` so a concurrent terminal transition wins safely. Backends must observe `AbortSignal` promptly; if a backend cannot cooperatively stop, `SessionManagerInterface` escalates through `cancel()` and `disposeSession()`.
+Backends should yield exactly one terminal event when possible. They may throw when a terminal event cannot be yielded; `ISessionManager` must catch iterator errors, persist all already-yielded events, synthesize `turn.failed`, and use `updateTurnStatus(..., "any-non-terminal", "failed")` so a concurrent terminal transition wins safely. Backends must observe `AbortSignal` promptly; if a backend cannot cooperatively stop, `ISessionManager` escalates through `cancel()` and `disposeSession()`.
 
 Process-backed adapters must re-canonicalize `workspace.rootPath` immediately before setting the child process working directory in `createSession()` and fail with `workspace_canonicalization_failed` if it no longer matches the resolved workspace.
 
-If `capabilities().externalApprovalDecisions` is true, `SessionManagerInterface` must call `submitApprovalDecision()` after an approval resolves. If false, the backend adapter must implement the approval pause/resume semantics internally before yielding further events. The MVP may choose either backend-native mode based on Phase 0 findings, but it must not pretend an approval was enforced unless the chosen backend integration can actually block and resume execution.
+If `capabilities().externalApprovalDecisions` is true, `ISessionManager` must call `submitApprovalDecision()` after an approval resolves. If false, the backend adapter must implement the approval pause/resume semantics internally before yielding further events. The MVP may choose either backend-native mode based on Phase 0 findings, but it must not pretend an approval was enforced unless the chosen backend integration can actually block and resume execution.
 
 First implementation:
 
@@ -572,7 +572,7 @@ MockBackend
 
 These future backends are architectural validation targets, not MVP deliverables. The MVP should implement one concrete Copilot backend first and keep the interface thin enough that it reflects real behavior discovered in Phase 0.
 
-### `EventJournalInterface`
+### `IEventJournal`
 
 Responsibilities:
 
@@ -611,14 +611,14 @@ If redaction fails, persistence must fail closed: throw a typed `RedactionFailed
 Synthesized terminal events used for shutdown and forced cleanup must be built from minimal pre-sanitized templates containing only IDs and fixed reason codes. Those cleanup events must not depend on redacting user-controlled payloads, so shutdown can always mark non-terminal turns interrupted without risking secret persistence.
 
 ```ts
-interface EventJournalInterface {
-  append(event: JournalEventInterface): Promise<void>;
-  listByTurn(turnId: TurnId): Promise<JournalEventInterface[]>;
-  listByThread(threadId: ThreadId): Promise<JournalEventInterface[]>;
+interface IEventJournal {
+  append(event: IJournalEvent): Promise<void>;
+  listByTurn(turnId: TurnId): Promise<IJournalEvent[]>;
+  listByThread(threadId: ThreadId): Promise<IJournalEvent[]>;
   replay(turnId: TurnId): AsyncIterable<AgentEvent>;
 }
 
-interface JournalEventInterface {
+interface IJournalEvent {
   id: string;
   turnId: TurnId;
   seq: number;
@@ -631,9 +631,9 @@ interface JournalEventInterface {
 }
 ```
 
-`EventJournalInterface.append()` is used for ordinary journal writes. Approval resolution must not call `append()` independently after changing approval state; it must go through `StateStoreInterface.resolveApprovalWithJournal()` so the approval transition and `permission.resolved` event commit atomically.
+`IEventJournal.append()` is used for ordinary journal writes. Approval resolution must not call `append()` independently after changing approval state; it must go through `IStateStore.resolveApprovalWithJournal()` so the approval transition and `permission.resolved` event commit atomically.
 
-`replay()` should yield all available canonical events in sequence order. Ordering is insertion-order at the journal boundary; `AgentEvent.emittedAt` is diagnostic metadata and not the replay ordering source. Replay must verify `seq` is continuous from `0` to `N - 1` for a turn and throw `JournalCorruptedError` with detected gap ranges when sequence numbers are missing. If an in-progress turn has no terminal event yet, replay still yields its persisted canonical events; callers distinguish incomplete streams from corruption by checking `TurnRecordInterface.status`. If retention has expired an entire terminal turn journal, replay should return a typed `JournalExpiredError` rather than treating the intentional tombstone as sequence corruption. If required canonical events are malformed or out of order, the debug endpoint should catch the typed error and return corruption details without crashing the server.
+`replay()` should yield all available canonical events in sequence order. Ordering is insertion-order at the journal boundary; `AgentEvent.emittedAt` is diagnostic metadata and not the replay ordering source. Replay must verify `seq` is continuous from `0` to `N - 1` for a turn and throw `JournalCorruptedError` with detected gap ranges when sequence numbers are missing. If an in-progress turn has no terminal event yet, replay still yields its persisted canonical events; callers distinguish incomplete streams from corruption by checking `ITurnRecord.status`. If retention has expired an entire terminal turn journal, replay should return a typed `JournalExpiredError` rather than treating the intentional tombstone as sequence corruption. If required canonical events are malformed or out of order, the debug endpoint should catch the typed error and return corruption details without crashing the server.
 
 MVP debug endpoint:
 
@@ -643,7 +643,7 @@ GET /debug/turns/:id/events
 
 Broader thread, backend-session, and approval debug routes should remain post-MVP unless implementation evidence proves they are necessary for Phase 4 replay validation.
 
-### `ApprovalProviderInterface`
+### `IApprovalProvider`
 
 Responsibilities:
 
@@ -673,13 +673,13 @@ allow-all
 `allow-all` must be explicit opt-in and should never be the default.
 
 ```ts
-interface ApprovalProviderInterface {
-  evaluate(request: PermissionRequestInterface, context: ApprovalContextInterface): Promise<ApprovalEvaluation>;
+interface IApprovalProvider {
+  evaluate(request: IPermissionRequest, context: IApprovalContext): Promise<ApprovalEvaluation>;
   resolve(approvalId: ApprovalId, decision: ApprovalDecision): Promise<void>;
   awaitDecision(approvalId: ApprovalId, signal?: AbortSignal): Promise<ApprovalDecision>;
 }
 
-interface ApprovalContextInterface {
+interface IApprovalContext {
   turnId: TurnId;
   threadId: ThreadId;
   workspaceId: WorkspaceId;
@@ -696,13 +696,13 @@ type ApprovalDecision =
   | { type: "timeout"; reason: string }
   | { type: "aborted"; reason: string };
 
-interface ApprovalResolutionInputInterface {
+interface IApprovalResolutionInput {
   approvalId: ApprovalId;
   decision: ApprovalDecision;
-  journalEvent: JournalEventInterface;
+  journalEvent: IJournalEvent;
 }
 
-interface ApprovalResolutionResultInterface {
+interface IApprovalResolutionResult {
   status: "resolved" | "already_terminal";
   decision: ApprovalDecision;
 }
@@ -710,11 +710,11 @@ interface ApprovalResolutionResultInterface {
 
 Pending approvals must have a deadline. The MVP default should auto-deny when the timeout expires, emit `permission.resolved`, and let the backend continue or fail according to the backend protocol.
 
-`ApprovalProviderInterface.resolve()` must persist `permission.resolved` through `StateStoreInterface.resolveApprovalWithJournal()`, not by separately updating approval state and then calling `EventJournalInterface.append()`. `resolve()` and timeout handlers must use one SQLite transaction or compare-and-set update from `pending` to a terminal approval status so exactly one decision wins for each `approvalId`. The approval status update and corresponding `permission.resolved` journal append must commit atomically; if the journal append cannot be committed, the approval must remain pending or the turn must fail closed with `turn.failed` rather than continuing with an unjournaled decision. `awaitDecision()` must atomically journal timeout decisions before returning `{ type: "timeout" }`, so timeout paths cannot create unjournaled or duplicate decisions. When an `AbortSignal` represents turn cancellation, `awaitDecision()` must atomically resolve the approval as deny with reason `turn_cancelled`, append `permission.resolved` in the same transaction, and return `{ type: "aborted" }`; subsequent user approval attempts should be idempotent no-ops that return the already-terminal approval state. The required order is: `permission.required` -> timeout/cancel -> `permission.resolved` with deny reason -> backend receives denial or cancellation -> backend terminal event or forced interruption.
+`IApprovalProvider.resolve()` must persist `permission.resolved` through `IStateStore.resolveApprovalWithJournal()`, not by separately updating approval state and then calling `IEventJournal.append()`. `resolve()` and timeout handlers must use one SQLite transaction or compare-and-set update from `pending` to a terminal approval status so exactly one decision wins for each `approvalId`. The approval status update and corresponding `permission.resolved` journal append must commit atomically; if the journal append cannot be committed, the approval must remain pending or the turn must fail closed with `turn.failed` rather than continuing with an unjournaled decision. `awaitDecision()` must atomically journal timeout decisions before returning `{ type: "timeout" }`, so timeout paths cannot create unjournaled or duplicate decisions. When an `AbortSignal` represents turn cancellation, `awaitDecision()` must atomically resolve the approval as deny with reason `turn_cancelled`, append `permission.resolved` in the same transaction, and return `{ type: "aborted" }`; subsequent user approval attempts should be idempotent no-ops that return the already-terminal approval state. The required order is: `permission.required` -> timeout/cancel -> `permission.resolved` with deny reason -> backend receives denial or cancellation -> backend terminal event or forced interruption.
 
 Approval payloads must pass through the same redaction pipeline as event payloads before persistence; commands, URLs, reasons, and metadata may contain secrets. If an approval timeout is auto-denied and the backend does not emit a terminal event within `cancel_timeout_ms`, the core runtime must force-cancel the backend session and synthesize `turn.interrupted` with reason `approval_timeout_exceeded`.
 
-The approval timeout watchdog is owned by `SessionManagerInterface`: after auto-deny is journaled, wait up to `cancel_timeout_ms` for a backend terminal event; if none arrives, atomically check the turn is still non-terminal with `updateTurnStatus(..., "any-non-terminal", "cancelling")`, call `AgentBackendInterface.cancel(session, { forceAfterTimeout: true })`, and synthesize `turn.interrupted` through the same compare-and-set terminal-event path. If `cancel()` returns `timed_out`, `SessionManagerInterface` calls `AgentBackendInterface.disposeSession(session)` and then marks the backend session `abandoned` in `StateStoreInterface`. Backend adapters own process cleanup only; they must not update `StateStoreInterface` directly.
+The approval timeout watchdog is owned by `ISessionManager`: after auto-deny is journaled, wait up to `cancel_timeout_ms` for a backend terminal event; if none arrives, atomically check the turn is still non-terminal with `updateTurnStatus(..., "any-non-terminal", "cancelling")`, call `IAgentBackend.cancel(session, { forceAfterTimeout: true })`, and synthesize `turn.interrupted` through the same compare-and-set terminal-event path. If `cancel()` returns `timed_out`, `ISessionManager` calls `IAgentBackend.disposeSession(session)` and then marks the backend session `abandoned` in `IStateStore`. Backend adapters own process cleanup only; they must not update `IStateStore` directly.
 
 ## Streaming Design
 
@@ -783,7 +783,7 @@ client cancel/disconnect
   -> lookup external response_id -> turn_id -> bridge_session_id
   -> wait brief disconnect grace period for reconnects
   -> transition turn to cancelling if not already terminal/cancelling
-  -> load BackendSessionInterface and call AgentBackendInterface.cancel(session, timeoutMs)
+  -> load IBackendSession and call IAgentBackend.cancel(session, timeoutMs)
   -> force-dispose backend session if cancel times out
   -> escalate disposal through SIGTERM and then SIGKILL for process-backed sessions
   -> append turn.cancelled or turn.interrupted event
@@ -793,11 +793,11 @@ client cancel/disconnect
 
 The bridge must never leave a stream dangling without a terminal event in the event journal. If a backend stream throws, exits early, or fails to produce a terminal event, the core runtime must synthesize `turn.failed` or `turn.interrupted` in a `finally` path.
 
-Cancellation must be idempotent. The first cancellation request transitions the turn to `cancelling`; concurrent or repeated cancellation requests should return the current cancellation result without calling `AgentBackendInterface.cancel()` again.
+Cancellation must be idempotent. The first cancellation request transitions the turn to `cancelling`; concurrent or repeated cancellation requests should return the current cancellation result without calling `IAgentBackend.cancel()` again.
 
-Force-cancel timeout must not leave a process-backed backend running with workspace access. If `AgentBackendInterface.cancel()` returns `timed_out`, `SessionManagerInterface` must first transition the backend session to `disposing`, then call `disposeSession()`. The backend implementation then terminates the process with SIGTERM and, if still alive after its short shutdown budget, SIGKILL. `AgentBackendInterface.disposeSession()` must not mutate persistence; `SessionManagerInterface` is responsible for marking the backend session `disposed` after graceful cleanup or `abandoned` after forced/failed cleanup in `StateStoreInterface`. Only after that persistence transition may the backend session be made non-reusable.
+Force-cancel timeout must not leave a process-backed backend running with workspace access. If `IAgentBackend.cancel()` returns `timed_out`, `ISessionManager` must first transition the backend session to `disposing`, then call `disposeSession()`. The backend implementation then terminates the process with SIGTERM and, if still alive after its short shutdown budget, SIGKILL. `IAgentBackend.disposeSession()` must not mutate persistence; `ISessionManager` is responsible for marking the backend session `disposed` after graceful cleanup or `abandoned` after forced/failed cleanup in `IStateStore`. Only after that persistence transition may the backend session be made non-reusable.
 
-`SessionManagerInterface.cancelTurn()` must use an atomic compare-and-set or SQLite transaction to transition a non-terminal turn to `cancelling`. If the turn is already `cancelling` or terminal, it returns the current cancellation result without calling `AgentBackendInterface.cancel()` again. If force-cancellation exceeds `cancel_timeout_ms`, the turn must still be marked `interrupted` with reason `force_cancel_timeout_exceeded` after disposal escalation completes; the backend session is then marked abandoned and cannot be reused.
+`ISessionManager.cancelTurn()` must use an atomic compare-and-set or SQLite transaction to transition a non-terminal turn to `cancelling`. If the turn is already `cancelling` or terminal, it returns the current cancellation result without calling `IAgentBackend.cancel()` again. If force-cancellation exceeds `cancel_timeout_ms`, the turn must still be marked `interrupted` with reason `force_cancel_timeout_exceeded` after disposal escalation completes; the backend session is then marked abandoned and cannot be reused.
 
 On bridge shutdown (`SIGINT` / `SIGTERM`), Agent Loom should stop accepting new requests, cancel in-progress turns with `cancel_timeout_ms`, force-dispose unresponsive backend sessions, mark remaining non-terminal turns as `interrupted`, flush the event journal, and then exit. Force disposal should escalate through graceful cancel, process termination, and process kill when supported; shutdown has a hard deadline, after which remaining sessions are marked abandoned and the process exits non-zero.
 
@@ -903,7 +903,7 @@ CREATE TABLE schema_version (
 );
 ```
 
-Production can later swap SQLite for Postgres by implementing `StateStoreInterface`.
+Production can later swap SQLite for Postgres by implementing `IStateStore`.
 
 MVP cleanup defaults should be simple and configurable:
 
@@ -955,15 +955,15 @@ Bearer tokens must be generated with cryptographically secure randomness and at 
 
 For browser-based clients added later, CORS should require `cors_mode = "browser"` plus a non-empty explicit origin allowlist. Configuration validation must reject `*` and reject enabling CORS without an allowlist. CLI clients such as Codex do not need CORS, so the safest default is to omit CORS headers entirely and reject all `Origin` headers.
 
-### WorkspaceInterface Boundary
+### IWorkspace Boundary
 
 Every request must resolve to a workspace. File and shell operations should be scoped to that workspace. Cross-workspace reuse of backend sessions must be forbidden.
 
 Enforcement requirements:
 
 - `backend_sessions.workspace_id` must match the request workspace before every send/resume/cancel operation.
-- `SessionManagerInterface` must reject attempts to reuse a `BridgeSessionId` from another workspace.
-- `AgentBackendInterface.send()` must fail with a workspace mismatch error if the session workspace does not match the request workspace.
+- `ISessionManager` must reject attempts to reuse a `BridgeSessionId` from another workspace.
+- `IAgentBackend.send()` must fail with a workspace mismatch error if the session workspace does not match the request workspace.
 - Backend adapters should set the backend process working directory to the resolved workspace root.
 - File paths in permission requests must be canonicalized before approval with platform-native realpath resolution and tests covering `..`, symlinks, mixed separators, and absolute paths. Relative paths, symlinks, and absolute paths must resolve inside the workspace root. Paths outside the workspace are auto-denied with reason `path_outside_workspace`; canonicalization failures are auto-denied with reason `path_canonicalization_failed`.
 
@@ -1096,13 +1096,13 @@ cancellation works
 backend-native approval behavior is observed or declared unsupported for MVP
 ```
 
-Phase 0 is a discovery deliverable, not production scaffolding. Any reusable code promoted from the probe must be moved behind `AgentBackendInterface` and covered by MockBackend tests before Phase 1.
+Phase 0 is a discovery deliverable, not production scaffolding. Any reusable code promoted from the probe must be moved behind `IAgentBackend` and covered by MockBackend tests before Phase 1.
 
 Phase 0 must produce a short implementation decision for approval behavior: external decisions through `submitApprovalDecision()`, backend-internal pause/resume, or approvals unsupported for the first backend. Phase 1 may proceed with text-only flows, but Phase 3 must not start until that decision is reflected in the concrete backend contract and MockBackend behavior.
 
 ### Phase 1: Minimal Responses Bridge
 
-Goal: Codex can complete a single text-only response through the first `NorthboundAdapterInterface`.
+Goal: Codex can complete a single text-only response through the first `INorthboundAdapter`.
 
 Deliverables:
 
@@ -1110,25 +1110,25 @@ Deliverables:
 GET /openai/v1/models
 POST /openai/v1/responses
 bearer token generation and validation before endpoints accept requests
-single-workspace or allowlist-enforced WorkspaceResolverInterface
+single-workspace or allowlist-enforced IWorkspaceResolver
 root canonicalization for the selected workspace
 basic SSE stream
 minimal turn/event persistence
-AgentBackendInterface
+IAgentBackend
 MockBackend tests
 MockBackend approval capability shape aligned with the Phase 0 decision
 ```
 
 ### Phase 2: Multi-turn State
 
-Goal: OpenAI `previous_response_id` maps to canonical parent turn/thread state, while the underlying `SessionManagerInterface` remains protocol-neutral.
+Goal: OpenAI `previous_response_id` maps to canonical parent turn/thread state, while the underlying `ISessionManager` remains protocol-neutral.
 
 Deliverables:
 
 ```text
 workspace/thread/turn/session tables
 schema_version table and first migration
-SessionManagerInterface
+ISessionManager
 client_turn_refs mapping
 multi-turn tests
 ```
@@ -1140,7 +1140,7 @@ Goal: risky actions are gated and running work can be interrupted.
 Deliverables:
 
 ```text
-ApprovalProviderInterface
+IApprovalProvider
 approval API
 policy defaults
 cancel endpoint
@@ -1213,7 +1213,7 @@ packaging
 2. What exact Copilot CLI/SDK event schema is available in the target version?
 3. Should the MVP reject `tools` requests with `400 unsupported_parameter`, or accept and ignore them with a warning?
 4. What is the minimum Responses event shape that Codex Desktop requires in practice?
-5. What is the minimum common `AgentRequestInterface` shape that future non-Codex clients must map into?
+5. What is the minimum common `IAgentRequest` shape that future non-Codex clients must map into?
 6. Which northbound adapter should follow OpenAI Responses: Anthropic Messages, Gemini, or a direct CLI adapter?
 7. Should approval UI be HTTP-only for MVP, or should the CLI server also expose terminal prompts?
 8. How should workspace identity be configured: explicit request metadata, current process cwd, or provider config?

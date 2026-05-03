@@ -1,20 +1,52 @@
 # Agent Loom
 
-To install dependencies:
+Agent Loom is a local bridge that exposes an OpenAI Responses-compatible API backed by a local Copilot CLI agent runtime. It is designed for Codex CLI/Desktop dogfooding, durable local state, projectless chats, structured diagnostics, and Bun-native operation.
+
+## Quick start
+
+Install dependencies:
 
 ```bash
 bun install
 ```
 
-To run:
+Start the bridge with a stable token:
 
 ```bash
-bun run dev
+export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
+bun run src/cli.ts start
 ```
 
-Agent Loom starts a local OpenAI Responses-compatible bridge at `http://127.0.0.1:8000/openai/v1`. It requires bearer auth for every endpoint. Set `AGENT_LOOM_API_KEY` to a token with at least 16 non-whitespace characters, or the server will generate an ephemeral startup token and print it once to stderr.
+The server listens on `http://127.0.0.1:8000/openai/v1` by default and requires bearer auth for every endpoint. For a background daemon:
 
-Useful endpoints:
+```bash
+bun run src/cli.ts start -d
+bun run src/cli.ts status
+bun run src/cli.ts logs
+```
+
+Configure Codex CLI/Desktop:
+
+```bash
+bun run src/cli.ts config codex
+```
+
+Before npm publication, use `bun run src/cli.ts ...` from this repository. After publication, the intended package executable form is:
+
+```bash
+bunx agent-loom start
+bunx agent-loom config codex
+```
+
+## Documentation
+
+- [Architecture](docs/architecture.md) - runtime components, request flow, state, and protocol boundaries.
+- [Configuration](docs/configuration.md) - environment variables, CLI options, auth, workspace selection, and daemon paths.
+- [Codex integration](docs/codex-integration.md) - Codex provider setup, supported Responses behavior, and current compatibility scope.
+- [Operations](docs/operations.md) - health checks, logs, metrics, debug journal, shutdown, and troubleshooting.
+- [Development](docs/development.md) - repository workflow, tests, naming conventions, packaging, and review expectations.
+
+## Useful endpoints
 
 ```text
 GET  /healthz
@@ -26,102 +58,23 @@ POST /openai/v1/responses/:id/cancel
 GET  /debug/turns/:id/events
 ```
 
-Configuration defaults are local and restrictive: host `127.0.0.1`, port `8000`, CORS disabled, state database `.agent-loom/state.sqlite`, approval timeout `60000ms`, cancel timeout `10000ms`, disconnect grace `5000ms`, HTTP idle timeout disabled with `AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS=0`, log level `info`, projectless workspace root `${TMPDIR:-/tmp}/al-projectless-workspace`, and event retention disabled unless `AGENT_LOOM_EVENT_RETENTION_DAYS` is set. Requests that do not include `metadata.workspace_root` use the projectless workspace so normal Codex/Desktop chats do not inherit the Agent Loom repository context; explicit `metadata.workspace_root` requests still use the requested workspace after allowlist checks.
-
-## Agent Loom CLI
-
-The package exposes an `agent-loom` executable for Bun-native usage. After the package is published to npm, run it with:
-
-```bash
-bunx agent-loom start
-```
-
-Before npm publication, use the local source entrypoint from this repository:
+## Commands
 
 ```bash
 bun run src/cli.ts help
-bun run src/cli.ts start
-bun run src/cli.ts config codex
+bun run src/cli.ts start                 # foreground server
+bun run src/cli.ts start -d              # daemon server
+bun run src/cli.ts status                # daemon status
+bun run src/cli.ts stop                  # stop daemon
+bun run src/cli.ts logs                  # print daemon log path
+bun run src/cli.ts config codex          # configure Codex CLI/Desktop
+bun run package                          # compile standalone Bun binary to dist/agent-loom
 ```
 
-Use `bun run`, not `bunx run`, for the local source entrypoint. `bunx` is for npm package executables and will try to resolve packages instead of running the repository source directly.
+## Current compatibility scope
 
-You can smoke-test the package contents before publishing:
+Agent Loom accepts Codex-style non-empty `tools`, `tool_choice`, and `parallel_tool_calls` fields as client capability metadata for the text bridge. It parses Codex full-history `input[]` requests into system instructions, conversation history, and the latest user message before invoking Copilot CLI.
 
-```bash
-bun pm pack --dry-run
-```
-
-Useful commands:
-
-```bash
-agent-loom start                         # foreground server
-agent-loom start -d                      # daemon server
-agent-loom status                        # daemon status
-agent-loom stop                          # stop the daemon
-agent-loom logs                          # print the daemon log path
-agent-loom config codex                  # configure Codex CLI/Desktop
-```
-
-`agent-loom start` accepts common runtime overrides such as `--host`, `--port`, `--state-db`, `--workspace-root`, `--projectless-workspace-root`, and `--log-level`. Keep `AGENT_LOOM_API_KEY` in the environment rather than passing it as a command-line flag, so the token is not exposed through process listings.
-
-Daemon mode writes stable files under `~/.agent-loom` by default:
-
-```text
-~/.agent-loom/agent-loom.pid
-~/.agent-loom/logs/agent-loom.log
-~/.agent-loom/state.sqlite
-```
-
-Set `AGENT_LOOM_HOME` to move those daemon files. If `AGENT_LOOM_STATE_DB_PATH` is already set, daemon mode preserves it instead of using `~/.agent-loom/state.sqlite`.
-
-To compile a standalone Bun binary for the CLI:
-
-```bash
-bun run package
-```
-
-## Codex CLI and Desktop setup
-
-Agent Loom can be configured as a Codex custom Responses provider. Start the local bridge with a stable API key:
-
-```bash
-export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
-bun run src/cli.ts start
-```
-
-Then configure Codex:
-
-```bash
-bun run src/cli.ts config codex
-```
-
-After npm publication, the equivalent one-off commands are `bunx agent-loom start` and `bunx agent-loom config codex`. For local development from this repository, `bun run dev` and `bun run config:codex` also remain available. The config command safely creates or updates `~/.codex/config.toml`, preserving unrelated Codex config and writing a `.agent-loom-backup-*` backup before changing an existing file. It writes the equivalent provider and profile config:
-
-```toml
-profile = "agent-loom"
-model_provider = "agent-loom"
-model = "copilot-agent"
-
-[model_providers.agent-loom]
-name = "Agent Loom"
-base_url = "http://127.0.0.1:8000/openai/v1"
-wire_api = "responses"
-env_key = "AGENT_LOOM_API_KEY"
-requires_openai_auth = false
-supports_websockets = false
-
-[profiles.agent-loom]
-model_provider = "agent-loom"
-model = "copilot-agent"
-```
-
-Codex CLI and Desktop share this config. The top-level `profile`, `model_provider`, and `model` entries keep commands such as `codex exec resume --last` on Agent Loom even when the subcommand does not accept `--profile`. The `/openai/v1/models` route returns a Codex-compatible model catalog entry for `copilot-agent`, including `slug`, `display_name`, `shell_type`, `visibility`, and API/tooling metadata expected by Codex model selection.
-
-Current compatibility scope:
-
-- Codex-style non-empty `tools`, `tool_choice`, and `parallel_tool_calls` request fields are accepted as client capability metadata for the text bridge.
-- Codex HTTP/SSE full-history `input[]` requests are parsed into system instructions, conversation history, and the latest user message before invoking the Copilot CLI backend.
-- Streaming completion, failure, cancellation, and interruption events include stable response IDs plus Codex-compatible `error`, `incomplete_details`, and `usage` fields.
+Streaming completion, failure, cancellation, and interruption events include stable response IDs plus Codex-compatible `error`, `incomplete_details`, and standard `usage` fields. Usage is currently a best-effort estimate based on the prompt text sent to the backend and assistant text returned to the client.
 
 Agent Loom does not yet implement a bridge-owned Codex tool-call broker. The current bridge is text-first: it accepts Codex tool definitions so real Codex clients can connect, but it does not emit tool calls for Codex to execute.

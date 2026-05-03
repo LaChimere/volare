@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The recommended best practice is not to build a "Copilot model provider". It is to build a **protocol bridge plus agent-runtime orchestration layer**: expose an OpenAI Responses-compatible API northbound, abstract the southbound side behind replaceable `AgentBackendInterface` implementations, and start with a Copilot CLI/SDK JSON-RPC/stdio agent runtime. Codex has already moved to the Responses API as its primary custom-provider wire protocol, and the `chat` wire API has been removed from the Codex codebase, so the MVP should not begin by expanding into `/chat/completions`.[^1]
+The recommended best practice is not to build a "Copilot model provider". It is to build a **protocol bridge plus agent-runtime orchestration layer**: expose an OpenAI Responses-compatible API northbound, abstract the southbound side behind replaceable `IAgentBackend` implementations, and start with a Copilot CLI/SDK JSON-RPC/stdio agent runtime. Codex has already moved to the Responses API as its primary custom-provider wire protocol, and the `chat` wire API has been removed from the Codex codebase, so the MVP should not begin by expanding into `/chat/completions`.[^1]
 
 The guiding principles should be **interface-first, stateful, event-journaled, security-by-default, and honest about compatibility**. Do not pretend to support tool-calling lifecycles that the backend does not provide. Copilot/ACP-style backends are closer to server-side agent execution, so tool activity should be mapped to progress events, reasoning summaries, server-side tool events, or permission requests, rather than fabricated as OpenAI client-side `function_call` events.[^2]
 
@@ -11,11 +11,11 @@ The guiding principles should be **interface-first, stateful, event-journaled, s
 ```mermaid
 flowchart TD
   A[Codex Desktop / Codex CLI] -->|OpenAI Responses API| B[Local Bridge HTTP Server]
-  B --> C[NorthboundAdapterInterface: OpenAI Responses]
+  B --> C[INorthboundAdapter: OpenAI Responses]
   C --> D[Canonical Agent Runtime]
-  D --> E[StateStoreInterface + EventJournalInterface]
-  D --> F[ApprovalProviderInterface]
-  D --> G[AgentBackendInterface]
+  D --> E[IStateStore + IEventJournal]
+  D --> F[IApprovalProvider]
+  D --> G[IAgentBackend]
   G -->|JSON-RPC / stdio or SDK| H[Copilot CLI / Copilot SDK Runtime]
   H --> I[Server-side tools: shell, files, MCP, approvals]
 ```
@@ -27,11 +27,11 @@ Workspace
 Thread
 Turn
 ClientTurnRef
-BackendSessionInterface
+IBackendSession
 AgentRequest
 AgentEvent
 ApprovalRequest
-EventJournalInterface
+IEventJournal
 ```
 
 OpenAI, ACP, the Copilot SDK, and SQLite should all be adapters or implementations behind interfaces. For the Agent Loom MVP, Bun is the concrete runtime choice rather than a separate runtime abstraction.
@@ -374,7 +374,7 @@ Goal: file writes, shell commands, and other tools can safely block for approval
 Implementation:
 
 ```text
-ApprovalProviderInterface
+IApprovalProvider
 internal or HTTP approval API based on Phase 0 decision
 POST /responses/:id/cancel
 ```
