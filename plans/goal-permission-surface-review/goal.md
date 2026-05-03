@@ -59,7 +59,7 @@ updated_at: "2026-05-04T00:52:00+08:00"
 | Criterion | Evidence | Status |
 |---|---|---|
 | User-visible behavior: predictable permission behavior across URL, shell/tool, file path, and MCP/tool surfaces | Direct Copilot CLI review identified the relevant permission flags; Agent Loom now documents and exposes `restricted`, `web`, and `full` modes. | met |
-| User-visible behavior: common research prompts work without misleading permission-denied claims while avoiding broad default grants | Existing default `web` mode remains URL-only for public fetches; docs clarify that `full` is explicit opt-in for shell/tool/path grants. | met |
+| User-visible behavior: common research prompts work without misleading permission-denied claims while avoiding broad default grants | Default `full` mode now matches trusted local dogfooding expectations; `web` remains available as an optional URL-only mode. | met |
 | User-visible behavior: trusted users can opt into broader Full-access-like behavior | `src/cli.ts` supports `start --copilot-permission-mode full`; runtime config already maps `full` to Copilot CLI `--allow-all`. | met |
 | Implementation scope: review URL, tools/shell, paths, built-in MCP, and tool availability | Reviewed `copilot --help` permission surfaces and ran direct CLI experiments for URL, shell, and file/cwd behavior; docs retain the built-in MCP limitation from `--disable-builtin-mcps`. | met |
 | Implementation scope: refine code/config/tests/docs if needed | Updated `src/cli.ts`, `tests/unit_tests/cli.test.ts`, `tests/unit_tests/backends/copilot-cli-backend.test.ts`, `docs/configuration.md`, and `docs/codex-integration.md`. | met |

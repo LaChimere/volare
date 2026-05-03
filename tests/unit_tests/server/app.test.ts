@@ -755,6 +755,14 @@ describe('server app', () => {
       copilotPermissionMode: 'full',
     });
     expect(createServerRuntimeConfig({}).copilotPermissionMode).toBe('full');
+    expect(
+      createServerRuntimeConfig({ AGENT_LOOM_COPILOT_PERMISSION_MODE: 'restricted' })
+        .copilotPermissionMode,
+    ).toBe('restricted');
+    expect(
+      createServerRuntimeConfig({ AGENT_LOOM_COPILOT_PERMISSION_MODE: 'web' })
+        .copilotPermissionMode,
+    ).toBe('web');
   });
 
   test('serves redacted debug events for a turn', async () => {

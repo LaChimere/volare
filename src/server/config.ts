@@ -1,6 +1,10 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { CopilotCliPermissionMode } from '../backends/copilot-cli/backend';
+import {
+  type CopilotCliPermissionMode,
+  DEFAULT_COPILOT_CLI_PERMISSION_MODE,
+  isCopilotCliPermissionMode,
+} from '../backends/copilot-cli/backend';
 import { AgentLoomError } from '../core/errors';
 import type { LogLevel } from '../logging/logger';
 
@@ -171,8 +175,8 @@ function isLogLevel(value: string): value is LogLevel {
 }
 
 function parseCopilotPermissionMode(value: string | undefined): CopilotCliPermissionMode {
-  const mode = value?.trim() ?? 'full';
-  if (mode === 'restricted' || mode === 'web' || mode === 'full') {
+  const mode = value?.trim() ?? DEFAULT_COPILOT_CLI_PERMISSION_MODE;
+  if (isCopilotCliPermissionMode(mode)) {
     return mode;
   }
   throw new AgentLoomError(

@@ -170,6 +170,31 @@ describe('Agent Loom CLI', () => {
     expect(stdout.text()).toContain('Agent Loom daemon started (pid 4242)');
   });
 
+  test('rejects invalid Copilot permission modes before daemon startup', async () => {
+    const { io, stderr } = memoryIo();
+    const calls: unknown[] = [];
+    const exitCode = await runCli(
+      ['start', '--daemon', '--copilot-permission-mode', 'ask'],
+      testDependencies({
+        startDaemon: async (command) => {
+          calls.push(command);
+          return {
+            pid: 4242,
+            logPath: '/tmp/agent-loom.log',
+            pidPath: '/tmp/agent-loom.pid',
+          };
+        },
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(2);
+    expect(calls).toEqual([]);
+    expect(stderr.text()).toContain(
+      '--copilot-permission-mode must be one of restricted, web, or full',
+    );
+  });
+
   test('reports daemon status and log paths', async () => {
     const { io, stdout } = memoryIo();
     const exitCode = await runCli(

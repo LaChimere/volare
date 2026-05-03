@@ -5,6 +5,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { configureCodex, type ICodexConfigOptions } from '../scripts/config-codex';
+import { isCopilotCliPermissionMode } from './backends/copilot-cli/backend';
 import {
   type IAgentLoomRuntime,
   type IAgentLoomRuntimeOptions,
@@ -247,6 +248,11 @@ function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
     }
     if (arg === '--copilot-permission-mode' || arg.startsWith('--copilot-permission-mode=')) {
       const parsed = readFlagValue(args, index, '--copilot-permission-mode');
+      if (!isCopilotCliPermissionMode(parsed.value)) {
+        throw new CliUsageError(
+          '--copilot-permission-mode must be one of restricted, web, or full',
+        );
+      }
       env.AGENT_LOOM_COPILOT_PERMISSION_MODE = parsed.value;
       daemonArgs.push('--copilot-permission-mode', parsed.value);
       index = parsed.index;
@@ -386,7 +392,7 @@ async function startDaemon(
       throw new CliUsageError('Daemon process did not report a pid');
     }
     try {
-      await waitForDaemonStart(child.pid, env);
+      await waitForDaemonStart(child.pid, env, paths.logPath);
     } catch (error) {
       await terminateDaemonAfterStartupFailure(child.pid);
       throw error;
@@ -447,12 +453,15 @@ async function stopDaemon(): Promise<IDaemonStopResult> {
 async function waitForDaemonStart(
   pid: number,
   env: Record<string, string | undefined>,
+  logPath: string,
 ): Promise<void> {
   const apiKey = env['AGENT_LOOM_API_KEY'];
   if (!apiKey) {
     await delay(750);
     if (!isProcessRunning(pid)) {
-      throw new CliUsageError('Daemon process exited before it became ready');
+      throw new CliUsageError(
+        `Daemon process exited before it became ready; see logs at ${logPath}`,
+      );
     }
     return;
   }
@@ -463,7 +472,9 @@ async function waitForDaemonStart(
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     if (!isProcessRunning(pid)) {
-      throw new CliUsageError('Daemon process exited before it became ready');
+      throw new CliUsageError(
+        `Daemon process exited before it became ready; see logs at ${logPath}`,
+      );
     }
     try {
       const response = await fetch(healthUrl, {
@@ -477,7 +488,7 @@ async function waitForDaemonStart(
     }
     await delay(100);
   }
-  throw new CliUsageError(`Daemon did not become healthy at ${healthUrl}`);
+  throw new CliUsageError(`Daemon did not become healthy at ${healthUrl}; see logs at ${logPath}`);
 }
 
 async function terminateProcess(pid: number, timeoutMs: number): Promise<void> {

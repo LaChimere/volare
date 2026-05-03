@@ -38,12 +38,19 @@ export interface ICopilotPromptRunOptions {
   signal?: AbortSignal;
 }
 
-export type CopilotCliPermissionMode = 'restricted' | 'web' | 'full';
+export const COPILOT_CLI_PERMISSION_MODES = ['restricted', 'web', 'full'] as const;
+export type CopilotCliPermissionMode = (typeof COPILOT_CLI_PERMISSION_MODES)[number];
+export const DEFAULT_COPILOT_CLI_PERMISSION_MODE: CopilotCliPermissionMode = 'full';
+
+export function isCopilotCliPermissionMode(value: string): value is CopilotCliPermissionMode {
+  return COPILOT_CLI_PERMISSION_MODES.includes(value as CopilotCliPermissionMode);
+}
 
 export interface ICopilotCliBackendOptions {
   runner?: ICopilotPromptRunner;
   logger?: ILogger;
   permissionMode?: CopilotCliPermissionMode;
+  command?: string;
 }
 
 export class CopilotCliBackend implements IAgentBackend {
@@ -54,7 +61,8 @@ export class CopilotCliBackend implements IAgentBackend {
 
   constructor(options: ICopilotCliBackendOptions = {}) {
     this.#runner =
-      options.runner ?? new BunCopilotPromptRunner(undefined, 'copilot', options.permissionMode);
+      options.runner ??
+      new BunCopilotPromptRunner(undefined, options.command ?? 'copilot', options.permissionMode);
     this.#logger = (options.logger ?? new NoopLogger()).child({
       component: 'backend',
       backend: this.name,
@@ -276,7 +284,7 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
   constructor(
     identityValidator: IProcessIdentityValidator = new DefaultProcessIdentityValidator(),
     command = 'copilot',
-    permissionMode: CopilotCliPermissionMode = 'full',
+    permissionMode: CopilotCliPermissionMode = DEFAULT_COPILOT_CLI_PERMISSION_MODE,
   ) {
     this.#identityValidator = identityValidator;
     this.#command = command;

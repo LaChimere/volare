@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   BunCopilotPromptRunner,
   CopilotCliBackend,
+  DEFAULT_COPILOT_CLI_PERMISSION_MODE,
   extractTextFromCopilotOutput,
   type ICopilotPromptRunner,
   type ICopilotPromptRunOptions,
@@ -283,9 +284,10 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"hello"}}\\n'
       }
 
       expect(chunks).toEqual(['hello']);
-      await expect(readFile(path.join(workspace, 'args.txt'), 'utf8')).resolves.toContain(
-        '--allow-all',
-      );
+      const args = await readArgvFile(path.join(workspace, 'args.txt'));
+      expect(args).toContain('--allow-all');
+      expect(args).not.toContain('--allow-all-urls');
+      expect(DEFAULT_COPILOT_CLI_PERMISSION_MODE).toBe('full');
     } finally {
       await rm(workspace, { recursive: true, force: true });
       await rm(path.dirname(bin), { recursive: true, force: true });
@@ -311,7 +313,7 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
         restrictedChunks.push(chunk);
       }
       expect(restrictedChunks).toEqual(['ok']);
-      const restrictedArgs = await readFile(path.join(workspace, 'args.txt'), 'utf8');
+      const restrictedArgs = await readArgvFile(path.join(workspace, 'args.txt'));
       expect(restrictedArgs).not.toContain('--allow-all-urls');
       expect(restrictedArgs).not.toContain('--allow-all');
 
@@ -337,9 +339,9 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
         fullChunks.push(chunk);
       }
       expect(fullChunks).toEqual(['ok']);
-      await expect(readFile(path.join(workspace, 'args.txt'), 'utf8')).resolves.toContain(
-        '--allow-all',
-      );
+      const fullArgs = await readArgvFile(path.join(workspace, 'args.txt'));
+      expect(fullArgs).toContain('--allow-all');
+      expect(fullArgs).not.toContain('--allow-all-urls');
     } finally {
       await rm(workspace, { recursive: true, force: true });
       await rm(path.dirname(bin), { recursive: true, force: true });
@@ -378,6 +380,45 @@ while true; do sleep 1; done
       await rm(path.dirname(bin), { recursive: true, force: true });
     }
   });
+
+  test('passes configured permission mode to the default Copilot runner', async () => {
+    const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const bin = await installFakeCopilot(
+      'backend-permission-mode',
+      `#!/bin/sh
+printf '%s\\n' "$@" > "$PWD/args.txt"
+printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
+`,
+    );
+    try {
+      const backend = new CopilotCliBackend({ command: bin, permissionMode: 'web' });
+      const workspaceRoot = await realpath(workspace);
+      const session = await backend.createSession(
+        { id: 'workspace_1', rootPath: workspaceRoot },
+        { bridgeSessionId: 'bridge_session_1', threadId: 'thread_1' },
+      );
+
+      const events = await collectEvents(
+        backend.send(session, {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          workspaceId: 'workspace_1',
+          input: { message: 'hello' },
+          model: 'copilot-agent',
+        }),
+      );
+
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'turn.succeeded', output: { text: 'ok' } }),
+      );
+      const args = await readArgvFile(path.join(workspace, 'args.txt'));
+      expect(args).toContain('--allow-all-urls');
+      expect(args).not.toContain('--allow-all');
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(path.dirname(bin), { recursive: true, force: true });
+    }
+  });
 });
 
 async function installFakeCopilot(name: string, source: string): Promise<string> {
@@ -386,4 +427,8 @@ async function installFakeCopilot(name: string, source: string): Promise<string>
   await writeFile(bin, source);
   await chmod(bin, 0o755);
   return bin;
+}
+
+async function readArgvFile(filePath: string): Promise<string[]> {
+  return (await readFile(filePath, 'utf8')).split(/\r?\n/).filter(Boolean);
 }

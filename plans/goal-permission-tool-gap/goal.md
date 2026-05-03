@@ -41,7 +41,7 @@ updated_at: "2026-05-04T00:42:00+08:00"
 
 - Turn 0: Goal registered.
 - Turn 1: Researched the gap. Codex UI "Full access" is client-side state and is not forwarded through the Responses request to the Copilot CLI subprocess; Agent Loom accepted `tools` metadata but did not broker tool calls. Direct Copilot CLI comparison showed current flags produced `Permission denied and could not request permission from user` for web fetch, while adding Copilot CLI URL/tool grants allowed Apple page fetches.
-- Turn 2: Implemented explicit Copilot CLI permission modes. Default `web` passes `--allow-all-urls`; `restricted` preserves old no-grants behavior; `full` passes `--allow-all` for trusted local environments.
+- Turn 2: Implemented explicit Copilot CLI permission modes. Default `full` passes `--allow-all` for trusted local environments; `web` passes `--allow-all-urls`; `restricted` preserves old no-grants behavior.
 - Turn 3: Validated targeted tests, full checks/tests/package, restarted daemon, and ran Codex CLI through the Agent Loom profile with the Apple Mac mini prompt. The final answer contained no permission-denied or blocked-tool markers.
 
 ## Deferred items
@@ -65,5 +65,5 @@ updated_at: "2026-05-04T00:42:00+08:00"
 | Validation: repository checks and tests | `bun run check`, `bun run test`, and `bun run package` passed. | met |
 | Validation: Codex CLI end-to-end web prompt | `codex exec --profile agent-loom --sandbox danger-full-access ...` with the Apple Mac mini prompt exited 0 and produced no permission-denied markers. | met |
 | Docs/status: record researched gap and evidence | This goal state records the gap, fix, validation, and deferred tool-call broker. | met |
-| Docs/status: update directly related docs | `docs/configuration.md` documents `AGENT_LOOM_COPILOT_PERMISSION_MODE`; `docs/codex-integration.md` documents default `web`, `restricted`, `full`, and the remaining tool broker limitation. | met |
+| Docs/status: update directly related docs | `docs/configuration.md` documents `AGENT_LOOM_COPILOT_PERMISSION_MODE`; `docs/codex-integration.md` documents default `full`, optional `web` and `restricted` modes, and the remaining tool broker limitation. | met |
 | Deferred/out of scope: full client-executed tool-call loop may be deferred | Recorded under Deferred items as reason=future_phase. | met |
