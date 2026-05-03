@@ -43,7 +43,13 @@ export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
 bun run dev
 ```
 
-Then add a provider and profile to `~/.codex/config.toml`:
+Then configure Codex:
+
+```bash
+bun run config:codex
+```
+
+The script safely creates or updates `~/.codex/config.toml`, preserving unrelated Codex config and writing a `.agent-loom-backup-*` backup before changing an existing file. It writes the equivalent provider and profile config:
 
 ```toml
 profile = "agent-loom"

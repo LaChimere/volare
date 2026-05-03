@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "check": "biome check . && tsc --noEmit",
     "fix": "biome check --write .",
+    "config:codex": "bun run scripts/config-codex.ts",
     "package": "bun build --compile src/index.ts --outfile dist/agent-loom",
     "postinstall": "if [ -d .git ] && command -v lefthook >/dev/null 2>&1; then lefthook install; fi",
     "hooks:install": "lefthook install",
