@@ -5,4 +5,4 @@
 - [x] Add the `agent-loom` package executable with `start`, daemon start, `config codex`, and help/version output.
 - [x] Add targeted tests for CLI parsing and command behavior.
 - [x] Update README with Bun CLI usage, daemon behavior, and Codex configuration commands.
-- [ ] Run validation and review the resulting CLI slice.
+- [x] Run validation and review the resulting CLI slice.
