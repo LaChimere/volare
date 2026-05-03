@@ -37,8 +37,10 @@ export function createApp(dependencies: AppDependenciesInterface): {
 } {
   const stateStore = dependencies.stateStore;
   const adapter = dependencies.adapter ?? new OpenAIResponsesAdapter(stateStore);
-  const workspaceResolver = dependencies.workspaceResolver ?? new WorkspaceResolver();
-  const logger = (dependencies.logger ?? new NoopLogger()).child({ component: 'server' });
+  const baseLogger = dependencies.logger ?? new NoopLogger();
+  const logger = baseLogger.child({ component: 'server' });
+  const workspaceResolver =
+    dependencies.workspaceResolver ?? new WorkspaceResolver({ logger: baseLogger });
   const startedAt = Date.now();
   let requestsTotal = 0;
   let sessionManager =
@@ -50,8 +52,10 @@ export function createApp(dependencies: AppDependenciesInterface): {
           approvalProvider: new ApprovalProvider({
             store: stateStore,
             policy: new DefaultApprovalPolicy({ timeoutMs: dependencies.config.approvalTimeoutMs }),
+            logger: baseLogger,
           }),
           cancelTimeoutMs: dependencies.config.cancelTimeoutMs,
+          logger: baseLogger,
         })
       : undefined);
 

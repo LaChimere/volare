@@ -9,6 +9,7 @@ import type {
   PermissionRequestInterface,
   StateStoreInterface,
 } from '../core/types';
+import { type LoggerInterface, NoopLogger } from '../logging/logger';
 import { DefaultApprovalPolicy } from './policy';
 
 export interface ApprovalProviderOptionsInterface {
@@ -16,6 +17,7 @@ export interface ApprovalProviderOptionsInterface {
   policy?: ApprovalPolicyInterface;
   now?: () => number;
   pollMs?: number;
+  logger?: LoggerInterface;
 }
 
 export class ApprovalProvider implements ApprovalProviderInterface {
@@ -23,12 +25,14 @@ export class ApprovalProvider implements ApprovalProviderInterface {
   readonly #policy: ApprovalPolicyInterface;
   readonly #now: () => number;
   readonly #pollMs: number;
+  readonly #logger: LoggerInterface;
 
   constructor(options: ApprovalProviderOptionsInterface) {
     this.#store = options.store;
     this.#policy = options.policy ?? new DefaultApprovalPolicy();
     this.#now = options.now ?? Date.now;
     this.#pollMs = options.pollMs ?? 50;
+    this.#logger = (options.logger ?? new NoopLogger()).child({ component: 'approval-provider' });
   }
 
   async evaluate(
@@ -37,6 +41,17 @@ export class ApprovalProvider implements ApprovalProviderInterface {
   ): Promise<ApprovalEvaluation> {
     const evaluation = await this.#policy.evaluate(request, context);
     if (evaluation.type !== 'ask') {
+      this.#logger.info(
+        {
+          event: 'approval.policy.evaluated',
+          turnId: context.turnId,
+          threadId: context.threadId,
+          workspaceId: context.workspaceId,
+          action: request.action,
+          evaluation: evaluation.type,
+        },
+        'approval policy evaluated',
+      );
       return evaluation;
     }
 
@@ -53,6 +68,20 @@ export class ApprovalProvider implements ApprovalProviderInterface {
         canonicalJson: permissionRequiredEvent(context.turnId, approvalId, evaluation.request),
       },
     });
+    this.#logger.info(
+      {
+        event: 'approval.policy.evaluated',
+        turnId: context.turnId,
+        threadId: context.threadId,
+        workspaceId: context.workspaceId,
+        bridgeSessionId: context.bridgeSessionId,
+        approvalId: approval.id,
+        action: request.action,
+        evaluation: 'ask',
+        timeoutAt: approval.timeoutAt,
+      },
+      'approval policy evaluated',
+    );
     return {
       type: 'ask',
       approvalId: approval.id,
@@ -66,7 +95,7 @@ export class ApprovalProvider implements ApprovalProviderInterface {
     decision: ApprovalDecision,
   ): Promise<ApprovalResolutionResultInterface> {
     const approval = await this.#requireApproval(approvalId);
-    return await this.#store.resolveApprovalWithJournal({
+    const result = await this.#store.resolveApprovalWithJournal({
       approvalId,
       decision,
       journalEvent: {
@@ -75,19 +104,49 @@ export class ApprovalProvider implements ApprovalProviderInterface {
         canonicalJson: permissionResolvedEvent(approval.turnId, approval.id, decision),
       },
     });
+    this.#logger.info(
+      {
+        event: 'approval.resolved',
+        approvalId,
+        turnId: approval.turnId,
+        bridgeSessionId: approval.bridgeSessionId,
+        status: result.status,
+        decision: result.decision.type,
+      },
+      'approval resolved',
+    );
+    return result;
   }
 
   async awaitDecision(approvalId: string, signal?: AbortSignal): Promise<ApprovalDecision> {
     while (true) {
       const approval = await this.#requireApproval(approvalId);
       if (approval.decision) {
+        this.#logger.info(
+          {
+            event: 'approval.await.completed',
+            approvalId,
+            turnId: approval.turnId,
+            status: approval.status,
+            decision: approval.decision.type,
+          },
+          'approval await completed',
+        );
         return approval.decision;
       }
       if (signal?.aborted) {
+        this.#logger.warn(
+          { event: 'approval.await.aborted', approvalId, turnId: approval.turnId },
+          'approval await aborted',
+        );
         return (await this.resolve(approvalId, { type: 'aborted', reason: 'turn_cancelled' }))
           .decision;
       }
       if (this.#now() >= approval.timeoutAt) {
+        this.#logger.warn(
+          { event: 'approval.await.timed_out', approvalId, turnId: approval.turnId },
+          'approval await timed out',
+        );
         return (await this.resolve(approvalId, { type: 'timeout', reason: 'approval_timeout' }))
           .decision;
       }

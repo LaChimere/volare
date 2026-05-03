@@ -9,6 +9,7 @@ import type {
   ThreadId,
   TurnId,
 } from '../core/types';
+import { type LoggerInterface, NoopLogger } from '../logging/logger';
 import { DefaultRedactor, RedactionFailedError, type RedactorInterface } from './redaction';
 
 type JournalEventRow = {
@@ -25,13 +26,16 @@ type JournalEventRow = {
 
 export class SQLiteEventJournal implements EventJournalInterface {
   readonly #redactor: RedactorInterface;
+  readonly #logger: LoggerInterface;
 
   constructor(
     readonly database: Database,
-    redactor: RedactorInterface = new DefaultRedactor(),
+    redactor: RedactorInterface | undefined = undefined,
+    logger: LoggerInterface = new NoopLogger(),
   ) {
     this.database.run('PRAGMA foreign_keys = ON');
-    this.#redactor = redactor;
+    this.#redactor = redactor ?? new DefaultRedactor();
+    this.#logger = logger.child({ component: 'event-journal' });
   }
 
   async append(event: JournalEventInterface): Promise<void> {
@@ -43,10 +47,31 @@ export class SQLiteEventJournal implements EventJournalInterface {
     } catch (error) {
       if (error instanceof RedactionFailedError) {
         insertSecurityRedactionFailure(this.database, event.turnId, now);
+        this.#logger.error(
+          {
+            event: 'journal.redaction_failed',
+            turnId: event.turnId,
+            kind: event.kind,
+            errorCode: 'redaction_failed',
+          },
+          'journal event redaction failed',
+        );
       }
       throw error;
     }
     insertJournalEvent(this.database, { ...redacted, seq }, now);
+    this.#logger.debug(
+      {
+        event: 'journal.appended',
+        turnId: event.turnId,
+        seq,
+        kind: event.kind,
+        hasCanonicalJson: event.canonicalJson !== undefined,
+        hasEncodedJson: event.encodedJson !== undefined,
+        hasRedactedRawJson: event.redactedRawJson !== undefined,
+      },
+      'journal event appended',
+    );
   }
 
   #redactEvent(event: JournalEventInterface): JournalEventInterface {
@@ -75,6 +100,10 @@ export class SQLiteEventJournal implements EventJournalInterface {
          ORDER BY seq`,
       )
       .all(turnId);
+    this.#logger.debug(
+      { event: 'journal.list_by_turn', turnId, eventCount: rows.length },
+      'journal events listed by turn',
+    );
     return rows.map(journalEventFromRow);
   }
 
@@ -89,16 +118,34 @@ export class SQLiteEventJournal implements EventJournalInterface {
          ORDER BY turns.created_at, events.seq`,
       )
       .all(threadId);
+    this.#logger.debug(
+      { event: 'journal.list_by_thread', threadId, eventCount: rows.length },
+      'journal events listed by thread',
+    );
     return rows.map(journalEventFromRow);
   }
 
   async *replay(turnId: TurnId): AsyncIterable<AgentEvent> {
     const events = await this.listByTurn(turnId);
     if (isRetentionTombstone(events)) {
+      this.#logger.warn(
+        { event: 'journal.replay.expired', turnId },
+        'journal replay failed because retention expired',
+      );
       throw new AgentLoomError('journal_expired', 'Journal retention expired for this turn');
     }
     for (const [index, event] of events.entries()) {
       if (event.seq !== index) {
+        this.#logger.error(
+          {
+            event: 'journal.replay.sequence_gap',
+            turnId,
+            expectedSeq: index,
+            actualSeq: event.seq,
+            eventId: event.id,
+          },
+          'journal replay sequence gap',
+        );
         throw new AgentLoomError('journal_corrupted', 'Journal sequence gap detected', {
           cause: { expectedSeq: index, actualSeq: event.seq },
         });
@@ -108,6 +155,10 @@ export class SQLiteEventJournal implements EventJournalInterface {
       }
       yield decodeCanonicalEvent(event);
     }
+    this.#logger.debug(
+      { event: 'journal.replay.completed', turnId, eventCount: events.length },
+      'journal replay completed',
+    );
   }
 
   async pruneTerminalTurnEvents(input: {
@@ -147,7 +198,16 @@ export class SQLiteEventJournal implements EventJournalInterface {
       }
       return { prunedTurnCount: turnIds.length };
     });
-    return transaction();
+    const result = transaction();
+    this.#logger.info(
+      {
+        event: 'journal.pruned',
+        completedBefore: input.completedBefore,
+        prunedTurnCount: result.prunedTurnCount,
+      },
+      'journal events pruned',
+    );
+    return result;
   }
 }
 

@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises';
 
-import { AgentLoomError } from './errors';
+import { type LoggerInterface, NoopLogger } from '../logging/logger';
+import { AgentLoomError, toAgentLoomError } from './errors';
 import type {
   AgentBackendInterface,
   AgentEvent,
@@ -38,12 +39,19 @@ export class DurableSessionManager implements SessionManagerInterface {
     backend: AgentBackendInterface;
     approvalProvider?: ApprovalProviderInterface;
     cancelTimeoutMs?: number;
+    logger?: LoggerInterface;
   }) {
     this.#store = options.store;
     this.#backend = options.backend;
     this.#approvalProvider = options.approvalProvider;
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? DEFAULT_CANCEL_TIMEOUT_MS;
+    this.#logger = (options.logger ?? new NoopLogger()).child({
+      component: 'session-manager',
+      backend: this.#backend.name,
+    });
   }
+
+  readonly #logger: LoggerInterface;
 
   async startTurn(
     input: AgentRequestInputInterface,
@@ -82,6 +90,18 @@ export class DurableSessionManager implements SessionManagerInterface {
       });
     }
     this.#events.set(turn.id, []);
+    this.#logger.info(
+      {
+        event: 'turn.started',
+        requestId: context.requestId,
+        workspaceId: context.workspaceId,
+        threadId: thread.id,
+        turnId: turn.id,
+        bridgeSessionId: session.bridgeSessionId,
+        reusedThread: input.threadId !== undefined,
+      },
+      'turn started',
+    );
 
     return {
       turn,
@@ -110,13 +130,22 @@ export class DurableSessionManager implements SessionManagerInterface {
   async cancelTurn(turnId: string) {
     const turn = await this.#store.getTurn(turnId);
     if (!turn) {
+      this.#logger.warn({ event: 'turn.cancel.not_found', turnId }, 'turn cancel target not found');
       return { status: 'not_found' as const };
     }
     if (isTerminalTurnStatus(turn.status)) {
+      this.#logger.info(
+        { event: 'turn.cancel.already_terminal', turnId, status: turn.status },
+        'turn cancel skipped for terminal turn',
+      );
       return { status: turn.status === 'cancelled' ? 'cancelled' : 'already_terminal' } as const;
     }
     const session = await this.#store.getBackendSession(turn.bridgeSessionId);
     if (!session) {
+      this.#logger.warn(
+        { event: 'turn.cancel.session_not_found', turnId, bridgeSessionId: turn.bridgeSessionId },
+        'turn cancel backend session not found',
+      );
       return { status: 'not_found' as const };
     }
     const thread = await this.#requireThread(turn.threadId);
@@ -145,8 +174,18 @@ export class DurableSessionManager implements SessionManagerInterface {
         forceAfterTimeout: true,
       });
     } catch (error) {
+      const agentError = toAgentLoomError(error);
       await this.#store.updateTurnStatus(turn.id, 'cancelling', 'failed', Date.now());
       this.#appendEvent(turn.id, { type: 'turn.failed', turnId: turn.id, error });
+      this.#logger.error(
+        {
+          event: 'turn.cancel.failed',
+          turnId: turn.id,
+          errorCode: agentError.code,
+          error: agentError,
+        },
+        'turn cancel failed',
+      );
       throw error;
     }
 
@@ -166,6 +205,14 @@ export class DurableSessionManager implements SessionManagerInterface {
           reason: 'force_cancel_timeout_exceeded',
         });
       }
+      this.#logger.warn(
+        {
+          event: 'turn.cancel.timed_out',
+          turnId: turn.id,
+          bridgeSessionId: session.bridgeSessionId,
+        },
+        'turn cancel timed out',
+      );
       return { status: 'timed_out' as const };
     }
 
@@ -178,6 +225,10 @@ export class DurableSessionManager implements SessionManagerInterface {
     if (cancelled) {
       this.#appendEvent(turn.id, { type: 'turn.cancelled', turnId: turn.id });
     }
+    this.#logger.info(
+      { event: 'turn.cancelled', turnId: turn.id, bridgeSessionId: session.bridgeSessionId },
+      'turn cancelled',
+    );
     return { status: 'cancelled' as const };
   }
 
@@ -187,6 +238,17 @@ export class DurableSessionManager implements SessionManagerInterface {
   ): AsyncIterable<AgentEvent> {
     this.#assertSessionScope(resolved.session, resolved.request);
     await this.#store.updateTurnStatus(resolved.turn.id, 'queued', 'running');
+    const startedAt = Date.now();
+    this.#logger.info(
+      {
+        event: 'turn.stream.started',
+        workspaceId: resolved.request.workspaceId,
+        threadId: resolved.thread.id,
+        turnId: resolved.turn.id,
+        bridgeSessionId: resolved.session.bridgeSessionId,
+      },
+      'turn stream started',
+    );
     yield this.#record(resolved.turn.id, { type: 'turn.created', turnId: resolved.turn.id });
 
     let sawTerminal = false;
@@ -201,6 +263,14 @@ export class DurableSessionManager implements SessionManagerInterface {
         if (next === 'timeout') {
           sawTerminal = true;
           void backendIterator.return?.();
+          this.#logger.warn(
+            {
+              event: 'turn.stream.approval_timeout',
+              turnId: resolved.turn.id,
+              durationMs: Date.now() - startedAt,
+            },
+            'turn stream interrupted after approval timeout',
+          );
           yield await this.#forceInterruptAfterApprovalTimeout(resolved);
           return;
         }
@@ -231,10 +301,20 @@ export class DurableSessionManager implements SessionManagerInterface {
             statusForTerminalEvent(event),
             Date.now(),
           );
+          this.#logger.info(
+            {
+              event: 'turn.stream.terminal',
+              turnId: resolved.turn.id,
+              terminalType: event.type,
+              durationMs: Date.now() - startedAt,
+            },
+            'turn stream terminal event',
+          );
         }
         yield this.#record(resolved.turn.id, event);
       }
     } catch (error) {
+      const agentError = toAgentLoomError(error);
       sawTerminal = true;
       await this.#store.updateTurnStatus(
         resolved.turn.id,
@@ -247,6 +327,16 @@ export class DurableSessionManager implements SessionManagerInterface {
         turnId: resolved.turn.id,
         error,
       });
+      this.#logger.error(
+        {
+          event: 'turn.stream.failed',
+          turnId: resolved.turn.id,
+          durationMs: Date.now() - startedAt,
+          errorCode: agentError.code,
+          error: agentError,
+        },
+        'turn stream failed',
+      );
     }
 
     if (!sawTerminal) {
@@ -261,6 +351,15 @@ export class DurableSessionManager implements SessionManagerInterface {
         turnId: resolved.turn.id,
         reason: 'backend_ended_without_terminal_event',
       });
+      this.#logger.warn(
+        {
+          event: 'turn.stream.interrupted',
+          turnId: resolved.turn.id,
+          durationMs: Date.now() - startedAt,
+          reason: 'backend_ended_without_terminal_event',
+        },
+        'turn stream interrupted',
+      );
     }
   }
 
@@ -314,12 +413,34 @@ export class DurableSessionManager implements SessionManagerInterface {
       await this.#store.activateBackendSession(reserved, {
         backendSessionId: created.backendSessionId ?? reserved.bridgeSessionId,
       });
+      this.#logger.info(
+        {
+          event: 'backend.session.created',
+          workspaceId: thread.workspaceId,
+          threadId: thread.id,
+          bridgeSessionId: reserved.bridgeSessionId,
+          backendSessionId: created.backendSessionId ?? reserved.bridgeSessionId,
+        },
+        'backend session created',
+      );
       return (await this.#store.getBackendSession(reserved.bridgeSessionId)) ?? created;
     } catch (error) {
+      const agentError = toAgentLoomError(error);
       await this.#store.updateBackendSessionStatus(
         reserved.bridgeSessionId,
         'initializing',
         'lost',
+      );
+      this.#logger.error(
+        {
+          event: 'backend.session.create_failed',
+          workspaceId: thread.workspaceId,
+          threadId: thread.id,
+          bridgeSessionId: reserved.bridgeSessionId,
+          errorCode: agentError.code,
+          error: agentError,
+        },
+        'backend session creation failed',
       );
       throw error;
     }
@@ -335,7 +456,18 @@ export class DurableSessionManager implements SessionManagerInterface {
     }
     this.#assertSessionScope(session, { workspaceId, threadId });
     await this.#assertWorkspaceUnchanged(workspaceId);
-    return await this.#backend.resumeSession(session);
+    const resumed = await this.#backend.resumeSession(session);
+    this.#logger.info(
+      {
+        event: 'backend.session.resumed',
+        workspaceId,
+        threadId,
+        bridgeSessionId: session.bridgeSessionId,
+        backendSessionId: session.backendSessionId,
+      },
+      'backend session resumed',
+    );
+    return resumed;
   }
 
   #assertSessionScope(
@@ -392,7 +524,28 @@ export class DurableSessionManager implements SessionManagerInterface {
       bridgeSessionId: resolved.session.bridgeSessionId,
       approvalId: event.approvalId,
     });
+    this.#logger.info(
+      {
+        event: 'approval.evaluated',
+        turnId: resolved.turn.id,
+        threadId: resolved.thread.id,
+        approvalId: event.approvalId,
+        evaluation: evaluation.type,
+        action: event.request.action,
+      },
+      'approval evaluated',
+    );
     const decision = await this.#decisionFromEvaluation(evaluation, signal);
+    this.#logger.info(
+      {
+        event: 'approval.decided',
+        turnId: resolved.turn.id,
+        threadId: resolved.thread.id,
+        approvalId: event.approvalId,
+        decision: decision.type,
+      },
+      'approval decided',
+    );
     await this.#deliverApprovalDecision(resolved.session, event.approvalId, decision);
     return decision;
   }

@@ -23,7 +23,7 @@ if (config.stateDatabasePath !== ':memory:') {
 const database = new Database(config.stateDatabasePath);
 migrate(database);
 const stateStore = new SQLiteStateStore(database);
-const eventJournal = new SQLiteEventJournal(database);
+const eventJournal = new SQLiteEventJournal(database, undefined, logger);
 await stateStore.recoverStartupState();
 const sessionManager = new DurableSessionManager({
   store: stateStore,
@@ -31,8 +31,10 @@ const sessionManager = new DurableSessionManager({
   approvalProvider: new ApprovalProvider({
     store: stateStore,
     policy: new DefaultApprovalPolicy({ timeoutMs: config.approvalTimeoutMs }),
+    logger,
   }),
   cancelTimeoutMs: config.cancelTimeoutMs,
+  logger,
 });
 
 if (config.generatedApiKey) {

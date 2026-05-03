@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 
+import { type LoggerInterface, NoopLogger } from '../logging/logger';
 import { AgentLoomError } from './errors';
 import type {
   ServerConfigInterface,
@@ -9,7 +10,17 @@ import type {
   WorkspaceResolverInterface,
 } from './types';
 
+export interface WorkspaceResolverOptionsInterface {
+  logger?: LoggerInterface;
+}
+
 export class WorkspaceResolver implements WorkspaceResolverInterface {
+  readonly #logger: LoggerInterface;
+
+  constructor(options: WorkspaceResolverOptionsInterface = {}) {
+    this.#logger = (options.logger ?? new NoopLogger()).child({ component: 'workspace-resolver' });
+  }
+
   async resolve(
     hints: WorkspaceHintsInterface,
     config: ServerConfigInterface,
@@ -23,12 +34,30 @@ export class WorkspaceResolver implements WorkspaceResolverInterface {
     );
 
     if (!allowedRoots.some((allowedRoot) => isInsideOrEqual(rootPath, allowedRoot))) {
+      this.#logger.warn(
+        {
+          event: 'workspace.resolve.forbidden',
+          workspaceId: `workspace_${hashPath(rootPath)}`,
+          requestedRootSource: sourceForRequestedRoot(hints, config),
+          allowedRootCount: allowedRoots.length,
+        },
+        'workspace root is outside allowed roots',
+      );
       throw new AgentLoomError(
         'workspace_forbidden',
         'Workspace root is outside the allowed roots',
       );
     }
 
+    this.#logger.info(
+      {
+        event: 'workspace.resolved',
+        workspaceId: `workspace_${hashPath(rootPath)}`,
+        requestedRootSource: sourceForRequestedRoot(hints, config),
+        allowedRootCount: allowedRoots.length,
+      },
+      'workspace resolved',
+    );
     return {
       id: `workspace_${hashPath(rootPath)}`,
       rootPath,
@@ -48,6 +77,19 @@ export class WorkspaceResolver implements WorkspaceResolverInterface {
       );
     }
   }
+}
+
+function sourceForRequestedRoot(
+  hints: WorkspaceHintsInterface,
+  config: ServerConfigInterface,
+): 'request' | 'config' | 'cwd' {
+  if (hints.requestedRoot) {
+    return 'request';
+  }
+  if (config.defaultWorkspaceRoot) {
+    return 'config';
+  }
+  return 'cwd';
 }
 
 function isInsideOrEqual(candidate: string, allowedRoot: string): boolean {
