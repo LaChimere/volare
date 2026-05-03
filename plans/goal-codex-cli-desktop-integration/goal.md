@@ -1,7 +1,7 @@
 # Goal State
 
 objective: "你可以考虑和 codex cli 和 codex desktop app 进行集成并且测试了。你可以自己 research、design 和 plan 等等，多 review、rethink 等等，采用最佳实践，面向接口，但是避免 over-design。我们的最终目标是能够被 codex cli 和 codex desktop app 完美使用。"
-status: active
+status: blocked
 slug: "goal-codex-cli-desktop-integration"
 turns_used: 2
 turn_budget: null
