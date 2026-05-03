@@ -21,8 +21,8 @@ Default to using Bun instead of Node.js.
 
 ## Agent Loom conventions
 
-- TypeScript interfaces use the `Interface` suffix, for example `StateStoreInterface`.
-- Concrete classes and functions do not use the `Interface` suffix.
+- TypeScript interfaces use an `I` prefix, for example `IStateStore`.
+- Concrete classes and functions do not use the `I` prefix.
 - Keep core runtime types protocol-neutral; OpenAI Responses-specific IDs and shapes belong in `src/northbound/openai-responses/`.
 - Local HTTP endpoints must require bearer auth, keep CORS disabled by default, and reject unexpected `Origin` headers.
 - Use `bun run check` and `bun run test` before committing code changes; use `bun run package` when packaging behavior changes.

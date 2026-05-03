@@ -1,22 +1,22 @@
 import { realpath } from 'node:fs/promises';
 
-import { type LoggerInterface, NoopLogger } from '../logging/logger';
+import { type ILogger, NoopLogger } from '../logging/logger';
 import { AgentLoomError, toAgentLoomError } from './errors';
 import type {
-  AgentBackendInterface,
   AgentEvent,
-  AgentRequestInputInterface,
   ApprovalDecision,
   ApprovalEvaluation,
-  ApprovalProviderInterface,
-  BackendSessionInterface,
-  CancelResultInterface,
-  RequestContextInterface,
-  ResolvedTurnInterface,
-  SessionManagerInterface,
-  StateStoreInterface,
-  ThreadInterface,
-  TurnRecordInterface,
+  IAgentBackend,
+  IAgentRequestInput,
+  IApprovalProvider,
+  IBackendSession,
+  ICancelResult,
+  IRequestContext,
+  IResolvedTurn,
+  ISessionManager,
+  IStateStore,
+  IThread,
+  ITurnRecord,
 } from './types';
 
 const TERMINAL_TURN_TYPES = new Set<AgentEvent['type']>([
@@ -27,19 +27,19 @@ const TERMINAL_TURN_TYPES = new Set<AgentEvent['type']>([
 ]);
 const DEFAULT_CANCEL_TIMEOUT_MS = 1000;
 
-export class DurableSessionManager implements SessionManagerInterface {
-  readonly #store: StateStoreInterface;
-  readonly #backend: AgentBackendInterface;
-  readonly #approvalProvider: ApprovalProviderInterface | undefined;
+export class DurableSessionManager implements ISessionManager {
+  readonly #store: IStateStore;
+  readonly #backend: IAgentBackend;
+  readonly #approvalProvider: IApprovalProvider | undefined;
   readonly #cancelTimeoutMs: number;
   readonly #events = new Map<string, AgentEvent[]>();
 
   constructor(options: {
-    store: StateStoreInterface;
-    backend: AgentBackendInterface;
-    approvalProvider?: ApprovalProviderInterface;
+    store: IStateStore;
+    backend: IAgentBackend;
+    approvalProvider?: IApprovalProvider;
     cancelTimeoutMs?: number;
-    logger?: LoggerInterface;
+    logger?: ILogger;
   }) {
     this.#store = options.store;
     this.#backend = options.backend;
@@ -51,12 +51,9 @@ export class DurableSessionManager implements SessionManagerInterface {
     });
   }
 
-  readonly #logger: LoggerInterface;
+  readonly #logger: ILogger;
 
-  async startTurn(
-    input: AgentRequestInputInterface,
-    context: RequestContextInterface,
-  ): Promise<ResolvedTurnInterface> {
+  async startTurn(input: IAgentRequestInput, context: IRequestContext): Promise<IResolvedTurn> {
     const thread = input.threadId
       ? await this.#requireThread(input.threadId)
       : await this.#store.createThread({ workspaceId: context.workspaceId });
@@ -119,7 +116,7 @@ export class DurableSessionManager implements SessionManagerInterface {
     };
   }
 
-  async getTurn(turnId: string): Promise<TurnRecordInterface | null> {
+  async getTurn(turnId: string): Promise<ITurnRecord | null> {
     return await this.#store.getTurn(turnId);
   }
 
@@ -167,7 +164,7 @@ export class DurableSessionManager implements SessionManagerInterface {
       }
     }
 
-    let cancelResult: CancelResultInterface;
+    let cancelResult: ICancelResult;
     try {
       cancelResult = await this.#backend.cancel(session, {
         timeoutMs: this.#cancelTimeoutMs,
@@ -232,10 +229,7 @@ export class DurableSessionManager implements SessionManagerInterface {
     return { status: 'cancelled' as const };
   }
 
-  async *streamTurn(
-    resolved: ResolvedTurnInterface,
-    signal?: AbortSignal,
-  ): AsyncIterable<AgentEvent> {
+  async *streamTurn(resolved: IResolvedTurn, signal?: AbortSignal): AsyncIterable<AgentEvent> {
     this.#assertSessionScope(resolved.session, resolved.request);
     await this.#store.updateTurnStatus(resolved.turn.id, 'queued', 'running');
     const startedAt = Date.now();
@@ -358,7 +352,7 @@ export class DurableSessionManager implements SessionManagerInterface {
     }
   }
 
-  async #forceInterruptAfterApprovalTimeout(resolved: ResolvedTurnInterface): Promise<AgentEvent> {
+  async #forceInterruptAfterApprovalTimeout(resolved: IResolvedTurn): Promise<AgentEvent> {
     await this.#store.updateTurnStatus(resolved.turn.id, 'any-non-terminal', 'cancelling');
     const cancelResult = await this.#backend.cancel(resolved.session, {
       timeoutMs: this.#cancelTimeoutMs,
@@ -385,7 +379,7 @@ export class DurableSessionManager implements SessionManagerInterface {
     });
   }
 
-  async #requireThread(threadId: string): Promise<ThreadInterface> {
+  async #requireThread(threadId: string): Promise<IThread> {
     const thread = await this.#store.getThread(threadId);
     if (!thread) {
       throw new AgentLoomError('thread_not_found', 'Thread was not found');
@@ -393,7 +387,7 @@ export class DurableSessionManager implements SessionManagerInterface {
     return thread;
   }
 
-  async #createSessionForThread(thread: ThreadInterface): Promise<BackendSessionInterface> {
+  async #createSessionForThread(thread: IThread): Promise<IBackendSession> {
     const workspace = await this.#requireWorkspace(thread.workspaceId);
     const reserved = await this.#store.reserveBackendSession({
       workspaceId: thread.workspaceId,
@@ -456,10 +450,7 @@ export class DurableSessionManager implements SessionManagerInterface {
     }
   }
 
-  async #resumeSessionForThread(
-    threadId: string,
-    workspaceId: string,
-  ): Promise<BackendSessionInterface> {
+  async #resumeSessionForThread(threadId: string, workspaceId: string): Promise<IBackendSession> {
     const session = await this.#store.getBackendSessionByThread(threadId);
     if (!session) {
       throw new AgentLoomError('session_lost', 'No active backend session exists for this thread');
@@ -481,7 +472,7 @@ export class DurableSessionManager implements SessionManagerInterface {
   }
 
   #assertSessionScope(
-    session: BackendSessionInterface,
+    session: IBackendSession,
     request: { workspaceId: string; threadId: string },
   ): void {
     if (session.workspaceId !== request.workspaceId || session.threadId !== request.threadId) {
@@ -519,7 +510,7 @@ export class DurableSessionManager implements SessionManagerInterface {
 
   async #resolveApprovalRequest(
     event: Extract<AgentEvent, { type: 'permission.required' }>,
-    resolved: ResolvedTurnInterface,
+    resolved: IResolvedTurn,
     signal?: AbortSignal,
   ): Promise<ApprovalDecision> {
     if (!this.#approvalProvider) {
@@ -581,7 +572,7 @@ export class DurableSessionManager implements SessionManagerInterface {
   }
 
   async #deliverApprovalDecision(
-    session: BackendSessionInterface,
+    session: IBackendSession,
     approvalId: string,
     decision: ApprovalDecision,
   ): Promise<void> {
@@ -632,7 +623,7 @@ export class DurableSessionManager implements SessionManagerInterface {
   }
 }
 
-function statusForTerminalEvent(event: AgentEvent): TurnRecordInterface['status'] {
+function statusForTerminalEvent(event: AgentEvent): ITurnRecord['status'] {
   switch (event.type) {
     case 'turn.succeeded':
       return 'succeeded';
@@ -647,7 +638,7 @@ function statusForTerminalEvent(event: AgentEvent): TurnRecordInterface['status'
   }
 }
 
-function isTerminalTurnStatus(status: TurnRecordInterface['status']): boolean {
+function isTerminalTurnStatus(status: ITurnRecord['status']): boolean {
   return (
     status === 'succeeded' ||
     status === 'failed' ||

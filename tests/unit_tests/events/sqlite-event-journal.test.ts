@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import { RedactionFailedError, type RedactorInterface } from '../../../src/events/redaction';
+import { type IRedactor, RedactionFailedError } from '../../../src/events/redaction';
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
 import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
@@ -232,7 +232,7 @@ describe('SQLiteEventJournal', () => {
   });
 });
 
-class FailingRedactor implements RedactorInterface {
+class FailingRedactor implements IRedactor {
   redact(): never {
     throw new RedactionFailedError('test', new Error('boom'));
   }

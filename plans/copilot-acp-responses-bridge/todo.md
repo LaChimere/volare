@@ -51,7 +51,7 @@
 ### Phase 1: Minimal Responses Bridge
 
 - [x] Add core interfaces and canonical types.
-  - **Acceptance criteria**: `NorthboundAdapterInterface`, `AgentBackendInterface`, canonical request/event types, and protocol-neutral errors exist without Codex/OpenAI branching in core. All TypeScript interfaces use the explicit `Interface` suffix; concrete implementations do not use that suffix.
+  - **Acceptance criteria**: `INorthboundAdapter`, `IAgentBackend`, canonical request/event types, and protocol-neutral errors exist without Codex/OpenAI branching in core. All TypeScript interfaces use the explicit `I` prefix; concrete implementations do not use that prefix.
   - **Expected evidence**: `bun run check` passed. Core files: `src/core/types.ts`, `src/core/errors.ts`; `rg 'interface [A-Za-z]+\b' src tests scripts` shows all TypeScript interface declarations use the explicit `Interface` suffix.
 - [x] Implement bearer auth and local HTTP server defaults.
   - **Acceptance criteria**: Server binds to `127.0.0.1` by default, CORS is disabled by default, and all endpoints require bearer auth before serving requests. Startup accepts `AGENT_LOOM_API_KEY` or generates an ephemeral token, rejects clearly too-short user-provided tokens before HTTP bind, and generated tokens have at least 128 bits of entropy.

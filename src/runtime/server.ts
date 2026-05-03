@@ -11,27 +11,27 @@ import { createLogger } from '../logging/logger';
 import { createApp } from '../server/app';
 import {
   createServerRuntimeConfig,
+  type IServerRuntimeConfig,
+  type IServerRuntimeEnv,
   readServerRuntimeEnv,
-  type ServerRuntimeConfigInterface,
-  type ServerRuntimeEnvInterface,
 } from '../server/config';
 import { ShutdownController } from '../server/shutdown';
 import { migrate } from '../state/migrations';
 import { SQLiteStateStore } from '../state/sqlite-store';
 
-export interface AgentLoomRuntimeOptionsInterface {
-  env?: Partial<ServerRuntimeEnvInterface>;
+export interface IAgentLoomRuntimeOptions {
+  env?: Partial<IServerRuntimeEnv>;
 }
 
-export interface AgentLoomRuntimeInterface {
-  config: ServerRuntimeConfigInterface;
+export interface IAgentLoomRuntime {
+  config: IServerRuntimeConfig;
   server: ReturnType<typeof Bun.serve>;
   shutdown: ShutdownController;
 }
 
 export async function startAgentLoomRuntime(
-  options: AgentLoomRuntimeOptionsInterface = {},
-): Promise<AgentLoomRuntimeInterface> {
+  options: IAgentLoomRuntimeOptions = {},
+): Promise<IAgentLoomRuntime> {
   const config = createServerRuntimeConfig({ ...readServerRuntimeEnv(), ...options.env });
   const logger = createLogger({ level: config.logLevel });
   const runtimeLogger = logger.child({ component: 'runtime' });
@@ -85,7 +85,7 @@ export async function startAgentLoomRuntime(
   return { config, server, shutdown };
 }
 
-export function installRuntimeSignalHandlers(runtime: AgentLoomRuntimeInterface): void {
+export function installRuntimeSignalHandlers(runtime: IAgentLoomRuntime): void {
   const runtimeLogger = createLogger({ level: runtime.config.logLevel }).child({
     component: 'runtime',
   });

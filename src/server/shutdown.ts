@@ -1,30 +1,26 @@
-import type {
-  ShutdownControllerInterface,
-  ShutdownResultInterface,
-  StateStoreInterface,
-} from '../core/types';
+import type { IShutdownController, IShutdownResult, IStateStore } from '../core/types';
 
-export interface ShutdownServerInterface {
+export interface IShutdownServer {
   stop(force?: boolean): void | Promise<void>;
 }
 
-export interface ShutdownControllerOptionsInterface {
-  server: ShutdownServerInterface;
-  stateStore: StateStoreInterface;
+export interface IShutdownControllerOptions {
+  server: IShutdownServer;
+  stateStore: IStateStore;
 }
 
-export class ShutdownController implements ShutdownControllerInterface {
-  readonly #server: ShutdownServerInterface;
-  readonly #stateStore: StateStoreInterface;
+export class ShutdownController implements IShutdownController {
+  readonly #server: IShutdownServer;
+  readonly #stateStore: IStateStore;
   #started = false;
-  #result: Promise<ShutdownResultInterface> | null = null;
+  #result: Promise<IShutdownResult> | null = null;
 
-  constructor(options: ShutdownControllerOptionsInterface) {
+  constructor(options: IShutdownControllerOptions) {
     this.#server = options.server;
     this.#stateStore = options.stateStore;
   }
 
-  shutdown(): Promise<ShutdownResultInterface> {
+  shutdown(): Promise<IShutdownResult> {
     if (this.#result) {
       return this.#result;
     }
@@ -33,7 +29,7 @@ export class ShutdownController implements ShutdownControllerInterface {
     return this.#result;
   }
 
-  async #shutdown(): Promise<ShutdownResultInterface> {
+  async #shutdown(): Promise<IShutdownResult> {
     await this.#server.stop(false);
     try {
       return await this.#stateStore.recoverStartupState();

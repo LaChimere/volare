@@ -2,33 +2,30 @@ import { MockBackend } from '../backends/mock/backend';
 import { AgentLoomError } from './errors';
 import { createId } from './ids';
 import type {
-  AgentBackendInterface,
   AgentEvent,
-  AgentRequestInputInterface,
-  CancelResultInterface,
-  RequestContextInterface,
-  ResolvedTurnInterface,
-  SessionManagerInterface,
-  ThreadInterface,
-  TurnRecordInterface,
-  WorkspaceInterface,
+  IAgentBackend,
+  IAgentRequestInput,
+  ICancelResult,
+  IRequestContext,
+  IResolvedTurn,
+  ISessionManager,
+  IThread,
+  ITurnRecord,
+  IWorkspace,
 } from './types';
 
-export class InMemorySessionManager implements SessionManagerInterface {
-  readonly #backend: AgentBackendInterface;
-  readonly #workspace: WorkspaceInterface;
-  readonly #turns = new Map<string, TurnRecordInterface>();
+export class InMemorySessionManager implements ISessionManager {
+  readonly #backend: IAgentBackend;
+  readonly #workspace: IWorkspace;
+  readonly #turns = new Map<string, ITurnRecord>();
   readonly #events = new Map<string, AgentEvent[]>();
 
-  constructor(options: { backend?: AgentBackendInterface; workspace: WorkspaceInterface }) {
+  constructor(options: { backend?: IAgentBackend; workspace: IWorkspace }) {
     this.#backend = options.backend ?? new MockBackend();
     this.#workspace = options.workspace;
   }
 
-  async startTurn(
-    input: AgentRequestInputInterface,
-    context: RequestContextInterface,
-  ): Promise<ResolvedTurnInterface> {
+  async startTurn(input: IAgentRequestInput, context: IRequestContext): Promise<IResolvedTurn> {
     if (input.threadId || input.parentTurnId || input.clientRef?.parentExternalId) {
       throw new AgentLoomError(
         'unsupported_parameter',
@@ -36,7 +33,7 @@ export class InMemorySessionManager implements SessionManagerInterface {
       );
     }
 
-    const thread: ThreadInterface = {
+    const thread: IThread = {
       id: createId('thread'),
       workspaceId: context.workspaceId,
     };
@@ -46,7 +43,7 @@ export class InMemorySessionManager implements SessionManagerInterface {
       threadId: thread.id,
       model: input.model,
     });
-    const turn: TurnRecordInterface = {
+    const turn: ITurnRecord = {
       id: input.clientRef?.externalId ?? createId('resp'),
       threadId: thread.id,
       parentTurnId: null,
@@ -75,7 +72,7 @@ export class InMemorySessionManager implements SessionManagerInterface {
     };
   }
 
-  async getTurn(turnId: string): Promise<TurnRecordInterface | null> {
+  async getTurn(turnId: string): Promise<ITurnRecord | null> {
     return this.#turns.get(turnId) ?? null;
   }
 
@@ -83,7 +80,7 @@ export class InMemorySessionManager implements SessionManagerInterface {
     return [...(this.#events.get(turnId) ?? [])];
   }
 
-  async cancelTurn(turnId: string): Promise<CancelResultInterface> {
+  async cancelTurn(turnId: string): Promise<ICancelResult> {
     const turn = this.#turns.get(turnId);
     if (!turn) {
       return { status: 'not_found' };
@@ -105,10 +102,7 @@ export class InMemorySessionManager implements SessionManagerInterface {
     return { status: 'cancelled' };
   }
 
-  async *streamTurn(
-    resolved: ResolvedTurnInterface,
-    signal?: AbortSignal,
-  ): AsyncIterable<AgentEvent> {
+  async *streamTurn(resolved: IResolvedTurn, signal?: AbortSignal): AsyncIterable<AgentEvent> {
     this.#replaceTurn({ ...resolved.turn, status: 'running' });
     yield this.#record(resolved.turn.id, { type: 'turn.created', turnId: resolved.turn.id });
 
@@ -169,11 +163,11 @@ export class InMemorySessionManager implements SessionManagerInterface {
     events.push(event);
   }
 
-  #replaceTurn(turn: TurnRecordInterface): void {
+  #replaceTurn(turn: ITurnRecord): void {
     this.#turns.set(turn.id, turn);
   }
 
-  #requireTurn(turnId: string): TurnRecordInterface {
+  #requireTurn(turnId: string): ITurnRecord {
     const turn = this.#turns.get(turnId);
     if (!turn) {
       throw new Error(`Turn not found: ${turnId}`);
@@ -190,7 +184,7 @@ export class InMemorySessionManager implements SessionManagerInterface {
     );
   }
 
-  #statusForTerminalEvent(event: AgentEvent): TurnRecordInterface['status'] {
+  #statusForTerminalEvent(event: AgentEvent): ITurnRecord['status'] {
     switch (event.type) {
       case 'turn.succeeded':
         return 'succeeded';

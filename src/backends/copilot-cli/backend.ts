@@ -2,57 +2,54 @@ import { realpath } from 'node:fs/promises';
 
 import { AgentLoomError, toAgentLoomError } from '../../core/errors';
 import type {
-  AgentBackendInterface,
   AgentEvent,
-  AgentRequestInterface,
-  BackendCapabilitiesInterface,
-  BackendSessionInterface,
-  CancelOptionsInterface,
-  CancelResultInterface,
-  CreateSessionOptionsInterface,
-  WorkspaceInterface,
+  IAgentBackend,
+  IAgentRequest,
+  IBackendCapabilities,
+  IBackendSession,
+  ICancelOptions,
+  ICancelResult,
+  ICreateSessionOptions,
+  IWorkspace,
 } from '../../core/types';
 import { createEstimatedUsage } from '../../core/usage';
-import { type LoggerInterface, NoopLogger } from '../../logging/logger';
+import { type ILogger, NoopLogger } from '../../logging/logger';
 import {
   createProcessIdentity,
   DefaultProcessIdentityValidator,
-  type ProcessIdentityInterface,
-  type ProcessIdentityValidatorInterface,
+  type IProcessIdentity,
+  type IProcessIdentityValidator,
 } from './process-identity';
 
 type TrackedProcess = {
   proc: ReturnType<typeof Bun.spawn>;
-  identity: ProcessIdentityInterface;
+  identity: IProcessIdentity;
 };
 
-export interface CopilotPromptRunnerInterface {
-  run(prompt: string, options: CopilotPromptRunOptionsInterface): AsyncIterable<string>;
-  cancel?(
-    backendSessionId: string,
-    options?: CancelOptionsInterface,
-  ): Promise<CancelResultInterface>;
+export interface ICopilotPromptRunner {
+  run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string>;
+  cancel?(backendSessionId: string, options?: ICancelOptions): Promise<ICancelResult>;
   dispose?(backendSessionId: string): Promise<void>;
 }
 
-export interface CopilotPromptRunOptionsInterface {
+export interface ICopilotPromptRunOptions {
   backendSessionId: string;
   cwd: string;
   signal?: AbortSignal;
 }
 
-export interface CopilotCliBackendOptionsInterface {
-  runner?: CopilotPromptRunnerInterface;
-  logger?: LoggerInterface;
+export interface ICopilotCliBackendOptions {
+  runner?: ICopilotPromptRunner;
+  logger?: ILogger;
 }
 
-export class CopilotCliBackend implements AgentBackendInterface {
+export class CopilotCliBackend implements IAgentBackend {
   readonly name = 'copilot-cli';
-  readonly #runner: CopilotPromptRunnerInterface;
-  readonly #logger: LoggerInterface;
+  readonly #runner: ICopilotPromptRunner;
+  readonly #logger: ILogger;
   readonly #workspaceRoots = new Map<string, string>();
 
-  constructor(options: CopilotCliBackendOptionsInterface = {}) {
+  constructor(options: ICopilotCliBackendOptions = {}) {
     this.#runner = options.runner ?? new BunCopilotPromptRunner();
     this.#logger = (options.logger ?? new NoopLogger()).child({
       component: 'backend',
@@ -60,7 +57,7 @@ export class CopilotCliBackend implements AgentBackendInterface {
     });
   }
 
-  capabilities(): BackendCapabilitiesInterface {
+  capabilities(): IBackendCapabilities {
     return {
       persistentSessions: false,
       serverSideTools: true,
@@ -72,9 +69,9 @@ export class CopilotCliBackend implements AgentBackendInterface {
   }
 
   async createSession(
-    workspace: WorkspaceInterface,
-    options: CreateSessionOptionsInterface,
-  ): Promise<BackendSessionInterface> {
+    workspace: IWorkspace,
+    options: ICreateSessionOptions,
+  ): Promise<IBackendSession> {
     const canonicalRoot = await canonicalizeWorkspaceRoot(workspace.rootPath);
     if (canonicalRoot !== workspace.rootPath) {
       throw new AgentLoomError(
@@ -93,7 +90,7 @@ export class CopilotCliBackend implements AgentBackendInterface {
     };
   }
 
-  async resumeSession(session: BackendSessionInterface): Promise<BackendSessionInterface> {
+  async resumeSession(session: IBackendSession): Promise<IBackendSession> {
     if (!session.backendSessionId) {
       throw new AgentLoomError(
         'backend_session_not_active',
@@ -104,8 +101,8 @@ export class CopilotCliBackend implements AgentBackendInterface {
   }
 
   async *send(
-    session: BackendSessionInterface,
-    request: AgentRequestInterface,
+    session: IBackendSession,
+    request: IAgentRequest,
     signal?: AbortSignal,
   ): AsyncIterable<AgentEvent> {
     if (!session.backendSessionId) {
@@ -182,10 +179,7 @@ export class CopilotCliBackend implements AgentBackendInterface {
     };
   }
 
-  async cancel(
-    session: BackendSessionInterface,
-    options?: CancelOptionsInterface,
-  ): Promise<CancelResultInterface> {
+  async cancel(session: IBackendSession, options?: ICancelOptions): Promise<ICancelResult> {
     if (!session.backendSessionId) {
       return { status: 'not_found' };
     }
@@ -203,7 +197,7 @@ export class CopilotCliBackend implements AgentBackendInterface {
     return result;
   }
 
-  async disposeSession(session: BackendSessionInterface): Promise<void> {
+  async disposeSession(session: IBackendSession): Promise<void> {
     if (session.backendSessionId) {
       await this.#runner.dispose?.(session.backendSessionId);
       this.#workspaceRoots.delete(session.backendSessionId);
@@ -215,7 +209,7 @@ export class CopilotCliBackend implements AgentBackendInterface {
   }
 }
 
-function formatCopilotPrompt(input: AgentRequestInterface['input']): string {
+function formatCopilotPrompt(input: IAgentRequest['input']): string {
   const sections: string[] = [];
   if (input.systemInstructions) {
     sections.push(`System instructions:\n${input.systemInstructions}`);
@@ -245,20 +239,20 @@ async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
   }
 }
 
-export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
+export class BunCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #processes = new Map<string, Set<TrackedProcess>>();
-  readonly #identityValidator: ProcessIdentityValidatorInterface;
+  readonly #identityValidator: IProcessIdentityValidator;
   readonly #command: string;
 
   constructor(
-    identityValidator: ProcessIdentityValidatorInterface = new DefaultProcessIdentityValidator(),
+    identityValidator: IProcessIdentityValidator = new DefaultProcessIdentityValidator(),
     command = 'copilot',
   ) {
     this.#identityValidator = identityValidator;
     this.#command = command;
   }
 
-  async *run(prompt: string, options: CopilotPromptRunOptionsInterface): AsyncIterable<string> {
+  async *run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string> {
     const proc = Bun.spawn(
       [
         this.#command,
@@ -331,8 +325,8 @@ export class BunCopilotPromptRunner implements CopilotPromptRunnerInterface {
 
   async cancel(
     backendSessionId: string,
-    options: CancelOptionsInterface = { timeoutMs: 0, forceAfterTimeout: false },
-  ): Promise<CancelResultInterface> {
+    options: ICancelOptions = { timeoutMs: 0, forceAfterTimeout: false },
+  ): Promise<ICancelResult> {
     const processes = this.#processes.get(backendSessionId);
     if (!processes || processes.size === 0) {
       return { status: 'not_found' };

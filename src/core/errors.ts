@@ -1,6 +1,6 @@
-import type { AgentLoomErrorInterface } from './types';
+import type { IAgentLoomError } from './types';
 
-export class AgentLoomError extends Error implements AgentLoomErrorInterface {
+export class AgentLoomError extends Error implements IAgentLoomError {
   readonly code: string;
   override readonly cause?: unknown;
 

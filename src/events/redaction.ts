@@ -1,12 +1,12 @@
 import { AgentLoomError } from '../core/errors';
 
-export interface RedactionResultInterface {
+export interface IRedactionResult {
   value: unknown;
   redactionJson: { redactedPaths: string[] };
 }
 
-export interface RedactorInterface {
-  redact(value: unknown): RedactionResultInterface;
+export interface IRedactor {
+  redact(value: unknown): IRedactionResult;
 }
 
 export class RedactionFailedError extends AgentLoomError {
@@ -22,8 +22,8 @@ const SAFE_HEADER_NAMES = new Set(['accept', 'content-length', 'content-type']);
 const SAFE_ENV_NAMES = new Set(['CI', 'NODE_ENV']);
 const SECRET_KEY_PATTERN = /authorization|cookie|token|api[_-]?key|password|secret/i;
 
-export class DefaultRedactor implements RedactorInterface {
-  redact(value: unknown): RedactionResultInterface {
+export class DefaultRedactor implements IRedactor {
+  redact(value: unknown): IRedactionResult {
     const redactedPaths: string[] = [];
     try {
       return {

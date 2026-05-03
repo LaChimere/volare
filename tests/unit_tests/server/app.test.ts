@@ -2,11 +2,7 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { mkdir, realpath } from 'node:fs/promises';
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
-import type {
-  LogBindingsInterface,
-  LogFieldsInterface,
-  LoggerInterface,
-} from '../../../src/logging/logger';
+import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
 import { createApp } from '../../../src/server/app';
 import { createServerRuntimeConfig } from '../../../src/server/config';
 import { migrate } from '../../../src/state/migrations';
@@ -40,41 +36,41 @@ async function getProjectlessWorkspace(store: SQLiteStateStore) {
   });
 }
 
-class CapturingLogger implements LoggerInterface {
+class CapturingLogger implements ILogger {
   constructor(
-    readonly entries: Array<{ level: string; fields: LogFieldsInterface; message?: string }> = [],
-    readonly bindings: LogBindingsInterface = {},
+    readonly entries: Array<{ level: string; fields: ILogFields; message?: string }> = [],
+    readonly bindings: ILogBindings = {},
   ) {}
 
-  child(bindings: LogBindingsInterface): LoggerInterface {
+  child(bindings: ILogBindings): ILogger {
     return new CapturingLogger(this.entries, { ...this.bindings, ...bindings });
   }
 
-  trace(fields: LogFieldsInterface, message?: string): void {
+  trace(fields: ILogFields, message?: string): void {
     this.push('trace', fields, message);
   }
 
-  debug(fields: LogFieldsInterface, message?: string): void {
+  debug(fields: ILogFields, message?: string): void {
     this.push('debug', fields, message);
   }
 
-  info(fields: LogFieldsInterface, message?: string): void {
+  info(fields: ILogFields, message?: string): void {
     this.push('info', fields, message);
   }
 
-  warn(fields: LogFieldsInterface, message?: string): void {
+  warn(fields: ILogFields, message?: string): void {
     this.push('warn', fields, message);
   }
 
-  error(fields: LogFieldsInterface, message?: string): void {
+  error(fields: ILogFields, message?: string): void {
     this.push('error', fields, message);
   }
 
-  fatal(fields: LogFieldsInterface, message?: string): void {
+  fatal(fields: ILogFields, message?: string): void {
     this.push('fatal', fields, message);
   }
 
-  private push(level: string, fields: LogFieldsInterface, message?: string): void {
+  private push(level: string, fields: ILogFields, message?: string): void {
     this.entries.push({
       level,
       fields: { ...this.bindings, ...fields },

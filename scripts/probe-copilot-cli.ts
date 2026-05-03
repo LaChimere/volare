@@ -1,24 +1,24 @@
 type ProbeStatus = 'supported' | 'unsupported' | 'unknown' | 'skipped' | 'failed';
 
-interface CommandResultInterface {
+interface ICommandResult {
   exitCode: number | null;
   stdout: string;
   stderr: string;
   timedOut: boolean;
 }
 
-interface ProbeResultInterface {
+interface IProbeResult {
   name: string;
   status: ProbeStatus;
   evidence: string;
   command?: string;
 }
 
-interface ProbeReportInterface {
+interface IProbeReport {
   generatedAt: string;
   workspace: string;
   copilotPath: string | null;
-  results: ProbeResultInterface[];
+  results: IProbeResult[];
   approvalCapabilityMetadata: {
     permissionRequests: boolean;
     externalApprovalDecisions: boolean;
@@ -43,7 +43,7 @@ async function runCommand(
   command: string,
   args: string[],
   options: { stdin?: string; timeoutMs?: number } = {},
-): Promise<CommandResultInterface> {
+): Promise<ICommandResult> {
   const proc = Bun.spawn([command, ...args], {
     stdin: options.stdin ? 'pipe' : 'ignore',
     stdout: 'pipe',
@@ -94,7 +94,7 @@ async function findCommand(name: string): Promise<string | null> {
   return path.length > 0 ? path : null;
 }
 
-function summarize(result: CommandResultInterface, maxLength = 240): string {
+function summarize(result: ICommandResult, maxLength = 240): string {
   const combined = `${result.stdout}\n${result.stderr}`.trim().replaceAll(/\s+/g, ' ');
   if (combined.length === 0) {
     return result.timedOut ? 'timed out without output' : 'no output';
@@ -103,7 +103,7 @@ function summarize(result: CommandResultInterface, maxLength = 240): string {
   return combined.length > maxLength ? `${combined.slice(0, maxLength)}...` : combined;
 }
 
-async function probeVersion(copilotPath: string): Promise<ProbeResultInterface> {
+async function probeVersion(copilotPath: string): Promise<IProbeResult> {
   const result = await runCommand(copilotPath, ['--version'], { timeoutMs: 10_000 });
   return {
     name: 'backend startup',
@@ -113,7 +113,7 @@ async function probeVersion(copilotPath: string): Promise<ProbeResultInterface> 
   };
 }
 
-async function probeHelp(copilotPath: string): Promise<ProbeResultInterface> {
+async function probeHelp(copilotPath: string): Promise<IProbeResult> {
   const result = await runCommand(copilotPath, ['--help'], { timeoutMs: 10_000 });
   const output = `${result.stdout}\n${result.stderr}`;
   const hasAcp = output.includes('--acp');
@@ -129,7 +129,7 @@ async function probeHelp(copilotPath: string): Promise<ProbeResultInterface> {
   };
 }
 
-async function probeNonInteractivePrompt(copilotPath: string): Promise<ProbeResultInterface> {
+async function probeNonInteractivePrompt(copilotPath: string): Promise<IProbeResult> {
   const result = await runCommand(
     copilotPath,
     [
@@ -158,7 +158,7 @@ async function probeNonInteractivePrompt(copilotPath: string): Promise<ProbeResu
   };
 }
 
-async function probeStreamingPrompt(copilotPath: string): Promise<ProbeResultInterface> {
+async function probeStreamingPrompt(copilotPath: string): Promise<IProbeResult> {
   const result = await runCommand(
     copilotPath,
     [
@@ -187,7 +187,7 @@ async function probeStreamingPrompt(copilotPath: string): Promise<ProbeResultInt
   };
 }
 
-async function probeAcpStartup(copilotPath: string): Promise<ProbeResultInterface> {
+async function probeAcpStartup(copilotPath: string): Promise<IProbeResult> {
   const proc = Bun.spawn(
     [copilotPath, '--acp', '--no-color', '--no-custom-instructions', '--log-level', 'error'],
     {
@@ -226,7 +226,7 @@ async function probeAcpStartup(copilotPath: string): Promise<ProbeResultInterfac
   };
 }
 
-async function probeAcpInitialize(copilotPath: string): Promise<ProbeResultInterface> {
+async function probeAcpInitialize(copilotPath: string): Promise<IProbeResult> {
   const initializeRequest = JSON.stringify({
     jsonrpc: '2.0',
     id: 1,
@@ -260,7 +260,7 @@ async function probeAcpInitialize(copilotPath: string): Promise<ProbeResultInter
   };
 }
 
-async function probeProcessCancellation(copilotPath: string): Promise<ProbeResultInterface> {
+async function probeProcessCancellation(copilotPath: string): Promise<IProbeResult> {
   const proc = Bun.spawn(
     [
       copilotPath,
@@ -302,7 +302,7 @@ async function probeProcessCancellation(copilotPath: string): Promise<ProbeResul
 
 async function main(): Promise<void> {
   const copilotPath = await findCommand('copilot');
-  const results: ProbeResultInterface[] = [];
+  const results: IProbeResult[] = [];
 
   if (!copilotPath) {
     results.push({
@@ -328,7 +328,7 @@ async function main(): Promise<void> {
   const externalApprovalDecisions = false;
   const backendInternalPauseResume = promptResult?.status === 'supported' && permissionRequests;
 
-  const report: ProbeReportInterface = {
+  const report: IProbeReport = {
     generatedAt: new Date().toISOString(),
     workspace: process.cwd(),
     copilotPath,

@@ -12,27 +12,27 @@ export type LogValue =
   | LogValue[]
   | { [key: string]: LogValue };
 
-export interface LogFieldsInterface {
+export interface ILogFields {
   [key: string]: LogValue;
 }
 
-export interface LogBindingsInterface {
+export interface ILogBindings {
   [key: string]: LogValue;
 }
 
-export interface LoggerInterface {
-  child(bindings: LogBindingsInterface): LoggerInterface;
-  trace(fields: LogFieldsInterface, message?: string): void;
-  debug(fields: LogFieldsInterface, message?: string): void;
-  info(fields: LogFieldsInterface, message?: string): void;
-  warn(fields: LogFieldsInterface, message?: string): void;
-  error(fields: LogFieldsInterface, message?: string): void;
-  fatal(fields: LogFieldsInterface, message?: string): void;
+export interface ILogger {
+  child(bindings: ILogBindings): ILogger;
+  trace(fields: ILogFields, message?: string): void;
+  debug(fields: ILogFields, message?: string): void;
+  info(fields: ILogFields, message?: string): void;
+  warn(fields: ILogFields, message?: string): void;
+  error(fields: ILogFields, message?: string): void;
+  fatal(fields: ILogFields, message?: string): void;
 }
 
-export interface CreateLoggerOptionsInterface {
+export interface ICreateLoggerOptions {
   level?: LogLevel;
-  bindings?: LogBindingsInterface;
+  bindings?: ILogBindings;
   destination?: DestinationStream;
 }
 
@@ -54,44 +54,44 @@ const redactionPaths = [
   'command',
 ] as const;
 
-export class PinoLogger implements LoggerInterface {
+export class PinoLogger implements ILogger {
   readonly #logger: Logger;
 
   constructor(logger: Logger) {
     this.#logger = logger;
   }
 
-  child(bindings: LogBindingsInterface): LoggerInterface {
+  child(bindings: ILogBindings): ILogger {
     return new PinoLogger(this.#logger.child(bindings));
   }
 
-  trace(fields: LogFieldsInterface, message?: string): void {
+  trace(fields: ILogFields, message?: string): void {
     writeLog(this.#logger.trace.bind(this.#logger), fields, message);
   }
 
-  debug(fields: LogFieldsInterface, message?: string): void {
+  debug(fields: ILogFields, message?: string): void {
     writeLog(this.#logger.debug.bind(this.#logger), fields, message);
   }
 
-  info(fields: LogFieldsInterface, message?: string): void {
+  info(fields: ILogFields, message?: string): void {
     writeLog(this.#logger.info.bind(this.#logger), fields, message);
   }
 
-  warn(fields: LogFieldsInterface, message?: string): void {
+  warn(fields: ILogFields, message?: string): void {
     writeLog(this.#logger.warn.bind(this.#logger), fields, message);
   }
 
-  error(fields: LogFieldsInterface, message?: string): void {
+  error(fields: ILogFields, message?: string): void {
     writeLog(this.#logger.error.bind(this.#logger), fields, message);
   }
 
-  fatal(fields: LogFieldsInterface, message?: string): void {
+  fatal(fields: ILogFields, message?: string): void {
     writeLog(this.#logger.fatal.bind(this.#logger), fields, message);
   }
 }
 
-export class NoopLogger implements LoggerInterface {
-  child(): LoggerInterface {
+export class NoopLogger implements ILogger {
+  child(): ILogger {
     return this;
   }
 
@@ -103,7 +103,7 @@ export class NoopLogger implements LoggerInterface {
   fatal(): void {}
 }
 
-export function createLogger(options: CreateLoggerOptionsInterface = {}): LoggerInterface {
+export function createLogger(options: ICreateLoggerOptions = {}): ILogger {
   const logger = pino(
     {
       level: options.level ?? 'info',
@@ -132,8 +132,8 @@ export function createLogger(options: CreateLoggerOptionsInterface = {}): Logger
 }
 
 function writeLog(
-  write: (fields: LogFieldsInterface, message?: string) => void,
-  fields: LogFieldsInterface,
+  write: (fields: ILogFields, message?: string) => void,
+  fields: ILogFields,
   message?: string,
 ): void {
   if (message === undefined) {

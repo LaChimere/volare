@@ -5,17 +5,17 @@ import path from 'node:path';
 
 import { DurableSessionManager } from '../../../src/core/durable-session-manager';
 import type {
-  AgentBackendInterface,
   AgentEvent,
-  AgentRequestInterface,
   ApprovalDecision,
   ApprovalEvaluation,
-  ApprovalProviderInterface,
-  BackendCapabilitiesInterface,
-  BackendSessionInterface,
-  CancelResultInterface,
-  CreateSessionOptionsInterface,
-  WorkspaceInterface,
+  IAgentBackend,
+  IAgentRequest,
+  IApprovalProvider,
+  IBackendCapabilities,
+  IBackendSession,
+  ICancelResult,
+  ICreateSessionOptions,
+  IWorkspace,
 } from '../../../src/core/types';
 import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
@@ -26,7 +26,7 @@ function createStore(): SQLiteStateStore {
   return new SQLiteStateStore(database);
 }
 
-function capabilities(): BackendCapabilitiesInterface {
+function capabilities(): IBackendCapabilities {
   return {
     persistentSessions: true,
     serverSideTools: true,
@@ -37,21 +37,21 @@ function capabilities(): BackendCapabilitiesInterface {
   };
 }
 
-class TerminalOmittingBackend implements AgentBackendInterface {
+class TerminalOmittingBackend implements IAgentBackend {
   readonly name = 'test-backend';
   resumeCount = 0;
   cancelCount = 0;
   disposeCount = 0;
-  cancelResult: CancelResultInterface = { status: 'cancelled' };
+  cancelResult: ICancelResult = { status: 'cancelled' };
 
-  capabilities(): BackendCapabilitiesInterface {
+  capabilities(): IBackendCapabilities {
     return capabilities();
   }
 
   async createSession(
-    workspace: WorkspaceInterface,
-    options: CreateSessionOptionsInterface,
-  ): Promise<BackendSessionInterface> {
+    workspace: IWorkspace,
+    options: ICreateSessionOptions,
+  ): Promise<IBackendSession> {
     return {
       bridgeSessionId: options.bridgeSessionId,
       backendSessionId: `backend_${options.bridgeSessionId}`,
@@ -61,19 +61,16 @@ class TerminalOmittingBackend implements AgentBackendInterface {
     };
   }
 
-  async resumeSession(session: BackendSessionInterface): Promise<BackendSessionInterface> {
+  async resumeSession(session: IBackendSession): Promise<IBackendSession> {
     this.resumeCount += 1;
     return session;
   }
 
-  async *send(
-    _session: BackendSessionInterface,
-    request: AgentRequestInterface,
-  ): AsyncIterable<AgentEvent> {
+  async *send(_session: IBackendSession, request: IAgentRequest): AsyncIterable<AgentEvent> {
     yield { type: 'text.delta', turnId: request.turnId, delta: 'partial' } satisfies AgentEvent;
   }
 
-  async cancel(): Promise<CancelResultInterface> {
+  async cancel(): Promise<ICancelResult> {
     this.cancelCount += 1;
     return this.cancelResult;
   }
@@ -84,7 +81,7 @@ class TerminalOmittingBackend implements AgentBackendInterface {
 }
 
 class CreateFailingBackend extends TerminalOmittingBackend {
-  override async createSession(): Promise<BackendSessionInterface> {
+  override async createSession(): Promise<IBackendSession> {
     throw new Error('backend failed to start');
   }
 }
@@ -96,13 +93,13 @@ class PermissionBackend extends TerminalOmittingBackend {
     super();
   }
 
-  override capabilities(): BackendCapabilitiesInterface {
+  override capabilities(): IBackendCapabilities {
     return { ...capabilities(), externalApprovalDecisions: this.externalApprovalDecisions };
   }
 
   override async *send(
-    _session: BackendSessionInterface,
-    request: AgentRequestInterface,
+    _session: IBackendSession,
+    request: IAgentRequest,
   ): AsyncIterable<AgentEvent> {
     yield {
       type: 'permission.required',
@@ -119,7 +116,7 @@ class PermissionBackend extends TerminalOmittingBackend {
   }
 
   async submitApprovalDecision(
-    _session: BackendSessionInterface,
+    _session: IBackendSession,
     _approvalId: string,
     decision: ApprovalDecision,
   ): Promise<void> {
@@ -129,8 +126,8 @@ class PermissionBackend extends TerminalOmittingBackend {
 
 class HangingPermissionBackend extends PermissionBackend {
   override async *send(
-    _session: BackendSessionInterface,
-    request: AgentRequestInterface,
+    _session: IBackendSession,
+    request: IAgentRequest,
   ): AsyncIterable<AgentEvent> {
     yield {
       type: 'permission.required',
@@ -142,7 +139,7 @@ class HangingPermissionBackend extends PermissionBackend {
   }
 }
 
-class StubApprovalProvider implements ApprovalProviderInterface {
+class StubApprovalProvider implements IApprovalProvider {
   constructor(
     readonly evaluation: ApprovalEvaluation,
     readonly awaitedDecision: ApprovalDecision = { type: 'allow', scope: 'once' },

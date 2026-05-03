@@ -6,7 +6,7 @@ import {
   DefaultApprovalPolicy,
   normalizePermissionRequestScope,
 } from '../../../src/approvals/policy';
-import type { ApprovalContextInterface, PermissionRequestInterface } from '../../../src/core/types';
+import type { IApprovalContext, IPermissionRequest } from '../../../src/core/types';
 
 async function withWorkspace<T>(run: (root: string) => Promise<T>): Promise<T> {
   const root = await mkdtemp(path.join(import.meta.dir, 'approval-workspace-'));
@@ -17,7 +17,7 @@ async function withWorkspace<T>(run: (root: string) => Promise<T>): Promise<T> {
   }
 }
 
-function context(workspaceRootPath: string): ApprovalContextInterface {
+function context(workspaceRootPath: string): IApprovalContext {
   return {
     turnId: 'turn_1',
     threadId: 'thread_1',
@@ -27,7 +27,7 @@ function context(workspaceRootPath: string): ApprovalContextInterface {
   };
 }
 
-function request(action: string, filePath?: string): PermissionRequestInterface {
+function request(action: string, filePath?: string): IPermissionRequest {
   return {
     action,
     scope: filePath ? { path: filePath } : {},

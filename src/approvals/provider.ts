@@ -1,33 +1,33 @@
 import { AgentLoomError } from '../core/errors';
 import type {
-  ApprovalContextInterface,
   ApprovalDecision,
   ApprovalEvaluation,
-  ApprovalPolicyInterface,
-  ApprovalProviderInterface,
-  ApprovalResolutionResultInterface,
-  PermissionRequestInterface,
-  StateStoreInterface,
+  IApprovalContext,
+  IApprovalPolicy,
+  IApprovalProvider,
+  IApprovalResolutionResult,
+  IPermissionRequest,
+  IStateStore,
 } from '../core/types';
-import { type LoggerInterface, NoopLogger } from '../logging/logger';
+import { type ILogger, NoopLogger } from '../logging/logger';
 import { DefaultApprovalPolicy } from './policy';
 
-export interface ApprovalProviderOptionsInterface {
-  store: StateStoreInterface;
-  policy?: ApprovalPolicyInterface;
+export interface IApprovalProviderOptions {
+  store: IStateStore;
+  policy?: IApprovalPolicy;
   now?: () => number;
   pollMs?: number;
-  logger?: LoggerInterface;
+  logger?: ILogger;
 }
 
-export class ApprovalProvider implements ApprovalProviderInterface {
-  readonly #store: StateStoreInterface;
-  readonly #policy: ApprovalPolicyInterface;
+export class ApprovalProvider implements IApprovalProvider {
+  readonly #store: IStateStore;
+  readonly #policy: IApprovalPolicy;
   readonly #now: () => number;
   readonly #pollMs: number;
-  readonly #logger: LoggerInterface;
+  readonly #logger: ILogger;
 
-  constructor(options: ApprovalProviderOptionsInterface) {
+  constructor(options: IApprovalProviderOptions) {
     this.#store = options.store;
     this.#policy = options.policy ?? new DefaultApprovalPolicy();
     this.#now = options.now ?? Date.now;
@@ -36,8 +36,8 @@ export class ApprovalProvider implements ApprovalProviderInterface {
   }
 
   async evaluate(
-    request: PermissionRequestInterface,
-    context: ApprovalContextInterface,
+    request: IPermissionRequest,
+    context: IApprovalContext,
   ): Promise<ApprovalEvaluation> {
     const evaluation = await this.#policy.evaluate(request, context);
     if (evaluation.type !== 'ask') {
@@ -93,7 +93,7 @@ export class ApprovalProvider implements ApprovalProviderInterface {
   async resolve(
     approvalId: string,
     decision: ApprovalDecision,
-  ): Promise<ApprovalResolutionResultInterface> {
+  ): Promise<IApprovalResolutionResult> {
     const approval = await this.#requireApproval(approvalId);
     const result = await this.#store.resolveApprovalWithJournal({
       approvalId,
@@ -163,11 +163,7 @@ export class ApprovalProvider implements ApprovalProviderInterface {
   }
 }
 
-function permissionRequiredEvent(
-  turnId: string,
-  approvalId: string,
-  request: PermissionRequestInterface,
-) {
+function permissionRequiredEvent(turnId: string, approvalId: string, request: IPermissionRequest) {
   return {
     type: 'permission.required',
     turnId,

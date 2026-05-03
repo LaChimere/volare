@@ -2,21 +2,15 @@ import type { Database } from 'bun:sqlite';
 
 import { AgentLoomError, toAgentLoomError } from '../core/errors';
 import { createId } from '../core/ids';
-import type {
-  AgentEvent,
-  EventJournalInterface,
-  JournalEventInterface,
-  ThreadId,
-  TurnId,
-} from '../core/types';
-import { type LoggerInterface, NoopLogger } from '../logging/logger';
-import { DefaultRedactor, RedactionFailedError, type RedactorInterface } from './redaction';
+import type { AgentEvent, IEventJournal, IJournalEvent, ThreadId, TurnId } from '../core/types';
+import { type ILogger, NoopLogger } from '../logging/logger';
+import { DefaultRedactor, type IRedactor, RedactionFailedError } from './redaction';
 
 type JournalEventRow = {
   id: string;
   turn_id: string;
   seq: number;
-  kind: JournalEventInterface['kind'];
+  kind: IJournalEvent['kind'];
   redacted_raw_json: string | null;
   canonical_json: string | null;
   encoded_json: string | null;
@@ -24,24 +18,24 @@ type JournalEventRow = {
   created_at: number;
 };
 
-export class SQLiteEventJournal implements EventJournalInterface {
-  readonly #redactor: RedactorInterface;
-  readonly #logger: LoggerInterface;
+export class SQLiteEventJournal implements IEventJournal {
+  readonly #redactor: IRedactor;
+  readonly #logger: ILogger;
 
   constructor(
     readonly database: Database,
-    redactor: RedactorInterface | undefined = undefined,
-    logger: LoggerInterface = new NoopLogger(),
+    redactor: IRedactor | undefined = undefined,
+    logger: ILogger = new NoopLogger(),
   ) {
     this.database.run('PRAGMA foreign_keys = ON');
     this.#redactor = redactor ?? new DefaultRedactor();
     this.#logger = logger.child({ component: 'event-journal' });
   }
 
-  async append(event: JournalEventInterface): Promise<void> {
+  async append(event: IJournalEvent): Promise<void> {
     const now = Date.now();
     const seq = event.seq ?? nextEventSeq(this.database, event.turnId);
-    let redacted: JournalEventInterface;
+    let redacted: IJournalEvent;
     try {
       redacted = this.#redactEvent(event);
     } catch (error) {
@@ -88,11 +82,11 @@ export class SQLiteEventJournal implements EventJournalInterface {
     );
   }
 
-  #redactEvent(event: JournalEventInterface): JournalEventInterface {
+  #redactEvent(event: IJournalEvent): IJournalEvent {
     const redactionJson: Record<string, unknown> = isRecord(event.redactionJson)
       ? { ...event.redactionJson }
       : {};
-    const redacted: JournalEventInterface = { ...event };
+    const redacted: IJournalEvent = { ...event };
     for (const key of ['redactedRawJson', 'canonicalJson', 'encodedJson'] as const) {
       if (event[key] === undefined) {
         continue;
@@ -104,7 +98,7 @@ export class SQLiteEventJournal implements EventJournalInterface {
     return { ...redacted, redactionJson };
   }
 
-  async listByTurn(turnId: TurnId): Promise<JournalEventInterface[]> {
+  async listByTurn(turnId: TurnId): Promise<IJournalEvent[]> {
     const rows = this.database
       .query<JournalEventRow, [string]>(
         `SELECT id, turn_id, seq, kind, redacted_raw_json, canonical_json,
@@ -121,7 +115,7 @@ export class SQLiteEventJournal implements EventJournalInterface {
     return rows.map(journalEventFromRow);
   }
 
-  async listByThread(threadId: ThreadId): Promise<JournalEventInterface[]> {
+  async listByThread(threadId: ThreadId): Promise<IJournalEvent[]> {
     const rows = this.database
       .query<JournalEventRow, [string]>(
         `SELECT events.id, events.turn_id, events.seq, events.kind, events.redacted_raw_json,
@@ -225,7 +219,7 @@ export class SQLiteEventJournal implements EventJournalInterface {
   }
 }
 
-function journalEventFromRow(row: JournalEventRow): JournalEventInterface {
+function journalEventFromRow(row: JournalEventRow): IJournalEvent {
   return {
     id: row.id,
     turnId: row.turn_id,
@@ -245,7 +239,7 @@ function journalEventFromRow(row: JournalEventRow): JournalEventInterface {
   };
 }
 
-function decodeCanonicalEvent(event: JournalEventInterface): AgentEvent {
+function decodeCanonicalEvent(event: IJournalEvent): AgentEvent {
   if (!event.canonicalJson || typeof event.canonicalJson !== 'object') {
     throw new AgentLoomError('journal_corrupted', 'Canonical event could not be decoded', {
       cause: { eventId: event.id },
@@ -254,7 +248,7 @@ function decodeCanonicalEvent(event: JournalEventInterface): AgentEvent {
   return event.canonicalJson as AgentEvent;
 }
 
-function isRetentionTombstone(events: JournalEventInterface[]): boolean {
+function isRetentionTombstone(events: IJournalEvent[]): boolean {
   return (
     events.length === 1 &&
     events[0]?.kind === 'security' &&
@@ -275,7 +269,7 @@ function jsonOrNull(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
 }
 
-function insertJournalEvent(database: Database, event: JournalEventInterface, now: number): void {
+function insertJournalEvent(database: Database, event: IJournalEvent, now: number): void {
   database
     .query(
       `INSERT INTO events

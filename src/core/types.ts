@@ -26,23 +26,23 @@ export type BackendSessionStatus =
   | 'lost';
 export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'timed_out' | 'aborted';
 
-export interface AgentLoomErrorInterface {
+export interface IAgentLoomError {
   code: string;
   message: string;
   cause?: unknown;
 }
 
-export interface WorkspaceInterface {
+export interface IWorkspace {
   id: WorkspaceId;
   rootPath: string;
 }
 
-export interface ThreadInterface {
+export interface IThread {
   id: ThreadId;
   workspaceId: WorkspaceId;
 }
 
-export interface TurnRecordInterface {
+export interface ITurnRecord {
   id: TurnId;
   threadId: ThreadId;
   parentTurnId: TurnId | null;
@@ -53,7 +53,7 @@ export interface TurnRecordInterface {
   completedAt?: Date;
 }
 
-export interface ClientTurnRefInterface {
+export interface IClientTurnRef {
   protocol: ClientProtocol;
   externalId: string;
   turnId: TurnId;
@@ -62,42 +62,42 @@ export interface ClientTurnRefInterface {
   parentExternalId?: string;
 }
 
-export interface AgentRequestInterface {
+export interface IAgentRequest {
   turnId: TurnId;
   threadId: ThreadId;
   workspaceId: WorkspaceId;
-  input: AgentInputInterface;
+  input: IAgentInput;
   model: string;
   metadata?: Record<string, unknown>;
 }
 
-export interface AgentInputInterface {
+export interface IAgentInput {
   message: string;
-  conversationHistory?: ConversationMessageInterface[];
+  conversationHistory?: IConversationMessage[];
   systemInstructions?: string;
-  attachments?: AgentAttachmentInterface[];
+  attachments?: IAgentAttachment[];
   metadata?: Record<string, unknown>;
 }
 
-export interface ConversationMessageInterface {
+export interface IConversationMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
-export interface AgentAttachmentInterface {
+export interface IAgentAttachment {
   kind: 'image' | 'file' | 'other';
   mediaType?: string;
   data?: Uint8Array;
   uri?: string;
 }
 
-export interface AgentOutputInterface {
+export interface IAgentOutput {
   text?: string;
   items?: unknown[];
   metadata?: Record<string, unknown>;
 }
 
-export interface AgentUsageInterface {
+export interface IAgentUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -121,7 +121,7 @@ export type AgentEvent =
       type: 'permission.required';
       turnId: TurnId;
       approvalId: ApprovalId;
-      request: PermissionRequestInterface;
+      request: IPermissionRequest;
       emittedAt?: number;
     }
   | {
@@ -134,15 +134,15 @@ export type AgentEvent =
   | {
       type: 'turn.succeeded';
       turnId: TurnId;
-      output?: AgentOutputInterface;
-      usage?: AgentUsageInterface;
+      output?: IAgentOutput;
+      usage?: IAgentUsage;
       emittedAt?: number;
     }
   | { type: 'turn.failed'; turnId: TurnId; error: unknown; emittedAt?: number }
   | { type: 'turn.cancelled'; turnId: TurnId; emittedAt?: number }
   | { type: 'turn.interrupted'; turnId: TurnId; reason: string; emittedAt?: number };
 
-export interface PermissionRequestInterface {
+export interface IPermissionRequest {
   action: 'filesystem:write' | 'shell:exec' | 'network:http' | 'destructive' | string;
   scope: {
     path?: string;
@@ -153,7 +153,7 @@ export interface PermissionRequestInterface {
   metadata?: Record<string, unknown>;
 }
 
-export interface ApprovalContextInterface {
+export interface IApprovalContext {
   turnId: TurnId;
   threadId: ThreadId;
   workspaceId: WorkspaceId;
@@ -163,30 +163,21 @@ export interface ApprovalContextInterface {
 }
 
 export type ApprovalEvaluation =
-  | { type: 'allow'; request: PermissionRequestInterface }
-  | { type: 'deny'; reason: string; request: PermissionRequestInterface }
-  | { type: 'ask'; approvalId: ApprovalId; timeoutAt: number; request: PermissionRequestInterface };
+  | { type: 'allow'; request: IPermissionRequest }
+  | { type: 'deny'; reason: string; request: IPermissionRequest }
+  | { type: 'ask'; approvalId: ApprovalId; timeoutAt: number; request: IPermissionRequest };
 
-export interface ApprovalPolicyInterface {
-  evaluate(
-    request: PermissionRequestInterface,
-    context: ApprovalContextInterface,
-  ): Promise<ApprovalEvaluation>;
+export interface IApprovalPolicy {
+  evaluate(request: IPermissionRequest, context: IApprovalContext): Promise<ApprovalEvaluation>;
 }
 
-export interface ApprovalProviderInterface {
-  evaluate(
-    request: PermissionRequestInterface,
-    context: ApprovalContextInterface,
-  ): Promise<ApprovalEvaluation>;
-  resolve(
-    approvalId: ApprovalId,
-    decision: ApprovalDecision,
-  ): Promise<ApprovalResolutionResultInterface>;
+export interface IApprovalProvider {
+  evaluate(request: IPermissionRequest, context: IApprovalContext): Promise<ApprovalEvaluation>;
+  resolve(approvalId: ApprovalId, decision: ApprovalDecision): Promise<IApprovalResolutionResult>;
   awaitDecision(approvalId: ApprovalId, signal?: AbortSignal): Promise<ApprovalDecision>;
 }
 
-export interface JournalEventInterface {
+export interface IJournalEvent {
   id?: string;
   turnId: TurnId;
   seq?: number;
@@ -198,91 +189,85 @@ export interface JournalEventInterface {
   createdAt?: number;
 }
 
-export interface EventJournalInterface {
-  append(event: JournalEventInterface): Promise<void>;
-  listByTurn(turnId: TurnId): Promise<JournalEventInterface[]>;
-  listByThread(threadId: ThreadId): Promise<JournalEventInterface[]>;
+export interface IEventJournal {
+  append(event: IJournalEvent): Promise<void>;
+  listByTurn(turnId: TurnId): Promise<IJournalEvent[]>;
+  listByThread(threadId: ThreadId): Promise<IJournalEvent[]>;
   replay(turnId: TurnId): AsyncIterable<AgentEvent>;
   pruneTerminalTurnEvents(input: { completedBefore: number }): Promise<{ prunedTurnCount: number }>;
 }
 
-export interface ApprovalRecordInterface {
+export interface IApprovalRecord {
   id: ApprovalId;
   turnId: TurnId;
   bridgeSessionId: BridgeSessionId;
   status: ApprovalStatus;
-  request: PermissionRequestInterface;
+  request: IPermissionRequest;
   decision?: ApprovalDecision;
   timeoutAt: number;
   createdAt: Date;
   decidedAt?: Date;
 }
 
-export interface ApprovalResolutionInputInterface {
+export interface IApprovalResolutionInput {
   approvalId: ApprovalId;
   decision: ApprovalDecision;
-  journalEvent: JournalEventInterface;
+  journalEvent: IJournalEvent;
 }
 
-export interface ApprovalResolutionResultInterface {
+export interface IApprovalResolutionResult {
   status: 'resolved' | 'already_terminal';
   decision: ApprovalDecision;
 }
 
-export interface StartupRecoveryResultInterface {
+export interface IStartupRecoveryResult {
   interruptedTurnCount: number;
   abandonedSessionCount: number;
 }
 
-export interface IdleSessionPruneResultInterface {
+export interface IIdleSessionPruneResult {
   prunedSessionCount: number;
 }
 
-export interface ShutdownResultInterface extends StartupRecoveryResultInterface {}
+export interface IShutdownResult extends IStartupRecoveryResult {}
 
-export interface ShutdownControllerInterface {
-  shutdown(): Promise<ShutdownResultInterface>;
+export interface IShutdownController {
+  shutdown(): Promise<IShutdownResult>;
 }
 
-export interface WorkspaceResolverInterface {
-  resolve(
-    hints: WorkspaceHintsInterface,
-    config: ServerConfigInterface,
-  ): Promise<WorkspaceInterface>;
+export interface IWorkspaceResolver {
+  resolve(hints: IWorkspaceHints, config: IServerConfig): Promise<IWorkspace>;
 }
 
-export interface ServerConfigInterface {
+export interface IServerConfig {
   defaultWorkspaceRoot?: string;
   allowedWorkspaceRoots?: string[];
   projectlessWorkspaceRoot?: string;
 }
 
-export interface WorkspaceHintsInterface {
+export interface IWorkspaceHints {
   requestedRoot?: string;
   source: 'server-config' | 'client-metadata' | 'process-cwd' | 'projectless';
 }
 
-export interface NorthboundAdapterInterface {
+export interface INorthboundAdapter {
   readonly protocol: ClientProtocol;
-  extractWorkspaceHints(request: NorthboundRequestInterface): Promise<WorkspaceHintsInterface>;
-  parseRequest(
-    request: NorthboundRequestInterface,
-    context: RequestContextInterface,
-  ): Promise<AgentRequestInputInterface>;
+  extractWorkspaceHints(request: INorthboundRequest): Promise<IWorkspaceHints>;
+  parseRequest(request: INorthboundRequest, context: IRequestContext): Promise<IAgentRequestInput>;
   encodeStream(
     events: AsyncIterable<AgentEvent>,
-    context: ResponseContextInterface,
+    context: IResponseContext,
   ): AsyncIterable<Uint8Array>;
   encodeStoredResponse(
-    record: TurnRecordInterface,
+    record: ITurnRecord,
     events: AgentEvent[],
     options?: { previousResponseId?: string | null },
   ): unknown;
-  encodeError(error: AgentLoomErrorInterface): unknown;
-  capabilities(): NorthboundCapabilitiesInterface;
+  encodeError(error: IAgentLoomError): unknown;
+  capabilities(): INorthboundCapabilities;
 }
 
-export interface NorthboundRequestInterface {
+export interface INorthboundRequest {
   transport: 'http' | 'cli' | 'custom';
   method: string;
   path: string;
@@ -291,25 +276,25 @@ export interface NorthboundRequestInterface {
   body: unknown;
 }
 
-export interface RequestContextInterface {
+export interface IRequestContext {
   workspaceId: WorkspaceId;
   authSubject?: string;
   requestId: string;
 }
 
-export interface ResponseContextInterface {
+export interface IResponseContext {
   turnId: TurnId;
   threadId: ThreadId;
   externalResponseId?: string;
   previousResponseId?: string | null;
-  requestInput?: AgentInputInterface;
+  requestInput?: IAgentInput;
 }
 
-export interface AgentRequestInputInterface {
+export interface IAgentRequestInput {
   threadId?: ThreadId;
   parentTurnId?: TurnId;
   model: string;
-  input: AgentInputInterface;
+  input: IAgentInput;
   metadata?: Record<string, unknown>;
   clientRef?: {
     protocol: ClientProtocol;
@@ -319,117 +304,103 @@ export interface AgentRequestInputInterface {
   };
 }
 
-export interface NorthboundCapabilitiesInterface {
+export interface INorthboundCapabilities {
   streaming: boolean;
   resumableTurns: boolean;
   clientSideToolCalls: boolean;
   cancellation: boolean;
 }
 
-export interface ResolvedTurnInterface {
-  turn: TurnRecordInterface;
-  thread: ThreadInterface;
-  session: BackendSessionInterface;
-  request: AgentRequestInterface;
+export interface IResolvedTurn {
+  turn: ITurnRecord;
+  thread: IThread;
+  session: IBackendSession;
+  request: IAgentRequest;
   externalResponseId?: string;
 }
 
-export interface SessionManagerInterface {
-  startTurn(
-    input: AgentRequestInputInterface,
-    context: RequestContextInterface,
-  ): Promise<ResolvedTurnInterface>;
-  getTurn(turnId: TurnId): Promise<TurnRecordInterface | null>;
+export interface ISessionManager {
+  startTurn(input: IAgentRequestInput, context: IRequestContext): Promise<IResolvedTurn>;
+  getTurn(turnId: TurnId): Promise<ITurnRecord | null>;
   getEvents(turnId: TurnId): AgentEvent[];
-  streamTurn(resolved: ResolvedTurnInterface, signal?: AbortSignal): AsyncIterable<AgentEvent>;
-  cancelTurn(turnId: TurnId): Promise<CancelResultInterface>;
+  streamTurn(resolved: IResolvedTurn, signal?: AbortSignal): AsyncIterable<AgentEvent>;
+  cancelTurn(turnId: TurnId): Promise<ICancelResult>;
 }
 
-export interface StateStoreInterface {
-  getOrCreateWorkspace(input: { rootPath: string }): Promise<WorkspaceInterface>;
-  getWorkspace(workspaceId: WorkspaceId): Promise<WorkspaceInterface | null>;
-  getWorkspaceByPath(rootPath: string): Promise<WorkspaceInterface | null>;
-  createThread(input: { workspaceId: WorkspaceId }): Promise<ThreadInterface>;
-  getThread(threadId: ThreadId): Promise<ThreadInterface | null>;
+export interface IStateStore {
+  getOrCreateWorkspace(input: { rootPath: string }): Promise<IWorkspace>;
+  getWorkspace(workspaceId: WorkspaceId): Promise<IWorkspace | null>;
+  getWorkspaceByPath(rootPath: string): Promise<IWorkspace | null>;
+  createThread(input: { workspaceId: WorkspaceId }): Promise<IThread>;
+  getThread(threadId: ThreadId): Promise<IThread | null>;
   createTurn(input: {
     threadId: ThreadId;
     parentTurnId?: TurnId;
     bridgeSessionId: BridgeSessionId;
     model: string;
-  }): Promise<TurnRecordInterface>;
-  getTurn(turnId: TurnId): Promise<TurnRecordInterface | null>;
+  }): Promise<ITurnRecord>;
+  getTurn(turnId: TurnId): Promise<ITurnRecord | null>;
   updateTurnStatus(
     turnId: TurnId,
-    fromStatus: TurnRecordInterface['status'] | 'any-non-terminal',
-    toStatus: TurnRecordInterface['status'],
+    fromStatus: ITurnRecord['status'] | 'any-non-terminal',
+    toStatus: ITurnRecord['status'],
     completedAt?: number,
   ): Promise<boolean>;
-  bindClientRef(ref: ClientTurnRefInterface): Promise<void>;
-  resolveClientRef(
-    protocol: ClientProtocol,
-    externalId: string,
-  ): Promise<ClientTurnRefInterface | null>;
+  bindClientRef(ref: IClientTurnRef): Promise<void>;
+  resolveClientRef(protocol: ClientProtocol, externalId: string): Promise<IClientTurnRef | null>;
   reserveBackendSession(input: {
     workspaceId: WorkspaceId;
     threadId: ThreadId;
     backend: string;
-  }): Promise<BackendSessionInterface>;
+  }): Promise<IBackendSession>;
   activateBackendSession(
-    session: BackendSessionInterface,
-    metadata: BackendProcessMetadataInterface,
+    session: IBackendSession,
+    metadata: IBackendProcessMetadata,
   ): Promise<void>;
   updateBackendSessionStatus(
     bridgeSessionId: BridgeSessionId,
     fromStatus: BackendSessionStatus | 'any',
     toStatus: BackendSessionStatus,
   ): Promise<boolean>;
-  getBackendSession(bridgeSessionId: BridgeSessionId): Promise<BackendSessionInterface | null>;
-  getBackendSessionByThread(threadId: ThreadId): Promise<BackendSessionInterface | null>;
+  getBackendSession(bridgeSessionId: BridgeSessionId): Promise<IBackendSession | null>;
+  getBackendSessionByThread(threadId: ThreadId): Promise<IBackendSession | null>;
   createApproval(input: {
     approvalId?: ApprovalId;
     turnId: TurnId;
     bridgeSessionId: BridgeSessionId;
-    request: PermissionRequestInterface;
+    request: IPermissionRequest;
     timeoutAt: number;
-    journalEvent?: JournalEventInterface;
-  }): Promise<ApprovalRecordInterface>;
-  getApproval(approvalId: ApprovalId): Promise<ApprovalRecordInterface | null>;
-  resolveApprovalWithJournal(
-    input: ApprovalResolutionInputInterface,
-  ): Promise<ApprovalResolutionResultInterface>;
-  recoverStartupState(input?: { now?: number }): Promise<StartupRecoveryResultInterface>;
+    journalEvent?: IJournalEvent;
+  }): Promise<IApprovalRecord>;
+  getApproval(approvalId: ApprovalId): Promise<IApprovalRecord | null>;
+  resolveApprovalWithJournal(input: IApprovalResolutionInput): Promise<IApprovalResolutionResult>;
+  recoverStartupState(input?: { now?: number }): Promise<IStartupRecoveryResult>;
   pruneIdleBackendSessions(input: {
     updatedBefore: number;
     now?: number;
-  }): Promise<IdleSessionPruneResultInterface>;
+  }): Promise<IIdleSessionPruneResult>;
 }
 
-export interface AgentBackendInterface {
+export interface IAgentBackend {
   name: string;
-  capabilities(): BackendCapabilitiesInterface;
-  createSession(
-    workspace: WorkspaceInterface,
-    options: CreateSessionOptionsInterface,
-  ): Promise<BackendSessionInterface>;
-  resumeSession(session: BackendSessionInterface): Promise<BackendSessionInterface>;
+  capabilities(): IBackendCapabilities;
+  createSession(workspace: IWorkspace, options: ICreateSessionOptions): Promise<IBackendSession>;
+  resumeSession(session: IBackendSession): Promise<IBackendSession>;
   send(
-    session: BackendSessionInterface,
-    request: AgentRequestInterface,
+    session: IBackendSession,
+    request: IAgentRequest,
     signal?: AbortSignal,
   ): AsyncIterable<AgentEvent>;
   submitApprovalDecision?(
-    session: BackendSessionInterface,
+    session: IBackendSession,
     approvalId: ApprovalId,
     decision: ApprovalDecision,
   ): Promise<void>;
-  cancel(
-    session: BackendSessionInterface,
-    options?: CancelOptionsInterface,
-  ): Promise<CancelResultInterface>;
-  disposeSession(session: BackendSessionInterface): Promise<void>;
+  cancel(session: IBackendSession, options?: ICancelOptions): Promise<ICancelResult>;
+  disposeSession(session: IBackendSession): Promise<void>;
 }
 
-export interface BackendSessionInterface {
+export interface IBackendSession {
   bridgeSessionId: BridgeSessionId;
   backendSessionId?: BackendSessionId;
   workspaceId: WorkspaceId;
@@ -437,29 +408,29 @@ export interface BackendSessionInterface {
   status: BackendSessionStatus;
 }
 
-export interface BackendProcessMetadataInterface {
+export interface IBackendProcessMetadata {
   backendSessionId: BackendSessionId;
   processId?: string;
   processStartedAt?: number;
   processIdentityHash?: string;
 }
 
-export interface CreateSessionOptionsInterface {
+export interface ICreateSessionOptions {
   bridgeSessionId: BridgeSessionId;
   threadId: ThreadId;
   model?: string;
 }
 
-export interface CancelOptionsInterface {
+export interface ICancelOptions {
   timeoutMs: number;
   forceAfterTimeout: boolean;
 }
 
-export interface CancelResultInterface {
+export interface ICancelResult {
   status: 'cancelled' | 'already_terminal' | 'timed_out' | 'not_found';
 }
 
-export interface BackendCapabilitiesInterface {
+export interface IBackendCapabilities {
   persistentSessions: boolean;
   serverSideTools: boolean;
   permissionRequests: boolean;

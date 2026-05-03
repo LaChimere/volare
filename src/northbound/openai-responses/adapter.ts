@@ -2,17 +2,17 @@ import { AgentLoomError, toAgentLoomError } from '../../core/errors';
 import { createId } from '../../core/ids';
 import type {
   AgentEvent,
-  AgentLoomErrorInterface,
-  AgentRequestInputInterface,
-  AgentUsageInterface,
-  NorthboundAdapterInterface,
-  NorthboundCapabilitiesInterface,
-  NorthboundRequestInterface,
-  RequestContextInterface,
-  ResponseContextInterface,
-  StateStoreInterface,
-  TurnRecordInterface,
-  WorkspaceHintsInterface,
+  IAgentLoomError,
+  IAgentRequestInput,
+  IAgentUsage,
+  INorthboundAdapter,
+  INorthboundCapabilities,
+  INorthboundRequest,
+  IRequestContext,
+  IResponseContext,
+  IStateStore,
+  ITurnRecord,
+  IWorkspaceHints,
 } from '../../core/types';
 import {
   createEstimatedUsageFromTokens,
@@ -22,14 +22,12 @@ import {
 
 const encoder = new TextEncoder();
 
-export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
+export class OpenAIResponsesAdapter implements INorthboundAdapter {
   readonly protocol = 'openai-responses-v1';
 
-  constructor(readonly stateStore?: StateStoreInterface) {}
+  constructor(readonly stateStore?: IStateStore) {}
 
-  async extractWorkspaceHints(
-    request: NorthboundRequestInterface,
-  ): Promise<WorkspaceHintsInterface> {
+  async extractWorkspaceHints(request: INorthboundRequest): Promise<IWorkspaceHints> {
     const metadata = isRecord(request.body) ? request.body['metadata'] : undefined;
     const requestedRoot = isRecord(metadata) ? stringValue(metadata['workspace_root']) : undefined;
     if (requestedRoot) {
@@ -39,9 +37,9 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
   }
 
   async parseRequest(
-    request: NorthboundRequestInterface,
-    _context: RequestContextInterface,
-  ): Promise<AgentRequestInputInterface> {
+    request: INorthboundRequest,
+    _context: IRequestContext,
+  ): Promise<IAgentRequestInput> {
     if (!isRecord(request.body)) {
       throw new AgentLoomError('invalid_request', 'Responses request body must be a JSON object');
     }
@@ -97,7 +95,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
 
   async *encodeStream(
     events: AsyncIterable<AgentEvent>,
-    context: ResponseContextInterface,
+    context: IResponseContext,
   ): AsyncIterable<Uint8Array> {
     const responseId = context.externalResponseId ?? context.turnId;
     const messageItemId = `msg_${responseId}`;
@@ -257,7 +255,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
   }
 
   encodeStoredResponse(
-    record: TurnRecordInterface,
+    record: ITurnRecord,
     events: AgentEvent[],
     options: { previousResponseId?: string | null } = {},
   ): unknown {
@@ -293,7 +291,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
     };
   }
 
-  encodeError(error: AgentLoomErrorInterface): unknown {
+  encodeError(error: IAgentLoomError): unknown {
     return {
       error: {
         type: error.code,
@@ -302,7 +300,7 @@ export class OpenAIResponsesAdapter implements NorthboundAdapterInterface {
     };
   }
 
-  capabilities(): NorthboundCapabilitiesInterface {
+  capabilities(): INorthboundCapabilities {
     return {
       streaming: true,
       resumableTurns: false,
@@ -353,13 +351,13 @@ function encodeSse(data: unknown): Uint8Array {
   return encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-interface ParsedInputInterface {
+interface IParsedInput {
   message: string;
   conversationHistory: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
   systemInstructions?: string;
 }
 
-function parseInput(input: unknown): ParsedInputInterface | null {
+function parseInput(input: unknown): IParsedInput | null {
   if (typeof input === 'string') {
     const message = input.trim();
     return message ? { message, conversationHistory: [] } : null;
@@ -448,7 +446,7 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-function toOpenAIStatus(status: TurnRecordInterface['status']): string {
+function toOpenAIStatus(status: ITurnRecord['status']): string {
   switch (status) {
     case 'queued':
     case 'running':
@@ -535,7 +533,7 @@ function usageForStream(
     | Extract<AgentEvent, { type: 'turn.failed' }>
     | Extract<AgentEvent, { type: 'turn.cancelled' }>
     | Extract<AgentEvent, { type: 'turn.interrupted' }>,
-  context: ResponseContextInterface,
+  context: IResponseContext,
   outputText: string,
 ): unknown {
   if (event.type === 'turn.succeeded' && event.usage) {
@@ -549,7 +547,7 @@ function usageForStream(
   );
 }
 
-function toResponsesUsage(usage: AgentUsageInterface): unknown {
+function toResponsesUsage(usage: IAgentUsage): unknown {
   return {
     input_tokens: usage.inputTokens,
     output_tokens: usage.outputTokens,

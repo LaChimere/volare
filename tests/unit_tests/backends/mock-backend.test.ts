@@ -1,11 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { MockBackend } from '../../../src/backends/mock/backend';
-import type {
-  AgentEvent,
-  AgentRequestInterface,
-  WorkspaceInterface,
-} from '../../../src/core/types';
+import type { AgentEvent, IAgentRequest, IWorkspace } from '../../../src/core/types';
 
 async function collectEvents(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
   const collected: AgentEvent[] = [];
@@ -31,7 +27,7 @@ describe('MockBackend', () => {
 
   test('echoes a deterministic text response for contract tests', async () => {
     const backend = new MockBackend();
-    const workspace: WorkspaceInterface = {
+    const workspace: IWorkspace = {
       id: 'workspace_1',
       rootPath: '/tmp/agent-loom-test',
     };
@@ -39,7 +35,7 @@ describe('MockBackend', () => {
       bridgeSessionId: 'bridge_session_1',
       threadId: 'thread_1',
     });
-    const request: AgentRequestInterface = {
+    const request: IAgentRequest = {
       turnId: 'turn_1',
       threadId: 'thread_1',
       workspaceId: 'workspace_1',
@@ -67,7 +63,7 @@ describe('MockBackend', () => {
 
   test('fails closed on workspace or thread mismatch', async () => {
     const backend = new MockBackend();
-    const workspace: WorkspaceInterface = {
+    const workspace: IWorkspace = {
       id: 'workspace_1',
       rootPath: '/tmp/agent-loom-test',
     };
@@ -75,7 +71,7 @@ describe('MockBackend', () => {
       bridgeSessionId: 'bridge_session_1',
       threadId: 'thread_1',
     });
-    const request: AgentRequestInterface = {
+    const request: IAgentRequest = {
       turnId: 'turn_1',
       threadId: 'thread_2',
       workspaceId: 'workspace_1',

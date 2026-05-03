@@ -4,35 +4,30 @@ import { MockBackend } from '../backends/mock/backend';
 import { DurableSessionManager } from '../core/durable-session-manager';
 import { AgentLoomError, toAgentLoomError } from '../core/errors';
 import { InMemorySessionManager } from '../core/in-memory-session-manager';
-import type {
-  AgentEvent,
-  EventJournalInterface,
-  SessionManagerInterface,
-  StateStoreInterface,
-} from '../core/types';
+import type { AgentEvent, IEventJournal, ISessionManager, IStateStore } from '../core/types';
 import { WorkspaceResolver } from '../core/workspace-resolver';
-import { type LogFieldsInterface, type LoggerInterface, NoopLogger } from '../logging/logger';
+import { type ILogFields, type ILogger, NoopLogger } from '../logging/logger';
 import {
   createCodexModelsResponse,
   encodeOpenAIError,
   OpenAIResponsesAdapter,
 } from '../northbound/openai-responses/adapter';
 import { requireBearerAuth } from './auth';
-import type { ServerRuntimeConfigInterface } from './config';
+import type { IServerRuntimeConfig } from './config';
 
-export interface AppDependenciesInterface {
-  config: ServerRuntimeConfigInterface;
+export interface IAppDependencies {
+  config: IServerRuntimeConfig;
   adapter?: OpenAIResponsesAdapter;
   workspaceResolver?: WorkspaceResolver;
-  sessionManager?: SessionManagerInterface;
-  stateStore?: StateStoreInterface;
-  eventJournal?: EventJournalInterface;
-  logger?: LoggerInterface;
+  sessionManager?: ISessionManager;
+  stateStore?: IStateStore;
+  eventJournal?: IEventJournal;
+  logger?: ILogger;
   disconnectGraceMs?: number;
   healthStatus?: () => 'recovering' | 'ready';
 }
 
-export function createApp(dependencies: AppDependenciesInterface): {
+export function createApp(dependencies: IAppDependencies): {
   fetch(request: Request): Promise<Response>;
 } {
   const stateStore = dependencies.stateStore;
@@ -326,7 +321,7 @@ async function parseJsonBody(request: Request): Promise<unknown> {
 
 async function* journalCanonicalEvents(
   events: AsyncIterable<AgentEvent>,
-  eventJournal: EventJournalInterface | undefined,
+  eventJournal: IEventJournal | undefined,
 ): AsyncIterable<AgentEvent> {
   for await (const event of events) {
     if (eventJournal) {
@@ -342,7 +337,7 @@ async function* journalCanonicalEvents(
 
 async function* logAgentEventStream(
   events: AsyncIterable<AgentEvent>,
-  logger: LoggerInterface,
+  logger: ILogger,
 ): AsyncIterable<AgentEvent> {
   const startedAt = Date.now();
   let completed = false;
@@ -380,11 +375,11 @@ async function* logAgentEventStream(
 }
 
 function logHttpResponse(
-  logger: LoggerInterface,
+  logger: ILogger,
   fields: { requestId: string; method: string; path: string },
   startedAt: number,
   response: Response,
-  extra: LogFieldsInterface = {},
+  extra: ILogFields = {},
 ): Response {
   const logFields = {
     event: 'http.request.completed',

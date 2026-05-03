@@ -1,30 +1,22 @@
 import { mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { type LoggerInterface, NoopLogger } from '../logging/logger';
+import { type ILogger, NoopLogger } from '../logging/logger';
 import { AgentLoomError } from './errors';
-import type {
-  ServerConfigInterface,
-  WorkspaceHintsInterface,
-  WorkspaceInterface,
-  WorkspaceResolverInterface,
-} from './types';
+import type { IServerConfig, IWorkspace, IWorkspaceHints, IWorkspaceResolver } from './types';
 
-export interface WorkspaceResolverOptionsInterface {
-  logger?: LoggerInterface;
+export interface IWorkspaceResolverOptions {
+  logger?: ILogger;
 }
 
-export class WorkspaceResolver implements WorkspaceResolverInterface {
-  readonly #logger: LoggerInterface;
+export class WorkspaceResolver implements IWorkspaceResolver {
+  readonly #logger: ILogger;
 
-  constructor(options: WorkspaceResolverOptionsInterface = {}) {
+  constructor(options: IWorkspaceResolverOptions = {}) {
     this.#logger = (options.logger ?? new NoopLogger()).child({ component: 'workspace-resolver' });
   }
 
-  async resolve(
-    hints: WorkspaceHintsInterface,
-    config: ServerConfigInterface,
-  ): Promise<WorkspaceInterface> {
+  async resolve(hints: IWorkspaceHints, config: IServerConfig): Promise<IWorkspace> {
     const projectless =
       !hints.requestedRoot &&
       (hints.source === 'process-cwd' || hints.source === 'projectless') &&
@@ -93,8 +85,8 @@ export class WorkspaceResolver implements WorkspaceResolverInterface {
 }
 
 function sourceForRequestedRoot(
-  hints: WorkspaceHintsInterface,
-  config: ServerConfigInterface,
+  hints: IWorkspaceHints,
+  config: IServerConfig,
 ): 'request' | 'projectless' | 'config' | 'cwd' {
   if (hints.requestedRoot) {
     return 'request';
@@ -111,7 +103,7 @@ function sourceForRequestedRoot(
   return 'cwd';
 }
 
-function allowedRootCandidates(config: ServerConfigInterface): string[] {
+function allowedRootCandidates(config: IServerConfig): string[] {
   if (config.allowedWorkspaceRoots) {
     return config.projectlessWorkspaceRoot
       ? [...config.allowedWorkspaceRoots, config.projectlessWorkspaceRoot]

@@ -1,14 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  type CliDependenciesInterface,
-  type CliIoInterface,
-  type CliWriterInterface,
   defaultDaemonPaths,
+  type ICliDependencies,
+  type ICliIo,
+  type ICliWriter,
   parseCli,
   runCli,
 } from '../../src/cli';
 
-class MemoryWriter implements CliWriterInterface {
+class MemoryWriter implements ICliWriter {
   readonly chunks: string[] = [];
 
   write(chunk: Uint8Array): void {
@@ -20,15 +20,13 @@ class MemoryWriter implements CliWriterInterface {
   }
 }
 
-function memoryIo(): { io: CliIoInterface; stdout: MemoryWriter; stderr: MemoryWriter } {
+function memoryIo(): { io: ICliIo; stdout: MemoryWriter; stderr: MemoryWriter } {
   const stdout = new MemoryWriter();
   const stderr = new MemoryWriter();
   return { io: { stdout, stderr }, stdout, stderr };
 }
 
-function testDependencies(
-  overrides: Partial<CliDependenciesInterface> = {},
-): CliDependenciesInterface {
+function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDependencies {
   return {
     configureCodex: async () => ({ configPath: '/tmp/config.toml', changed: false }),
     startRuntime: async () => {

@@ -4,77 +4,75 @@ import { closeSync, openSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { type CodexConfigOptionsInterface, configureCodex } from '../scripts/config-codex';
+import { configureCodex, type ICodexConfigOptions } from '../scripts/config-codex';
 import {
-  type AgentLoomRuntimeInterface,
-  type AgentLoomRuntimeOptionsInterface,
+  type IAgentLoomRuntime,
+  type IAgentLoomRuntimeOptions,
   installRuntimeSignalHandlers,
   startAgentLoomRuntime,
 } from './runtime/server';
-import type { ServerRuntimeEnvInterface } from './server/config';
+import type { IServerRuntimeEnv } from './server/config';
 
 const VERSION = '0.1.0';
 
-export type CliCommandInterface =
+export type ICliCommand =
   | { type: 'help' }
   | { type: 'version' }
   | {
       type: 'start';
       daemon: boolean;
-      env: Partial<ServerRuntimeEnvInterface>;
+      env: Partial<IServerRuntimeEnv>;
       daemonArgs: string[];
     }
-  | { type: 'config-codex'; options: CodexConfigOptionsInterface }
+  | { type: 'config-codex'; options: ICodexConfigOptions }
   | { type: 'status' }
   | { type: 'stop' }
   | { type: 'logs' };
 
-export interface CliIoInterface {
-  stdout: CliWriterInterface;
-  stderr: CliWriterInterface;
+export interface ICliIo {
+  stdout: ICliWriter;
+  stderr: ICliWriter;
 }
 
-export interface CliWriterInterface {
+export interface ICliWriter {
   write(chunk: Uint8Array): unknown;
 }
 
-export interface CliDependenciesInterface {
-  configureCodex: (options?: CodexConfigOptionsInterface) => Promise<{
+export interface ICliDependencies {
+  configureCodex: (options?: ICodexConfigOptions) => Promise<{
     configPath: string;
     changed: boolean;
     backupPath?: string;
   }>;
-  startRuntime: (options?: AgentLoomRuntimeOptionsInterface) => Promise<AgentLoomRuntimeInterface>;
-  installSignalHandlers: (runtime: AgentLoomRuntimeInterface) => void;
-  startDaemon: (
-    command: Extract<CliCommandInterface, { type: 'start' }>,
-  ) => Promise<DaemonStartResultInterface>;
-  stopDaemon: () => Promise<DaemonStopResultInterface>;
-  getDaemonStatus: () => Promise<DaemonStatusResultInterface>;
-  getDaemonPaths: () => DaemonPathsInterface;
+  startRuntime: (options?: IAgentLoomRuntimeOptions) => Promise<IAgentLoomRuntime>;
+  installSignalHandlers: (runtime: IAgentLoomRuntime) => void;
+  startDaemon: (command: Extract<ICliCommand, { type: 'start' }>) => Promise<IDaemonStartResult>;
+  stopDaemon: () => Promise<IDaemonStopResult>;
+  getDaemonStatus: () => Promise<IDaemonStatusResult>;
+  getDaemonPaths: () => IDaemonPaths;
 }
 
-export interface DaemonPathsInterface {
+export interface IDaemonPaths {
   rootDir: string;
   logPath: string;
   pidPath: string;
   stateDatabasePath: string;
 }
 
-export interface DaemonStartResultInterface {
+export interface IDaemonStartResult {
   pid: number;
   logPath: string;
   pidPath: string;
 }
 
-export interface DaemonStatusResultInterface {
+export interface IDaemonStatusResult {
   running: boolean;
   pid?: number;
   pidPath: string;
   logPath: string;
 }
 
-export interface DaemonStopResultInterface {
+export interface IDaemonStopResult {
   stopped: boolean;
   pid?: number;
   pidPath: string;
@@ -89,8 +87,8 @@ export class CliUsageError extends Error {
 
 export async function runCli(
   argv: string[],
-  dependencies: CliDependenciesInterface = defaultDependencies(),
-  io: CliIoInterface = defaultIo(),
+  dependencies: ICliDependencies = defaultDependencies(),
+  io: ICliIo = defaultIo(),
 ): Promise<number> {
   try {
     const command = parseCli(argv);
@@ -162,7 +160,7 @@ export async function runCli(
   }
 }
 
-export function parseCli(argv: string[]): CliCommandInterface {
+export function parseCli(argv: string[]): ICliCommand {
   const [command, ...rest] = argv;
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     return { type: 'help' };
@@ -191,8 +189,8 @@ export function parseCli(argv: string[]): CliCommandInterface {
   throw new CliUsageError(`Unknown command: ${command}`);
 }
 
-function parseStart(args: string[]): Extract<CliCommandInterface, { type: 'start' }> {
-  const env: Partial<ServerRuntimeEnvInterface> = {};
+function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
+  const env: Partial<IServerRuntimeEnv> = {};
   const daemonArgs: string[] = ['start'];
   let daemon = false;
 
@@ -253,12 +251,12 @@ function parseStart(args: string[]): Extract<CliCommandInterface, { type: 'start
   return { type: 'start', daemon, env, daemonArgs };
 }
 
-function parseConfig(args: string[]): Extract<CliCommandInterface, { type: 'config-codex' }> {
+function parseConfig(args: string[]): Extract<ICliCommand, { type: 'config-codex' }> {
   const [target, ...rest] = args;
   if (target !== 'codex') {
     throw new CliUsageError('Expected config target: codex');
   }
-  const options: CodexConfigOptionsInterface = {};
+  const options: ICodexConfigOptions = {};
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (!arg) {
@@ -321,7 +319,7 @@ function assertNoArgs(args: string[], command: string): void {
   }
 }
 
-function defaultDependencies(): CliDependenciesInterface {
+function defaultDependencies(): ICliDependencies {
   return {
     configureCodex,
     startRuntime: startAgentLoomRuntime,
@@ -333,7 +331,7 @@ function defaultDependencies(): CliDependenciesInterface {
   };
 }
 
-function defaultIo(): CliIoInterface {
+function defaultIo(): ICliIo {
   return {
     stdout: Bun.stdout.writer(),
     stderr: Bun.stderr.writer(),
@@ -342,7 +340,7 @@ function defaultIo(): CliIoInterface {
 
 export function defaultDaemonPaths(
   env: Record<string, string | undefined> = Bun.env,
-): DaemonPathsInterface {
+): IDaemonPaths {
   const rootDir = env['AGENT_LOOM_HOME']?.trim() || join(homedir(), '.agent-loom');
   return {
     rootDir,
@@ -353,8 +351,8 @@ export function defaultDaemonPaths(
 }
 
 async function startDaemon(
-  command: Extract<CliCommandInterface, { type: 'start' }>,
-): Promise<DaemonStartResultInterface> {
+  command: Extract<ICliCommand, { type: 'start' }>,
+): Promise<IDaemonStartResult> {
   const paths = defaultDaemonPaths();
   await mkdir(dirname(paths.logPath), { recursive: true });
   await mkdir(dirname(paths.pidPath), { recursive: true });
@@ -412,7 +410,7 @@ function currentExecutable(): { command: string; argsPrefix: string[] } {
   return { command: executable, argsPrefix: [] };
 }
 
-async function getDaemonStatus(): Promise<DaemonStatusResultInterface> {
+async function getDaemonStatus(): Promise<IDaemonStatusResult> {
   const paths = defaultDaemonPaths();
   const pid = await readPid(paths.pidPath);
   if (pid === undefined) {
@@ -426,7 +424,7 @@ async function getDaemonStatus(): Promise<DaemonStatusResultInterface> {
   };
 }
 
-async function stopDaemon(): Promise<DaemonStopResultInterface> {
+async function stopDaemon(): Promise<IDaemonStopResult> {
   const paths = defaultDaemonPaths();
   const pid = await readPid(paths.pidPath);
   if (pid === undefined) {
@@ -599,7 +597,7 @@ Set AGENT_LOOM_API_KEY in the environment for a stable API token. If it is omitt
 Agent Loom generates an ephemeral startup token and prints it to stderr or the daemon log.`;
 }
 
-async function writeLine(writer: CliWriterInterface, text: string): Promise<void> {
+async function writeLine(writer: ICliWriter, text: string): Promise<void> {
   await Promise.resolve(writer.write(new TextEncoder().encode(`${text}\n`)));
 }
 

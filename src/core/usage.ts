@@ -1,4 +1,4 @@
-import type { AgentInputInterface, AgentUsageInterface } from './types';
+import type { IAgentInput, IAgentUsage } from './types';
 
 const textEncoder = new TextEncoder();
 
@@ -13,7 +13,7 @@ export function estimateTextTokens(text: string): number {
   return Math.max(1, Math.ceil((textEncoder.encode(text).length + nonAsciiCodePoints) / 4));
 }
 
-export function estimateAgentInputTokens(input: AgentInputInterface): number {
+export function estimateAgentInputTokens(input: IAgentInput): number {
   const sections: string[] = [];
   if (input.systemInstructions) {
     sections.push(input.systemInstructions);
@@ -25,7 +25,7 @@ export function estimateAgentInputTokens(input: AgentInputInterface): number {
   return estimateTextTokens(sections.join('\n\n'));
 }
 
-export function createEstimatedUsage(inputText: string, outputText: string): AgentUsageInterface {
+export function createEstimatedUsage(inputText: string, outputText: string): IAgentUsage {
   return createEstimatedUsageFromTokens(
     estimateTextTokens(inputText),
     estimateTextTokens(outputText),
@@ -35,7 +35,7 @@ export function createEstimatedUsage(inputText: string, outputText: string): Age
 export function createEstimatedUsageFromTokens(
   inputTokens: number,
   outputTokens: number,
-): AgentUsageInterface {
+): IAgentUsage {
   assertTokenCount(inputTokens, 'inputTokens');
   assertTokenCount(outputTokens, 'outputTokens');
   return {

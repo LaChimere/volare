@@ -97,7 +97,7 @@ Approval integration decision for the first backend: **backend-internal pause/re
 ### Phase 1: Minimal Responses Bridge
 
 - [ ] Establish the Bun project skeleton and core type boundaries.
-  - **Acceptance criteria**: `NorthboundAdapterInterface`, `AgentBackendInterface`, canonical request/event types, and protocol-neutral errors are implemented without concrete protocol leakage. All TypeScript interfaces use the explicit `Interface` suffix; concrete implementations do not use that suffix.
+  - **Acceptance criteria**: `INorthboundAdapter`, `IAgentBackend`, canonical request/event types, and protocol-neutral errors are implemented without concrete protocol leakage. All TypeScript interfaces use the explicit `I` prefix; concrete implementations do not use that prefix.
 - [ ] Implement local authenticated HTTP endpoints for the minimal Responses flow.
   - **Acceptance criteria**: `GET /openai/v1/models`, `POST /openai/v1/responses`, and `GET /openai/v1/responses/:id` require bearer auth. Startup accepts `AGENT_LOOM_API_KEY` or generates an ephemeral token, rejects clearly too-short user-provided tokens before HTTP bind, and generated tokens have at least 128 bits of entropy. `POST /responses` can stream a single text-only response through `OpenAIResponsesAdapter`; `GET /responses/:id` returns terminal and non-terminal response snapshots without blocking.
 - [ ] Implement stored response encoding in the OpenAI Responses adapter.

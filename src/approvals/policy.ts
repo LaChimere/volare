@@ -3,34 +3,34 @@ import path from 'node:path';
 
 import { createId } from '../core/ids';
 import type {
-  ApprovalContextInterface,
   ApprovalEvaluation,
-  ApprovalPolicyInterface,
-  PermissionRequestInterface,
+  IApprovalContext,
+  IApprovalPolicy,
+  IPermissionRequest,
 } from '../core/types';
 
 export type ApprovalPolicyMode = 'restricted' | 'ask' | 'allow-all';
 
-export interface ApprovalPolicyOptionsInterface {
+export interface IApprovalPolicyOptions {
   mode?: ApprovalPolicyMode;
   timeoutMs?: number;
   now?: () => number;
 }
 
-export class DefaultApprovalPolicy implements ApprovalPolicyInterface {
+export class DefaultApprovalPolicy implements IApprovalPolicy {
   readonly #mode: ApprovalPolicyMode;
   readonly #timeoutMs: number;
   readonly #now: () => number;
 
-  constructor(options: ApprovalPolicyOptionsInterface = {}) {
+  constructor(options: IApprovalPolicyOptions = {}) {
     this.#mode = options.mode ?? 'restricted';
     this.#timeoutMs = options.timeoutMs ?? 5 * 60 * 1000;
     this.#now = options.now ?? Date.now;
   }
 
   async evaluate(
-    request: PermissionRequestInterface,
-    context: ApprovalContextInterface,
+    request: IPermissionRequest,
+    context: IApprovalContext,
   ): Promise<ApprovalEvaluation> {
     const normalized = await normalizePermissionRequestScope(request, context.workspaceRootPath);
     if (normalized.type === 'deny') {
@@ -79,7 +79,7 @@ export class DefaultApprovalPolicy implements ApprovalPolicyInterface {
     };
   }
 
-  #ask(request: PermissionRequestInterface): ApprovalEvaluation {
+  #ask(request: IPermissionRequest): ApprovalEvaluation {
     return {
       type: 'ask',
       approvalId: createId('approval'),
@@ -90,10 +90,10 @@ export class DefaultApprovalPolicy implements ApprovalPolicyInterface {
 }
 
 export async function normalizePermissionRequestScope(
-  request: PermissionRequestInterface,
+  request: IPermissionRequest,
   workspaceRootPath: string,
 ): Promise<
-  | { type: 'ok'; request: PermissionRequestInterface }
+  | { type: 'ok'; request: IPermissionRequest }
   | { type: 'deny'; reason: 'path_canonicalization_failed' | 'path_outside_workspace' }
 > {
   if (!request.scope.path || !isFilesystemAction(request.action)) {

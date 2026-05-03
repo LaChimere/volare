@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { AgentLoomError } from '../core/errors';
 import type { LogLevel } from '../logging/logger';
 
-export interface ServerRuntimeConfigInterface {
+export interface IServerRuntimeConfig {
   host: string;
   port: number;
   apiKey: string;
@@ -22,7 +22,7 @@ export interface ServerRuntimeConfigInterface {
   projectlessWorkspaceRoot: string;
 }
 
-export interface ServerRuntimeEnvInterface {
+export interface IServerRuntimeEnv {
   AGENT_LOOM_API_KEY: string | undefined;
   AGENT_LOOM_HOST: string | undefined;
   AGENT_LOOM_PORT: string | undefined;
@@ -42,8 +42,8 @@ export interface ServerRuntimeEnvInterface {
 }
 
 export function createServerRuntimeConfig(
-  env: Partial<ServerRuntimeEnvInterface> = readServerRuntimeEnv(),
-): ServerRuntimeConfigInterface {
+  env: Partial<IServerRuntimeEnv> = readServerRuntimeEnv(),
+): IServerRuntimeConfig {
   const providedApiKey = env.AGENT_LOOM_API_KEY;
   const apiKey = providedApiKey ?? generateApiKey();
   if (
@@ -123,7 +123,7 @@ export function createServerRuntimeConfig(
   };
 }
 
-export function readServerRuntimeEnv(): ServerRuntimeEnvInterface {
+export function readServerRuntimeEnv(): IServerRuntimeEnv {
   return {
     AGENT_LOOM_API_KEY: Bun.env['AGENT_LOOM_API_KEY'],
     AGENT_LOOM_HOST: Bun.env['AGENT_LOOM_HOST'],
@@ -165,7 +165,7 @@ function isLogLevel(value: string): value is LogLevel {
   return ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'].includes(value);
 }
 
-function validateCorsConfig(env: Partial<ServerRuntimeEnvInterface>): void {
+function validateCorsConfig(env: Partial<IServerRuntimeEnv>): void {
   const mode = env.AGENT_LOOM_CORS_MODE?.trim() ?? 'disabled';
   const origins = splitList(env.AGENT_LOOM_CORS_ALLOWED_ORIGINS);
   if (mode !== 'disabled') {

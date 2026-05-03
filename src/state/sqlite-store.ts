@@ -4,27 +4,27 @@ import { AgentLoomError } from '../core/errors';
 import { createId } from '../core/ids';
 import type {
   ApprovalDecision,
-  ApprovalRecordInterface,
-  ApprovalResolutionInputInterface,
-  ApprovalResolutionResultInterface,
   ApprovalStatus,
-  BackendProcessMetadataInterface,
-  BackendSessionInterface,
   BackendSessionStatus,
   BridgeSessionId,
   ClientProtocol,
-  ClientTurnRefInterface,
-  IdleSessionPruneResultInterface,
-  JournalEventInterface,
-  PermissionRequestInterface,
-  StartupRecoveryResultInterface,
-  StateStoreInterface,
+  IApprovalRecord,
+  IApprovalResolutionInput,
+  IApprovalResolutionResult,
+  IBackendProcessMetadata,
+  IBackendSession,
+  IClientTurnRef,
+  IIdleSessionPruneResult,
+  IJournalEvent,
+  IPermissionRequest,
+  IStartupRecoveryResult,
+  IStateStore,
+  IThread,
+  ITurnRecord,
+  IWorkspace,
   ThreadId,
-  ThreadInterface,
   TurnId,
-  TurnRecordInterface,
   WorkspaceId,
-  WorkspaceInterface,
 } from '../core/types';
 
 type WorkspaceRow = { id: string; root_path: string };
@@ -34,7 +34,7 @@ type TurnRow = {
   thread_id: string;
   parent_turn_id: string | null;
   bridge_session_id: string;
-  status: TurnRecordInterface['status'];
+  status: ITurnRecord['status'];
   model: string;
   created_at: number;
   completed_at: number | null;
@@ -66,19 +66,19 @@ type ApprovalRow = {
   decided_at: number | null;
 };
 
-const TERMINAL_TURN_STATUSES = new Set<TurnRecordInterface['status']>([
+const TERMINAL_TURN_STATUSES = new Set<ITurnRecord['status']>([
   'succeeded',
   'failed',
   'cancelled',
   'interrupted',
 ]);
 
-export class SQLiteStateStore implements StateStoreInterface {
+export class SQLiteStateStore implements IStateStore {
   constructor(readonly database: Database) {
     this.database.run('PRAGMA foreign_keys = ON');
   }
 
-  async getOrCreateWorkspace(input: { rootPath: string }): Promise<WorkspaceInterface> {
+  async getOrCreateWorkspace(input: { rootPath: string }): Promise<IWorkspace> {
     const existing = await this.getWorkspaceByPath(input.rootPath);
     if (existing) {
       return existing;
@@ -102,21 +102,21 @@ export class SQLiteStateStore implements StateStoreInterface {
     return { id, rootPath: input.rootPath };
   }
 
-  async getWorkspace(workspaceId: WorkspaceId): Promise<WorkspaceInterface | null> {
+  async getWorkspace(workspaceId: WorkspaceId): Promise<IWorkspace | null> {
     const row = this.database
       .query<WorkspaceRow, [string]>('SELECT id, root_path FROM workspaces WHERE id = ?')
       .get(workspaceId);
     return row ? workspaceFromRow(row) : null;
   }
 
-  async getWorkspaceByPath(rootPath: string): Promise<WorkspaceInterface | null> {
+  async getWorkspaceByPath(rootPath: string): Promise<IWorkspace | null> {
     const row = this.database
       .query<WorkspaceRow, [string]>('SELECT id, root_path FROM workspaces WHERE root_path = ?')
       .get(rootPath);
     return row ? workspaceFromRow(row) : null;
   }
 
-  async createThread(input: { workspaceId: WorkspaceId }): Promise<ThreadInterface> {
+  async createThread(input: { workspaceId: WorkspaceId }): Promise<IThread> {
     const id = createId('thread');
     const now = Date.now();
     this.database
@@ -125,7 +125,7 @@ export class SQLiteStateStore implements StateStoreInterface {
     return { id, workspaceId: input.workspaceId };
   }
 
-  async getThread(threadId: ThreadId): Promise<ThreadInterface | null> {
+  async getThread(threadId: ThreadId): Promise<IThread | null> {
     const row = this.database
       .query<ThreadRow, [string]>('SELECT id, workspace_id FROM threads WHERE id = ?')
       .get(threadId);
@@ -137,7 +137,7 @@ export class SQLiteStateStore implements StateStoreInterface {
     parentTurnId?: TurnId;
     bridgeSessionId: BridgeSessionId;
     model: string;
-  }): Promise<TurnRecordInterface> {
+  }): Promise<ITurnRecord> {
     const id = createId('turn');
     const now = Date.now();
     this.database
@@ -166,7 +166,7 @@ export class SQLiteStateStore implements StateStoreInterface {
     };
   }
 
-  async getTurn(turnId: TurnId): Promise<TurnRecordInterface | null> {
+  async getTurn(turnId: TurnId): Promise<ITurnRecord | null> {
     const row = this.database
       .query<TurnRow, [string]>(
         `SELECT id, thread_id, parent_turn_id, bridge_session_id, status, model, created_at, completed_at
@@ -178,8 +178,8 @@ export class SQLiteStateStore implements StateStoreInterface {
 
   async updateTurnStatus(
     turnId: TurnId,
-    fromStatus: TurnRecordInterface['status'] | 'any-non-terminal',
-    toStatus: TurnRecordInterface['status'],
+    fromStatus: ITurnRecord['status'] | 'any-non-terminal',
+    toStatus: ITurnRecord['status'],
     completedAt?: number,
   ): Promise<boolean> {
     const current = await this.getTurn(turnId);
@@ -199,7 +199,7 @@ export class SQLiteStateStore implements StateStoreInterface {
     return result.changes === 1;
   }
 
-  async bindClientRef(ref: ClientTurnRefInterface): Promise<void> {
+  async bindClientRef(ref: IClientTurnRef): Promise<void> {
     this.database
       .query(
         `INSERT INTO client_turn_refs
@@ -220,7 +220,7 @@ export class SQLiteStateStore implements StateStoreInterface {
   async resolveClientRef(
     protocol: ClientProtocol,
     externalId: string,
-  ): Promise<ClientTurnRefInterface | null> {
+  ): Promise<IClientTurnRef | null> {
     const row = this.database
       .query<ClientTurnRefRow, [string, string]>(
         `SELECT protocol, external_id, turn_id, thread_id, parent_protocol, parent_external_id
@@ -234,7 +234,7 @@ export class SQLiteStateStore implements StateStoreInterface {
     workspaceId: WorkspaceId;
     threadId: ThreadId;
     backend: string;
-  }): Promise<BackendSessionInterface> {
+  }): Promise<IBackendSession> {
     const id = createId('bridge_session');
     const now = Date.now();
     this.database
@@ -253,8 +253,8 @@ export class SQLiteStateStore implements StateStoreInterface {
   }
 
   async activateBackendSession(
-    session: BackendSessionInterface,
-    metadata: BackendProcessMetadataInterface,
+    session: IBackendSession,
+    metadata: IBackendProcessMetadata,
   ): Promise<void> {
     const result = this.database
       .query(
@@ -299,9 +299,7 @@ export class SQLiteStateStore implements StateStoreInterface {
     return result.changes === 1;
   }
 
-  async getBackendSession(
-    bridgeSessionId: BridgeSessionId,
-  ): Promise<BackendSessionInterface | null> {
+  async getBackendSession(bridgeSessionId: BridgeSessionId): Promise<IBackendSession | null> {
     const row = this.database
       .query<BackendSessionRow, [string]>(
         'SELECT id, workspace_id, thread_id, backend_session_id, status FROM backend_sessions WHERE id = ?',
@@ -310,7 +308,7 @@ export class SQLiteStateStore implements StateStoreInterface {
     return row ? backendSessionFromRow(row) : null;
   }
 
-  async getBackendSessionByThread(threadId: ThreadId): Promise<BackendSessionInterface | null> {
+  async getBackendSessionByThread(threadId: ThreadId): Promise<IBackendSession | null> {
     const row = this.database
       .query<BackendSessionRow, [string]>(
         `SELECT id, workspace_id, thread_id, backend_session_id, status
@@ -327,10 +325,10 @@ export class SQLiteStateStore implements StateStoreInterface {
     approvalId?: string;
     turnId: TurnId;
     bridgeSessionId: BridgeSessionId;
-    request: PermissionRequestInterface;
+    request: IPermissionRequest;
     timeoutAt: number;
-    journalEvent?: JournalEventInterface;
-  }): Promise<ApprovalRecordInterface> {
+    journalEvent?: IJournalEvent;
+  }): Promise<IApprovalRecord> {
     const id = input.approvalId ?? createId('approval');
     const now = Date.now();
     const insertApproval = () => {
@@ -369,7 +367,7 @@ export class SQLiteStateStore implements StateStoreInterface {
     };
   }
 
-  async getApproval(approvalId: string): Promise<ApprovalRecordInterface | null> {
+  async getApproval(approvalId: string): Promise<IApprovalRecord | null> {
     const row = this.database
       .query<ApprovalRow, [string]>(
         `SELECT id, turn_id, bridge_session_id, status, redacted_request_json, decision_json,
@@ -381,8 +379,8 @@ export class SQLiteStateStore implements StateStoreInterface {
   }
 
   async resolveApprovalWithJournal(
-    input: ApprovalResolutionInputInterface,
-  ): Promise<ApprovalResolutionResultInterface> {
+    input: IApprovalResolutionInput,
+  ): Promise<IApprovalResolutionResult> {
     const transaction = this.database.transaction(() => {
       const approval = this.database
         .query<ApprovalRow, [string]>(
@@ -416,7 +414,7 @@ export class SQLiteStateStore implements StateStoreInterface {
     return transaction();
   }
 
-  async recoverStartupState(input: { now?: number } = {}): Promise<StartupRecoveryResultInterface> {
+  async recoverStartupState(input: { now?: number } = {}): Promise<IStartupRecoveryResult> {
     const now = input.now ?? Date.now();
     const transaction = this.database.transaction(() => {
       const interruptedTurns = this.database
@@ -444,7 +442,7 @@ export class SQLiteStateStore implements StateStoreInterface {
   async pruneIdleBackendSessions(input: {
     updatedBefore: number;
     now?: number;
-  }): Promise<IdleSessionPruneResultInterface> {
+  }): Promise<IIdleSessionPruneResult> {
     const result = this.database
       .query(
         `UPDATE backend_sessions
@@ -462,15 +460,15 @@ export class SQLiteStateStore implements StateStoreInterface {
   }
 }
 
-function workspaceFromRow(row: WorkspaceRow): WorkspaceInterface {
+function workspaceFromRow(row: WorkspaceRow): IWorkspace {
   return { id: row.id, rootPath: row.root_path };
 }
 
-function threadFromRow(row: ThreadRow): ThreadInterface {
+function threadFromRow(row: ThreadRow): IThread {
   return { id: row.id, workspaceId: row.workspace_id };
 }
 
-function turnFromRow(row: TurnRow): TurnRecordInterface {
+function turnFromRow(row: TurnRow): ITurnRecord {
   return {
     id: row.id,
     threadId: row.thread_id,
@@ -483,7 +481,7 @@ function turnFromRow(row: TurnRow): TurnRecordInterface {
   };
 }
 
-function clientTurnRefFromRow(row: ClientTurnRefRow): ClientTurnRefInterface {
+function clientTurnRefFromRow(row: ClientTurnRefRow): IClientTurnRef {
   return {
     protocol: row.protocol,
     externalId: row.external_id,
@@ -494,7 +492,7 @@ function clientTurnRefFromRow(row: ClientTurnRefRow): ClientTurnRefInterface {
   };
 }
 
-function backendSessionFromRow(row: BackendSessionRow): BackendSessionInterface {
+function backendSessionFromRow(row: BackendSessionRow): IBackendSession {
   return {
     bridgeSessionId: row.id,
     ...(row.backend_session_id ? { backendSessionId: row.backend_session_id } : {}),
@@ -504,13 +502,13 @@ function backendSessionFromRow(row: BackendSessionRow): BackendSessionInterface 
   };
 }
 
-function approvalFromRow(row: ApprovalRow): ApprovalRecordInterface {
+function approvalFromRow(row: ApprovalRow): IApprovalRecord {
   return {
     id: row.id,
     turnId: row.turn_id,
     bridgeSessionId: row.bridge_session_id,
     status: row.status,
-    request: parseJson<PermissionRequestInterface>(row.redacted_request_json),
+    request: parseJson<IPermissionRequest>(row.redacted_request_json),
     ...(row.decision_json ? { decision: parseJson<ApprovalDecision>(row.decision_json) } : {}),
     timeoutAt: row.timeout_at,
     createdAt: new Date(row.created_at),
@@ -548,7 +546,7 @@ function jsonOrNull(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
 }
 
-function insertJournalEvent(database: Database, event: JournalEventInterface, now: number): void {
+function insertJournalEvent(database: Database, event: IJournalEvent, now: number): void {
   const seq = nextEventSeq(database, event.turnId);
   database
     .query(

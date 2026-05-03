@@ -1,21 +1,21 @@
 import type {
-  AgentBackendInterface,
   AgentEvent,
-  AgentRequestInterface,
-  BackendCapabilitiesInterface,
-  BackendSessionInterface,
-  CancelOptionsInterface,
-  CancelResultInterface,
-  CreateSessionOptionsInterface,
-  WorkspaceInterface,
+  IAgentBackend,
+  IAgentRequest,
+  IBackendCapabilities,
+  IBackendSession,
+  ICancelOptions,
+  ICancelResult,
+  ICreateSessionOptions,
+  IWorkspace,
 } from '../../core/types';
 import { createEstimatedUsage } from '../../core/usage';
 
-export class MockBackend implements AgentBackendInterface {
+export class MockBackend implements IAgentBackend {
   readonly name = 'mock';
-  readonly #capabilities: BackendCapabilitiesInterface;
+  readonly #capabilities: IBackendCapabilities;
 
-  constructor(capabilities: Partial<BackendCapabilitiesInterface> = {}) {
+  constructor(capabilities: Partial<IBackendCapabilities> = {}) {
     this.#capabilities = {
       persistentSessions: false,
       serverSideTools: false,
@@ -27,14 +27,14 @@ export class MockBackend implements AgentBackendInterface {
     };
   }
 
-  capabilities(): BackendCapabilitiesInterface {
+  capabilities(): IBackendCapabilities {
     return this.#capabilities;
   }
 
   async createSession(
-    workspace: WorkspaceInterface,
-    options: CreateSessionOptionsInterface,
-  ): Promise<BackendSessionInterface> {
+    workspace: IWorkspace,
+    options: ICreateSessionOptions,
+  ): Promise<IBackendSession> {
     return {
       bridgeSessionId: options.bridgeSessionId,
       backendSessionId: `mock_${options.bridgeSessionId}`,
@@ -44,13 +44,13 @@ export class MockBackend implements AgentBackendInterface {
     };
   }
 
-  async resumeSession(session: BackendSessionInterface): Promise<BackendSessionInterface> {
+  async resumeSession(session: IBackendSession): Promise<IBackendSession> {
     return session;
   }
 
   async *send(
-    session: BackendSessionInterface,
-    request: AgentRequestInterface,
+    session: IBackendSession,
+    request: IAgentRequest,
     signal?: AbortSignal,
   ): AsyncIterable<AgentEvent> {
     if (session.workspaceId !== request.workspaceId || session.threadId !== request.threadId) {
@@ -76,12 +76,9 @@ export class MockBackend implements AgentBackendInterface {
     };
   }
 
-  async cancel(
-    _session: BackendSessionInterface,
-    _options?: CancelOptionsInterface,
-  ): Promise<CancelResultInterface> {
+  async cancel(_session: IBackendSession, _options?: ICancelOptions): Promise<ICancelResult> {
     return { status: 'cancelled' };
   }
 
-  async disposeSession(_session: BackendSessionInterface): Promise<void> {}
+  async disposeSession(_session: IBackendSession): Promise<void> {}
 }

@@ -5,19 +5,19 @@ import path from 'node:path';
 import {
   BunCopilotPromptRunner,
   CopilotCliBackend,
-  type CopilotPromptRunnerInterface,
-  type CopilotPromptRunOptionsInterface,
   extractTextFromCopilotOutput,
+  type ICopilotPromptRunner,
+  type ICopilotPromptRunOptions,
 } from '../../../src/backends/copilot-cli/backend';
-import type { AgentEvent, WorkspaceInterface } from '../../../src/core/types';
+import type { AgentEvent, IWorkspace } from '../../../src/core/types';
 
-class FakeCopilotPromptRunner implements CopilotPromptRunnerInterface {
-  lastOptions?: CopilotPromptRunOptionsInterface;
+class FakeCopilotPromptRunner implements ICopilotPromptRunner {
+  lastOptions?: ICopilotPromptRunOptions;
   lastPrompt?: string;
   readonly cancelled: Array<{ backendSessionId: string; forceAfterTimeout?: boolean }> = [];
   readonly disposed: string[] = [];
 
-  async *run(prompt: string, options: CopilotPromptRunOptionsInterface): AsyncIterable<string> {
+  async *run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string> {
     this.lastPrompt = prompt;
     this.lastOptions = options;
     yield `copilot:${prompt}`;
@@ -59,7 +59,7 @@ describe('CopilotCliBackend', () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
     const runner = new FakeCopilotPromptRunner();
     const backend = new CopilotCliBackend({ runner });
-    const workspace: WorkspaceInterface = {
+    const workspace: IWorkspace = {
       id: 'workspace_1',
       rootPath: await realpath(root),
     };
@@ -108,7 +108,7 @@ describe('CopilotCliBackend', () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
     const runner = new FakeCopilotPromptRunner();
     const backend = new CopilotCliBackend({ runner });
-    const workspace: WorkspaceInterface = {
+    const workspace: IWorkspace = {
       id: 'workspace_1',
       rootPath: await realpath(root),
     };
@@ -151,7 +151,7 @@ describe('CopilotCliBackend', () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
     const runner = new FakeCopilotPromptRunner();
     const backend = new CopilotCliBackend({ runner });
-    const workspace: WorkspaceInterface = {
+    const workspace: IWorkspace = {
       id: 'workspace_1',
       rootPath: await realpath(root),
     };
@@ -191,7 +191,7 @@ describe('CopilotCliBackend', () => {
 
   test('fails session creation when the workspace disappears before spawn', async () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
-    const workspace: WorkspaceInterface = {
+    const workspace: IWorkspace = {
       id: 'workspace_1',
       rootPath: await realpath(root),
     };

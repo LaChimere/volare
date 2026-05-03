@@ -6,22 +6,22 @@ const DEFAULT_MODEL = 'copilot-agent';
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8000/openai/v1';
 const DEFAULT_ENV_KEY = 'AGENT_LOOM_API_KEY';
 
-export interface CodexConfigOptionsInterface {
+export interface ICodexConfigOptions {
   configPath?: string;
   baseUrl?: string;
   envKey?: string;
   backupSuffix?: string;
 }
 
-export interface CodexConfigResultInterface {
+export interface ICodexConfigResult {
   configPath: string;
   changed: boolean;
   backupPath?: string;
 }
 
 export async function configureCodex(
-  options: CodexConfigOptionsInterface = {},
-): Promise<CodexConfigResultInterface> {
+  options: ICodexConfigOptions = {},
+): Promise<ICodexConfigResult> {
   const configPath = options.configPath ?? defaultConfigPath();
   const existing = await readTextIfExists(configPath);
   const next = buildCodexConfig(existing, {
