@@ -10,6 +10,7 @@ export interface ServerRuntimeConfigInterface {
   approvalTimeoutMs: number;
   cancelTimeoutMs: number;
   disconnectGraceMs: number;
+  httpIdleTimeoutSeconds: number;
   maxActiveSessions: number;
   eventRetentionDays?: number;
   defaultWorkspaceRoot?: string;
@@ -28,6 +29,7 @@ export interface ServerRuntimeEnvInterface {
   AGENT_LOOM_APPROVAL_TIMEOUT_MS: string | undefined;
   AGENT_LOOM_CANCEL_TIMEOUT_MS: string | undefined;
   AGENT_LOOM_DISCONNECT_GRACE_MS: string | undefined;
+  AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: string | undefined;
   AGENT_LOOM_MAX_ACTIVE_SESSIONS: string | undefined;
   AGENT_LOOM_EVENT_RETENTION_DAYS: string | undefined;
 }
@@ -87,6 +89,13 @@ export function createServerRuntimeConfig(
       60_000,
       5000,
     ),
+    httpIdleTimeoutSeconds: integerInRange(
+      'AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS',
+      env.AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS,
+      0,
+      255,
+      0,
+    ),
     maxActiveSessions: integerInRange(
       'AGENT_LOOM_MAX_ACTIVE_SESSIONS',
       env.AGENT_LOOM_MAX_ACTIVE_SESSIONS,
@@ -113,6 +122,7 @@ function readServerRuntimeEnv(): ServerRuntimeEnvInterface {
     AGENT_LOOM_APPROVAL_TIMEOUT_MS: Bun.env['AGENT_LOOM_APPROVAL_TIMEOUT_MS'],
     AGENT_LOOM_CANCEL_TIMEOUT_MS: Bun.env['AGENT_LOOM_CANCEL_TIMEOUT_MS'],
     AGENT_LOOM_DISCONNECT_GRACE_MS: Bun.env['AGENT_LOOM_DISCONNECT_GRACE_MS'],
+    AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: Bun.env['AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS'],
     AGENT_LOOM_MAX_ACTIVE_SESSIONS: Bun.env['AGENT_LOOM_MAX_ACTIVE_SESSIONS'],
     AGENT_LOOM_EVENT_RETENTION_DAYS: Bun.env['AGENT_LOOM_EVENT_RETENTION_DAYS'],
   };

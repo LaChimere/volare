@@ -38,6 +38,7 @@ if (config.generatedApiKey) {
 const server = Bun.serve({
   hostname: config.host,
   port: config.port,
+  idleTimeout: config.httpIdleTimeoutSeconds,
   fetch: createApp({ config, stateStore, eventJournal, sessionManager }).fetch,
 });
 const shutdown = new ShutdownController({ server, stateStore });

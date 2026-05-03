@@ -555,6 +555,9 @@ describe('server app', () => {
     expect(() => createServerRuntimeConfig({ AGENT_LOOM_EVENT_RETENTION_DAYS: '0' })).toThrow(
       'AGENT_LOOM_EVENT_RETENTION_DAYS must be an integer',
     );
+    expect(() =>
+      createServerRuntimeConfig({ AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: '256' }),
+    ).toThrow('AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS must be an integer');
   });
 
   test('parses safe timeout and retention configuration values', () => {
@@ -563,6 +566,7 @@ describe('server app', () => {
         AGENT_LOOM_APPROVAL_TIMEOUT_MS: '60000',
         AGENT_LOOM_CANCEL_TIMEOUT_MS: '10000',
         AGENT_LOOM_DISCONNECT_GRACE_MS: '5000',
+        AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: '0',
         AGENT_LOOM_MAX_ACTIVE_SESSIONS: '10',
         AGENT_LOOM_EVENT_RETENTION_DAYS: '30',
       }),
@@ -570,6 +574,7 @@ describe('server app', () => {
       approvalTimeoutMs: 60_000,
       cancelTimeoutMs: 10_000,
       disconnectGraceMs: 5000,
+      httpIdleTimeoutSeconds: 0,
       maxActiveSessions: 10,
       eventRetentionDays: 30,
     });
