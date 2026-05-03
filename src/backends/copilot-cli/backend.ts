@@ -403,6 +403,19 @@ function extractTextFromValue(value: unknown, fallbackText?: string): string[] {
   }
 
   const record = value as Record<string, unknown>;
+  const type = record['type'];
+  if (typeof type === 'string') {
+    if (type === 'assistant.message_delta') {
+      const data = record['data'];
+      if (!data || typeof data !== 'object') {
+        return [];
+      }
+      const deltaContent = (data as Record<string, unknown>)['deltaContent'];
+      return typeof deltaContent === 'string' ? [deltaContent] : [];
+    }
+    return [];
+  }
+
   for (const key of ['assistant_response', 'assistantResponse', 'delta', 'text', 'content']) {
     const child = record[key];
     if (typeof child === 'string') {
@@ -410,5 +423,5 @@ function extractTextFromValue(value: unknown, fallbackText?: string): string[] {
     }
   }
 
-  return Object.values(record).flatMap((child) => extractTextFromValue(child));
+  return [];
 }

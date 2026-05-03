@@ -201,7 +201,7 @@ describe('CopilotCliBackend', () => {
   test('extracts text from JSONL and plain text Copilot output', () => {
     expect(
       extractTextFromCopilotOutput(
-        '{"type":"assistant","assistant_response":"hello"}\n{"delta":"!"}\n',
+        '{"type":"session.mcp_servers_loaded","data":{"servers":[]}}\n{"type":"assistant.message_delta","data":{"deltaContent":"hello"}}\n{"type":"assistant.message","data":{"content":"hello"}}\n{"delta":"!"}\n',
       ),
     ).toBe('hello!');
     expect(extractTextFromCopilotOutput('plain text')).toBe('plain text');
@@ -220,7 +220,8 @@ describe('CopilotCliBackend', () => {
     const bin = await installFakeCopilot(
       'stream',
       `#!/bin/sh
-printf '{"delta":"hello"}\\n'
+printf '{"type":"session.mcp_servers_loaded","data":{"servers":[]}}\\n'
+printf '{"type":"assistant.message_delta","data":{"deltaContent":"hello"}}\\n'
 `,
     );
     try {
@@ -245,7 +246,7 @@ printf '{"delta":"hello"}\\n'
     const bin = await installFakeCopilot(
       'cancel',
       `#!/bin/sh
-printf '{"delta":"started"}\\n'
+printf '{"type":"assistant.message_delta","data":{"deltaContent":"started"}}\\n'
 trap 'exit 0' TERM
 while true; do sleep 1; done
 `,
