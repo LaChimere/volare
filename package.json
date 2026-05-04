@@ -1,15 +1,39 @@
 {
   "name": "agent-loom",
   "version": "0.1.0",
+  "description": "Local OpenAI Responses-compatible bridge backed by Copilot CLI.",
   "module": "src/index.ts",
   "type": "module",
   "private": false,
+  "packageManager": "bun@1.3.13",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LaChimere/agent-loom.git"
+  },
+  "homepage": "https://github.com/LaChimere/agent-loom#readme",
+  "bugs": {
+    "url": "https://github.com/LaChimere/agent-loom/issues"
+  },
+  "keywords": [
+    "agent",
+    "bun",
+    "cli",
+    "codex",
+    "copilot",
+    "openai-responses"
+  ],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "agent-loom": "src/cli.ts"
   },
   "files": [
     "src",
-    "scripts",
+    "scripts/config-codex.ts",
     "docs",
     "README.md"
   ],
@@ -24,7 +48,6 @@
     "fix": "biome check --write .",
     "config:codex": "bun run scripts/config-codex.ts",
     "package": "bun build --compile src/cli.ts --outfile dist/agent-loom",
-    "postinstall": "if [ -d .git ] && command -v lefthook >/dev/null 2>&1; then lefthook install; fi",
     "hooks:install": "lefthook install",
     "hooks:run": "lefthook run pre-commit --force",
     "ci": "biome ci . && tsc --noEmit && bun run test:unit && bun run test:integration",
