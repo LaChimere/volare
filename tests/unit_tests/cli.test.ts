@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
 import {
   defaultDaemonPaths,
   type ICliDependencies,
@@ -58,6 +59,16 @@ function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDepend
 }
 
 describe('Volare CLI', () => {
+  test('reports the package version', async () => {
+    const { io, stdout } = memoryIo();
+    const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as { version: string };
+
+    const exitCode = await runCli(['version'], testDependencies(), io);
+
+    expect(exitCode).toBe(0);
+    expect(stdout.text().trim()).toBe(packageJson.version);
+  });
+
   test('parses start options into runtime environment overrides', () => {
     expect(
       parseCli([
