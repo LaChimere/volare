@@ -37,10 +37,10 @@ If `AGENT_LOOM_API_KEY` is not set, the server generates an ephemeral token and 
 
 ## CLI flags
 
-Local source usage:
+Package usage:
 
 ```bash
-bun run src/cli.ts start --host 127.0.0.1 --port 8000
+bunx @lachimere/agent-loom start --host 127.0.0.1 --port 8000
 ```
 
 Common `start` flags:
