@@ -54,7 +54,13 @@ function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDepend
       stateDatabasePath: '/tmp/state.sqlite',
     }),
     getEnv: () => ({ VOLARE_API_KEY: 'replace-with-at-least-16-characters' }),
-    updatePackage: async () => ({ latestVersion: '0.3.2' }),
+    readPersistentEnv: async () => ({}),
+    setupVolare: async () => ({
+      apiKeySource: 'generated',
+      envPath: '/tmp/volare/env',
+      codexConfig: { configPath: '/tmp/config.toml', changed: true },
+    }),
+    updatePackage: async () => ({ latestVersion: '0.3.3' }),
     ...overrides,
   };
 }
@@ -79,7 +85,7 @@ describe('Volare CLI', () => {
       testDependencies({
         updatePackage: async () => {
           calls += 1;
-          return { latestVersion: '0.3.2' };
+          return { latestVersion: '0.3.3' };
         },
       }),
       io,
@@ -90,8 +96,62 @@ describe('Volare CLI', () => {
     expect(stdout.text()).toContain(
       "Refreshing Bun's global package cache and resolving @lachimere/volare@latest",
     );
-    expect(stdout.text()).toContain('Volare update complete. Latest version: 0.3.2');
+    expect(stdout.text()).toContain('Volare update complete. Latest version: 0.3.3');
     expect(stdout.text()).toContain('@lachimere/volare@latest');
+  });
+
+  test('runs setup flow and does not print the generated token', async () => {
+    const { io, stdout } = memoryIo();
+    const calls: unknown[] = [];
+
+    const exitCode = await runCli(
+      ['setup', '--config', '/tmp/codex.toml', '--base-url', 'http://127.0.0.1:8765/openai/v1'],
+      testDependencies({
+        setupVolare: async (options) => {
+          calls.push(options);
+          return {
+            apiKeySource: 'generated',
+            envPath: '/tmp/volare/env',
+            codexConfig: {
+              configPath: '/tmp/codex.toml',
+              changed: true,
+              backupPath: '/tmp/codex.toml.volare-backup-test',
+            },
+            macosEnvironment: {
+              launchAgentPath: '/tmp/LaunchAgents/com.lachimere.volare.env.plist',
+            },
+          };
+        },
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([
+      {
+        forceToken: false,
+        configureCodex: true,
+        macosEnvironment: true,
+        codexConfigPath: '/tmp/codex.toml',
+        baseUrl: 'http://127.0.0.1:8765/openai/v1',
+      },
+    ]);
+    expect(stdout.text()).toContain('Volare setup complete.');
+    expect(stdout.text()).toContain('API token: generated and saved to /tmp/volare/env');
+    expect(stdout.text()).toContain('Configured Codex: /tmp/codex.toml');
+    expect(stdout.text()).toContain('Restart Codex Desktop after setup');
+    expect(stdout.text()).not.toContain('replace-with-at-least-16-characters');
+  });
+
+  test('parses setup options', () => {
+    expect(parseCli(['setup', '--force-token', '--no-codex', '--no-macos-env'])).toEqual({
+      type: 'setup',
+      options: {
+        forceToken: true,
+        configureCodex: false,
+        macosEnvironment: false,
+      },
+    });
   });
 
   test('parses start options into runtime environment overrides', () => {
@@ -213,13 +273,29 @@ describe('Volare CLI', () => {
       ['start', '--daemon'],
       testDependencies({
         getEnv: () => ({}),
+        readPersistentEnv: async () => ({}),
       }),
       io,
     );
 
     expect(exitCode).toBe(0);
     expect(stderr.text()).toContain('Warning: VOLARE_API_KEY is not set');
-    expect(stderr.text()).toContain('export VOLARE_API_KEY before starting for Codex CLI/Desktop');
+    expect(stderr.text()).toContain('bunx @lachimere/volare setup');
+  });
+
+  test('does not warn when daemon start can use the persisted API key', async () => {
+    const { io, stderr } = memoryIo();
+    const exitCode = await runCli(
+      ['start', '--daemon'],
+      testDependencies({
+        getEnv: () => ({}),
+        readPersistentEnv: async () => ({ VOLARE_API_KEY: 'persisted-token-1234567890' }),
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stderr.text()).toBe('');
   });
 
   test('rejects invalid Copilot permission modes before daemon startup', async () => {

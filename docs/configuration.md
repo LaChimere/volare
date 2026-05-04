@@ -7,10 +7,12 @@ Volare reads runtime settings from environment variables and CLI flags. Keep sec
 Every endpoint requires bearer auth.
 
 ```bash
-export VOLARE_API_KEY="replace-with-at-least-16-characters"
+bunx @lachimere/volare setup
 ```
 
-If `VOLARE_API_KEY` is not set, the server generates an ephemeral token and prints it once to stderr. Daemon startup warns in this mode. This is useful for manual experiments but not for Codex CLI/Desktop, because clients need a stable token through `env_key = "VOLARE_API_KEY"`.
+The setup command generates or reuses `VOLARE_API_KEY`, saves it in `~/.volare/env`, configures Codex, and updates the macOS GUI environment for Codex Desktop. Restart Codex Desktop after setup so it can read the saved token. You can still provide `VOLARE_API_KEY` directly in the environment; setup will reuse and persist that value.
+
+If `VOLARE_API_KEY` is not set and no persisted token exists, the server generates an ephemeral token and prints it once to stderr. Daemon startup warns in this mode. This is useful for manual experiments but not for Codex CLI/Desktop, because clients need a stable token through `env_key = "VOLARE_API_KEY"`.
 
 ## Runtime environment
 
@@ -40,6 +42,7 @@ If `VOLARE_API_KEY` is not set, the server generates an ephemeral token and prin
 Package usage:
 
 ```bash
+bunx @lachimere/volare setup
 bunx @lachimere/volare start --host 127.0.0.1 --port 8000
 ```
 

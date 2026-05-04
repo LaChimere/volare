@@ -1,6 +1,6 @@
 {
   "name": "@lachimere/volare",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Local agent-runtime bridge backed by Copilot CLI, currently exposing an OpenAI Responses-compatible API.",
   "module": "src/index.ts",
   "type": "module",
@@ -47,7 +47,7 @@
     "check": "biome check . && tsc --noEmit",
     "fix": "biome check --write .",
     "config:codex": "bun run scripts/config-codex.ts",
-    "package": "bun build --compile src/cli.ts --outfile dist/volare",
+    "package": "mkdir -p builds && cd builds && bun build --compile ../src/cli.ts --outfile volare",
     "hooks:install": "lefthook install",
     "hooks:run": "lefthook run pre-commit --force",
     "ci": "biome ci . && tsc --noEmit && bun run test:unit && bun run test:integration",

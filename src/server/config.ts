@@ -7,6 +7,7 @@ import {
 } from '../backends/copilot-cli/backend';
 import { VolareError } from '../core/errors';
 import type { LogLevel } from '../logging/logger';
+import { generateVolareApiKey, isValidVolareApiKey } from './api-key';
 
 export interface IServerRuntimeConfig {
   host: string;
@@ -52,11 +53,8 @@ export function createServerRuntimeConfig(
   env: Partial<IServerRuntimeEnv> = readServerRuntimeEnv(),
 ): IServerRuntimeConfig {
   const providedApiKey = env.VOLARE_API_KEY;
-  const apiKey = providedApiKey ?? generateApiKey();
-  if (
-    providedApiKey !== undefined &&
-    (providedApiKey.trim().length < 16 || /\s/.test(providedApiKey))
-  ) {
+  const apiKey = providedApiKey ?? generateVolareApiKey();
+  if (providedApiKey !== undefined && !isValidVolareApiKey(providedApiKey)) {
     throw new VolareError(
       'invalid_api_key',
       'VOLARE_API_KEY must be at least 16 non-whitespace characters',
@@ -151,12 +149,6 @@ export function readServerRuntimeEnv(): IServerRuntimeEnv {
     VOLARE_EVENT_RETENTION_DAYS: Bun.env['VOLARE_EVENT_RETENTION_DAYS'],
     VOLARE_COPILOT_PERMISSION_MODE: Bun.env['VOLARE_COPILOT_PERMISSION_MODE'],
   };
-}
-
-function generateApiKey(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function parseLogLevel(value: string | undefined): LogLevel {

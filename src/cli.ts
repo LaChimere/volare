@@ -1,26 +1,39 @@
 #!/usr/bin/env bun
 import { spawn } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { configureCodex, type ICodexConfigOptions } from '../scripts/config-codex';
+import {
+  configureCodex,
+  type ICodexConfigOptions,
+  type ICodexConfigResult,
+} from '../scripts/config-codex';
 import { isCopilotCliPermissionMode } from './backends/copilot-cli/backend';
+import {
+  defaultPersistentEnvPath,
+  defaultVolareHome,
+  readPersistentApiKey,
+  readPersistentRuntimeEnv,
+  writePersistentApiKey,
+} from './runtime/persistent-env';
 import {
   type IVolareRuntime,
   type IVolareRuntimeOptions,
   installRuntimeSignalHandlers,
   startVolareRuntime,
 } from './runtime/server';
+import { generateVolareApiKey, isValidVolareApiKey, VOLARE_API_KEY_ENV } from './server/api-key';
 import type { IServerRuntimeEnv } from './server/config';
 
-const VERSION = '0.3.2';
+const VERSION = '0.3.3';
 const PACKAGE_NAME = '@lachimere/volare';
 
 export type ICliCommand =
   | { type: 'help' }
   | { type: 'version' }
   | { type: 'update' }
+  | { type: 'setup'; options: ISetupOptions }
   | {
       type: 'start';
       daemon: boolean;
@@ -54,7 +67,26 @@ export interface ICliDependencies {
   getDaemonStatus: () => Promise<IDaemonStatusResult>;
   getDaemonPaths: () => IDaemonPaths;
   getEnv: () => Record<string, string | undefined>;
+  readPersistentEnv: () => Promise<Partial<IServerRuntimeEnv>>;
+  setupVolare: (options: ISetupOptions) => Promise<ISetupResult>;
   updatePackage: () => Promise<IUpdateResult>;
+}
+
+export interface ISetupOptions {
+  forceToken: boolean;
+  configureCodex: boolean;
+  macosEnvironment: boolean;
+  codexConfigPath?: string;
+  baseUrl?: string;
+}
+
+export interface ISetupResult {
+  apiKeySource: 'environment' | 'persisted' | 'generated';
+  envPath: string;
+  codexConfig?: ICodexConfigResult;
+  macosEnvironment?: {
+    launchAgentPath: string;
+  };
 }
 
 export interface IUpdateResult {
@@ -124,12 +156,45 @@ export async function runCli(
         );
         return 0;
       }
+      case 'setup': {
+        const result = await dependencies.setupVolare(command.options);
+        await writeLine(io.stdout, 'Volare setup complete.');
+        await writeLine(
+          io.stdout,
+          `API token: ${describeApiKeySource(result.apiKeySource)} and saved to ${result.envPath}`,
+        );
+        if (result.macosEnvironment) {
+          await writeLine(
+            io.stdout,
+            `macOS GUI environment: ${VOLARE_API_KEY_ENV} applied and persisted via ${result.macosEnvironment.launchAgentPath}`,
+          );
+        }
+        if (result.codexConfig) {
+          const message = result.codexConfig.changed
+            ? `Configured Codex: ${result.codexConfig.configPath}`
+            : `Codex already configured: ${result.codexConfig.configPath}`;
+          await writeLine(io.stdout, message);
+          if (result.codexConfig.backupPath) {
+            await writeLine(io.stdout, `Backup written: ${result.codexConfig.backupPath}`);
+          }
+        }
+        await writeLine(io.stdout, `Next: bunx ${PACKAGE_NAME} start -d`);
+        await writeLine(
+          io.stdout,
+          'Restart Codex Desktop after setup so it reads the saved token.',
+        );
+        return 0;
+      }
       case 'start':
         if (command.daemon) {
-          if (!dependencies.getEnv()['VOLARE_API_KEY']?.trim()) {
+          const persistentEnv = await dependencies.readPersistentEnv();
+          const stableApiKey =
+            dependencies.getEnv()[VOLARE_API_KEY_ENV]?.trim() ||
+            persistentEnv.VOLARE_API_KEY?.trim();
+          if (!stableApiKey) {
             await writeLine(
               io.stderr,
-              'Warning: VOLARE_API_KEY is not set. The daemon will generate an ephemeral token in its logs; export VOLARE_API_KEY before starting for Codex CLI/Desktop.',
+              `Warning: ${VOLARE_API_KEY_ENV} is not set. The daemon will generate an ephemeral token in its logs; run "bunx ${PACKAGE_NAME} setup" before starting for Codex CLI/Desktop.`,
             );
           }
           const result = await dependencies.startDaemon(command);
@@ -203,6 +268,9 @@ export function parseCli(argv: string[]): ICliCommand {
     assertNoArgs(rest, 'update');
     return { type: 'update' };
   }
+  if (command === 'setup') {
+    return { type: 'setup', options: parseSetup(rest) };
+  }
   if (command === 'start') {
     return parseStart(rest);
   }
@@ -222,8 +290,54 @@ export function parseCli(argv: string[]): ICliCommand {
     return { type: 'logs' };
   }
   throw new CliUsageError(
-    `Unknown command: ${command}. Expected one of: start, config, status, stop, logs, update, help, version.`,
+    `Unknown command: ${command}. Expected one of: setup, start, config, status, stop, logs, update, help, version.`,
   );
+}
+
+function parseSetup(args: string[]): ISetupOptions {
+  const options: ISetupOptions = {
+    forceToken: false,
+    configureCodex: true,
+    macosEnvironment: true,
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg) {
+      continue;
+    }
+    if (arg === '--force' || arg === '--force-token') {
+      options.forceToken = true;
+      continue;
+    }
+    if (arg === '--no-codex') {
+      options.configureCodex = false;
+      continue;
+    }
+    if (arg === '--no-macos-env') {
+      options.macosEnvironment = false;
+      continue;
+    }
+    if (arg === '--config' || arg === '--config-path' || arg.startsWith('--config=')) {
+      const parsed = readFlagValue(
+        args,
+        index,
+        arg === '--config-path' ? '--config-path' : '--config',
+      );
+      options.codexConfigPath = parsed.value;
+      index = parsed.index;
+      continue;
+    }
+    if (arg === '--base-url' || arg.startsWith('--base-url=')) {
+      const parsed = readFlagValue(args, index, '--base-url');
+      options.baseUrl = parsed.value;
+      index = parsed.index;
+      continue;
+    }
+    throw new CliUsageError(`Unknown setup option: ${arg}`);
+  }
+
+  return options;
 }
 
 function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
@@ -378,6 +492,8 @@ function defaultDependencies(): ICliDependencies {
     getDaemonStatus,
     getDaemonPaths: defaultDaemonPaths,
     getEnv: () => Bun.env,
+    readPersistentEnv: readPersistentRuntimeEnv,
+    setupVolare,
     updatePackage,
   };
 }
@@ -392,13 +508,129 @@ function defaultIo(): ICliIo {
 export function defaultDaemonPaths(
   env: Record<string, string | undefined> = Bun.env,
 ): IDaemonPaths {
-  const rootDir = env['VOLARE_HOME']?.trim() || join(homedir(), '.volare');
+  const rootDir = defaultVolareHome(env);
   return {
     rootDir,
     logPath: join(rootDir, 'logs', 'volare.log'),
     pidPath: join(rootDir, 'volare.pid'),
     stateDatabasePath: join(rootDir, 'state.sqlite'),
   };
+}
+
+async function setupVolare(options: ISetupOptions): Promise<ISetupResult> {
+  const envApiKey = Bun.env[VOLARE_API_KEY_ENV]?.trim();
+  if (envApiKey !== undefined && !isValidVolareApiKey(envApiKey)) {
+    throw new CliUsageError(`${VOLARE_API_KEY_ENV} must be at least 16 non-whitespace characters`);
+  }
+
+  const persistedApiKey = await readPersistentApiKey(Bun.env);
+  const apiKey = options.forceToken
+    ? generateVolareApiKey()
+    : (envApiKey ?? persistedApiKey ?? generateVolareApiKey());
+  const apiKeySource = apiKeySourceForSetup({
+    apiKey,
+    envApiKey,
+    persistedApiKey,
+    forceToken: options.forceToken,
+  });
+  const envPath = await writePersistentApiKey(apiKey, Bun.env);
+  const codexConfig = options.configureCodex
+    ? await configureCodex(codexOptionsFromSetup(options))
+    : undefined;
+  const macosEnvironment =
+    options.macosEnvironment && process.platform === 'darwin'
+      ? { launchAgentPath: await configureMacosEnvironment(apiKey, Bun.env) }
+      : undefined;
+
+  return {
+    apiKeySource,
+    envPath,
+    ...(codexConfig ? { codexConfig } : {}),
+    ...(macosEnvironment ? { macosEnvironment } : {}),
+  };
+}
+
+function codexOptionsFromSetup(options: ISetupOptions): ICodexConfigOptions {
+  const codexOptions: ICodexConfigOptions = {};
+  if (options.codexConfigPath) {
+    codexOptions.configPath = options.codexConfigPath;
+  }
+  if (options.baseUrl) {
+    codexOptions.baseUrl = options.baseUrl;
+  }
+  return codexOptions;
+}
+
+function apiKeySourceForSetup(options: {
+  apiKey: string;
+  envApiKey: string | undefined;
+  persistedApiKey: string | undefined;
+  forceToken: boolean;
+}): ISetupResult['apiKeySource'] {
+  if (options.forceToken) {
+    return 'generated';
+  }
+  if (options.envApiKey === options.apiKey) {
+    return 'environment';
+  }
+  if (options.persistedApiKey === options.apiKey) {
+    return 'persisted';
+  }
+  return 'generated';
+}
+
+async function configureMacosEnvironment(
+  apiKey: string,
+  env: Record<string, string | undefined>,
+): Promise<string> {
+  const launchAgentPath = join(
+    env['HOME']?.trim() || homedir(),
+    'Library',
+    'LaunchAgents',
+    'com.lachimere.volare.env.plist',
+  );
+  await mkdir(dirname(launchAgentPath), { recursive: true });
+  await writeFile(launchAgentPath, macosLaunchAgentPlist(apiKey), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  await chmod(launchAgentPath, 0o600);
+  await runCommand(
+    '/bin/launchctl',
+    ['setenv', VOLARE_API_KEY_ENV, apiKey],
+    ['setenv', VOLARE_API_KEY_ENV, '<redacted>'],
+  );
+  return launchAgentPath;
+}
+
+function macosLaunchAgentPlist(apiKey: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.lachimere.volare.env</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/launchctl</string>
+    <string>setenv</string>
+    <string>${VOLARE_API_KEY_ENV}</string>
+    <string>${escapeXml(apiKey)}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+`;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 async function startDaemon(
@@ -408,7 +640,9 @@ async function startDaemon(
   await mkdir(dirname(paths.logPath), { recursive: true });
   await mkdir(dirname(paths.pidPath), { recursive: true });
   const executable = currentExecutable();
+  const persistentEnv = await readPersistentRuntimeEnv();
   const env = {
+    ...persistentEnv,
     ...Bun.env,
     ...command.env,
     VOLARE_DAEMONIZED: '1',
@@ -500,12 +734,16 @@ async function updatePackage(): Promise<IUpdateResult> {
   return { latestVersion };
 }
 
-async function runCommand(command: string, args: string[]): Promise<string> {
+async function runCommand(
+  command: string,
+  args: string[],
+  displayArgs: string[] = args,
+): Promise<string> {
   const result = await runChildProcess(command, args);
   if (result.exitCode !== 0) {
     throw new CliUsageError(
       [
-        `Command failed: ${[command, ...args].join(' ')}`,
+        `Command failed: ${[command, ...displayArgs].join(' ')}`,
         result.stderr.trim() ? `stderr: ${result.stderr.trim()}` : undefined,
         result.stdout.trim() ? `stdout: ${result.stdout.trim()}` : undefined,
       ]
@@ -631,6 +869,17 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function describeApiKeySource(source: ISetupResult['apiKeySource']): string {
+  switch (source) {
+    case 'environment':
+      return `reused from ${VOLARE_API_KEY_ENV}`;
+    case 'persisted':
+      return 'reused from existing Volare config';
+    case 'generated':
+      return 'generated';
+  }
+}
+
 async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -682,6 +931,7 @@ function usage(): string {
   return `Volare ${VERSION}
 
 Usage:
+  volare setup [options]
   volare start [options]
   volare start -d [options]
   volare config codex [options]
@@ -689,6 +939,13 @@ Usage:
   volare stop
   volare logs
   volare update
+
+Setup options:
+      --force, --force-token           Generate and persist a new API token
+      --no-codex                       Do not update Codex CLI/Desktop config
+      --no-macos-env                   Do not update the macOS GUI environment
+      --config, --config-path <path>   Codex config path
+      --base-url <url>                 Volare OpenAI Responses base URL
 
 Start options:
   -d, --daemon                         Start in the background
@@ -711,8 +968,14 @@ Update:
   volare update clears Bun's global package cache, resolves ${PACKAGE_NAME}@latest,
   and verifies the latest published Volare version for future bunx runs.
 
-Set VOLARE_API_KEY in the environment for a stable API token. If it is omitted,
-Volare generates an ephemeral startup token and prints it to stderr or the daemon log.`;
+Setup:
+  volare setup generates or reuses a stable ${VOLARE_API_KEY_ENV}, saves it under
+  ${defaultPersistentEnvPath()}, configures Codex, and updates the macOS GUI environment
+  for Codex Desktop when running on macOS.
+
+Set ${VOLARE_API_KEY_ENV} in the environment or run "volare setup" for a stable API token.
+If it is omitted, Volare generates an ephemeral startup token and prints it to stderr or
+the daemon log.`;
 }
 
 async function writeLine(writer: ICliWriter, text: string): Promise<void> {
