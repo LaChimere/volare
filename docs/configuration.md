@@ -10,7 +10,7 @@ Every endpoint requires bearer auth.
 bunx @lachimere/volare setup
 ```
 
-The setup command generates or reuses `VOLARE_API_KEY`, saves it in `~/.volare/env`, configures Codex, and updates the macOS GUI environment for Codex Desktop. Restart Codex Desktop after setup so it can read the saved token. You can still provide `VOLARE_API_KEY` directly in the environment; setup will reuse and persist that value.
+The setup command generates or reuses `VOLARE_API_KEY`, saves it in `~/.volare/env`, configures Codex, and updates the macOS GUI environment for Codex Desktop. Restart Codex Desktop after setup so it can read the saved token. You can still provide `VOLARE_API_KEY` directly in the environment; setup will reuse and persist that value. If setup generates a new token while the daemon is already running, restart the daemon before reconnecting clients.
 
 If `VOLARE_API_KEY` is not set and no persisted token exists, the server generates an ephemeral token and prints it once to stderr. Daemon startup warns in this mode. This is useful for manual experiments but not for Codex CLI/Desktop, because clients need a stable token through `env_key = "VOLARE_API_KEY"`.
 
@@ -36,6 +36,8 @@ If `VOLARE_API_KEY` is not set and no persisted token exists, the server generat
 | `VOLARE_MAX_ACTIVE_SESSIONS` | `10` | Reserved for session limiting. |
 | `VOLARE_EVENT_RETENTION_DAYS` | unset | When set, terminal-turn events older than the configured days can be pruned. |
 | `VOLARE_COPILOT_PERMISSION_MODE` | `full` | Copilot CLI permission mode: `full` passes Copilot CLI `--allow-all`, `web` allows public URL fetches only, and `restricted` passes no non-interactive grants. |
+
+Persisted setup values are loaded first, process environment variables override persisted values, and CLI flags override both. Daemon mode passes CLI flags to the child process as environment overrides.
 
 ## CLI flags
 

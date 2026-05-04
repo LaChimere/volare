@@ -18,6 +18,8 @@ bunx @lachimere/volare status
 bunx @lachimere/volare logs
 ```
 
+If you rerun setup with `--force` while the daemon is already running, restart the daemon before reconnecting Codex Desktop so both processes use the same token.
+
 `bunx` requires Bun to be installed locally. Volare does not target Node-only `npx` execution in this release track.
 
 Upgrade the `bunx`-resolved package cache:

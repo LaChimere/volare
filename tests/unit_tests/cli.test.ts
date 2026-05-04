@@ -58,6 +58,7 @@ function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDepend
     setupVolare: async () => ({
       apiKeySource: 'generated',
       envPath: '/tmp/volare/env',
+      daemonRunning: false,
       codexConfig: { configPath: '/tmp/config.toml', changed: true },
     }),
     updatePackage: async () => ({ latestVersion: '0.3.3' }),
@@ -112,6 +113,7 @@ describe('Volare CLI', () => {
           return {
             apiKeySource: 'generated',
             envPath: '/tmp/volare/env',
+            daemonRunning: false,
             codexConfig: {
               configPath: '/tmp/codex.toml',
               changed: true,
@@ -141,6 +143,26 @@ describe('Volare CLI', () => {
     expect(stdout.text()).toContain('Configured Codex: /tmp/codex.toml');
     expect(stdout.text()).toContain('Restart Codex Desktop after setup');
     expect(stdout.text()).not.toContain('replace-with-at-least-16-characters');
+  });
+
+  test('warns when setup generates a token while daemon is running', async () => {
+    const { io, stderr } = memoryIo();
+
+    const exitCode = await runCli(
+      ['setup', '--force-token'],
+      testDependencies({
+        setupVolare: async () => ({
+          apiKeySource: 'generated',
+          envPath: '/tmp/volare/env',
+          daemonRunning: true,
+        }),
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stderr.text()).toContain('setup generated a new API token');
+    expect(stderr.text()).toContain('Restart the daemon');
   });
 
   test('parses setup options', () => {
