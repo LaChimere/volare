@@ -77,18 +77,21 @@ The server and client are using different tokens. Start Volare with the same `VO
 Port `8000` is already listening. Check daemon status:
 
 ```bash
-bun run src/cli.ts status
+bunx @lachimere/volare status
 ```
 
 Stop the existing daemon or start a new instance with `--port`.
 
 ### `bunx @lachimere/volare` returns npm 404
 
-The package must be published before `bunx @lachimere/volare ...` can resolve it from npm. Use the local source entrypoint before publication:
+`@lachimere/volare` is the published package name. Confirm the scoped package and version:
 
 ```bash
-bun run src/cli.ts help
+npm view @lachimere/volare version
+bunx --bun @lachimere/volare help
 ```
+
+If a release was just published, wait for npm registry propagation and retry. Also check that the command uses the scoped package name; unscoped `volare` is not this project.
 
 ### Context appears to mention an unexpected Codex/Desktop path
 
