@@ -4,25 +4,18 @@ Volare is a local agent-runtime bridge backed by Copilot CLI. It currently expos
 
 ## Quick start
 
-Start the bridge with a stable token:
+Set up a stable local token and Codex CLI/Desktop config:
 
 ```bash
-export VOLARE_API_KEY="replace-with-at-least-16-characters"
-bunx @lachimere/volare start
+bunx @lachimere/volare setup
+bunx @lachimere/volare start -d
 ```
 
-The server listens on `http://127.0.0.1:8000/openai/v1` by default, also accepts OpenAI-compatible `/v1` aliases, and requires bearer auth for every endpoint. For a background daemon:
+The setup command generates or reuses `VOLARE_API_KEY`, saves it under `~/.volare/env`, configures Codex, and updates the macOS GUI environment for Codex Desktop. Restart Codex Desktop after setup. The server listens on `http://127.0.0.1:8000/openai/v1` by default, also accepts OpenAI-compatible `/v1` aliases, and requires bearer auth for every endpoint. Daemon helpers:
 
 ```bash
-bunx @lachimere/volare start -d
 bunx @lachimere/volare status
 bunx @lachimere/volare logs
-```
-
-Configure Codex CLI/Desktop:
-
-```bash
-bunx @lachimere/volare config codex
 ```
 
 `bunx` requires Bun to be installed locally. Volare does not target Node-only `npx` execution in this release track.
@@ -61,6 +54,7 @@ The model and response routes are also available under `/v1/*` for clients that 
 
 ```bash
 bunx @lachimere/volare help
+bunx @lachimere/volare setup         # generate/persist token and configure Codex
 bunx @lachimere/volare start         # foreground server
 bunx @lachimere/volare start -d      # daemon server
 bunx @lachimere/volare status        # daemon status

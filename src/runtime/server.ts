@@ -18,6 +18,7 @@ import {
 import { ShutdownController } from '../server/shutdown';
 import { migrate } from '../state/migrations';
 import { SQLiteStateStore } from '../state/sqlite-store';
+import { readPersistentRuntimeEnv } from './persistent-env';
 
 export interface IVolareRuntimeOptions {
   env?: Partial<IServerRuntimeEnv>;
@@ -32,7 +33,11 @@ export interface IVolareRuntime {
 export async function startVolareRuntime(
   options: IVolareRuntimeOptions = {},
 ): Promise<IVolareRuntime> {
-  const config = createServerRuntimeConfig({ ...readServerRuntimeEnv(), ...options.env });
+  const config = createServerRuntimeConfig({
+    ...(await readPersistentRuntimeEnv()),
+    ...readServerRuntimeEnv(),
+    ...options.env,
+  });
   const logger = createLogger({ level: config.logLevel });
   const runtimeLogger = logger.child({ component: 'runtime' });
   if (config.stateDatabasePath !== ':memory:') {

@@ -7,7 +7,7 @@ This guide covers local operation and debugging.
 Foreground:
 
 ```bash
-export VOLARE_API_KEY="replace-with-at-least-16-characters"
+bunx @lachimere/volare setup
 bunx @lachimere/volare start
 ```
 
@@ -19,7 +19,7 @@ bunx @lachimere/volare status
 bunx @lachimere/volare stop
 ```
 
-If `VOLARE_API_KEY` is not set, daemon startup warns that it will generate an ephemeral token in the logs. Use a stable `VOLARE_API_KEY` before starting the daemon when Codex CLI/Desktop will connect.
+If `VOLARE_API_KEY` is not set and no persisted token exists in `~/.volare/env`, daemon startup warns that it will generate an ephemeral token in the logs. Run `bunx @lachimere/volare setup` before starting the daemon when Codex CLI/Desktop will connect.
 
 Daemon logs:
 
@@ -73,6 +73,16 @@ The journal is useful when comparing backend events with encoded Responses SSE o
 ### `401 Unauthorized`
 
 The server and client are using different tokens. Start Volare with the same `VOLARE_API_KEY` that Codex uses through `env_key = "VOLARE_API_KEY"`.
+
+### Codex Desktop says `Missing environment variable: VOLARE_API_KEY`
+
+Run setup and restart Codex Desktop:
+
+```bash
+bunx @lachimere/volare setup
+```
+
+On macOS, setup applies `VOLARE_API_KEY` to the current GUI environment and writes a user LaunchAgent so future Codex Desktop launches can read the same token. It also saves the token under `~/.volare/env` so Volare can start without a manual shell export.
 
 ### `EADDRINUSE`
 

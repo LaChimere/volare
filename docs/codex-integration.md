@@ -4,24 +4,22 @@ Volare can be used as a Codex custom provider that speaks the OpenAI Responses w
 
 ## Configure Codex
 
-Start Volare with a stable token:
+Set up Volare and Codex with a stable token:
 
 ```bash
-export VOLARE_API_KEY="replace-with-at-least-16-characters"
+bunx @lachimere/volare setup
 bunx @lachimere/volare start -d
 ```
 
-Write Codex config:
-
-```bash
-bunx @lachimere/volare config codex
-```
-
-The command updates `~/.codex/config.toml`, preserves unrelated settings, and creates a `.volare-backup-*` backup before changing an existing file.
+The setup command generates or reuses `VOLARE_API_KEY`, saves it under `~/.volare/env`, updates the macOS GUI environment for Codex Desktop, and writes Codex config. Restart Codex Desktop after setup so it can read the saved token. It updates `~/.codex/config.toml`, preserves unrelated settings, and creates a `.volare-backup-*` backup before changing an existing file.
 
 Optional flags are available for non-default installs:
 
 ```bash
+bunx @lachimere/volare setup \
+  --config /path/to/config.toml \
+  --base-url http://127.0.0.1:8000/openai/v1
+
 bunx @lachimere/volare config codex \
   --config /path/to/config.toml \
   --base-url http://127.0.0.1:8000/openai/v1 \
