@@ -49,6 +49,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install Codex CLI
+        run: npm install --global @openai/codex@0.128.0
+
       - name: Verify tag matches package version
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
