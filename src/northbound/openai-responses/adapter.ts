@@ -589,9 +589,12 @@ function workspaceRootFromEnvironmentContextText(text: string): string | undefin
     return undefined;
   }
   const localEnvironmentMatch = context.match(
-    /<environment\s+id="local">\s*[\s\S]*?<cwd>\s*([^<]+?)\s*<\/cwd>[\s\S]*?<\/environment>/,
+    /<environment\s+id="local">([\s\S]*?)<\/environment>/,
   );
-  const cwdMatch = localEnvironmentMatch ?? context.match(/<cwd>\s*([^<]+?)\s*<\/cwd>/);
+  if (localEnvironmentMatch) {
+    return safeAbsolutePath(localEnvironmentMatch[1]?.match(/<cwd>\s*([^<]+?)\s*<\/cwd>/)?.[1]);
+  }
+  const cwdMatch = context.match(/<cwd>\s*([^<]+?)\s*<\/cwd>/);
   return safeAbsolutePath(cwdMatch?.[1]);
 }
 
