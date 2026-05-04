@@ -54,6 +54,7 @@ function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDepend
       stateDatabasePath: '/tmp/state.sqlite',
     }),
     getEnv: () => ({ VOLARE_API_KEY: 'replace-with-at-least-16-characters' }),
+    updatePackage: async () => ({ latestVersion: '0.3.2' }),
     ...overrides,
   };
 }
@@ -67,6 +68,30 @@ describe('Volare CLI', () => {
 
     expect(exitCode).toBe(0);
     expect(stdout.text().trim()).toBe(packageJson.version);
+  });
+
+  test('runs bunx update flow', async () => {
+    const { io, stdout } = memoryIo();
+    let calls = 0;
+
+    const exitCode = await runCli(
+      ['update'],
+      testDependencies({
+        updatePackage: async () => {
+          calls += 1;
+          return { latestVersion: '0.3.2' };
+        },
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toBe(1);
+    expect(stdout.text()).toContain(
+      "Refreshing Bun's global package cache and resolving @lachimere/volare@latest",
+    );
+    expect(stdout.text()).toContain('Volare update complete. Latest version: 0.3.2');
+    expect(stdout.text()).toContain('@lachimere/volare@latest');
   });
 
   test('parses start options into runtime environment overrides', () => {
