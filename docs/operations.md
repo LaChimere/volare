@@ -82,9 +82,9 @@ bun run src/cli.ts status
 
 Stop the existing daemon or start a new instance with `--port`.
 
-### `bunx agent-loom` returns npm 404
+### `bunx @lachimere/agent-loom` returns npm 404
 
-The package must be published before `bunx agent-loom ...` can resolve it from npm. Use the local source entrypoint before publication:
+The package must be published before `bunx @lachimere/agent-loom ...` can resolve it from npm. Use the local source entrypoint before publication:
 
 ```bash
 bun run src/cli.ts help

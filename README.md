@@ -31,14 +31,14 @@ Configure Codex CLI/Desktop from a repository checkout:
 bun run src/cli.ts config codex
 ```
 
-After npm publication, the intended executable form is `bunx agent-loom ...`:
+After npm publication, the intended executable form is `bunx @lachimere/agent-loom ...`:
 
 ```bash
 export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
-bunx agent-loom start
-bunx agent-loom start -d
-bunx agent-loom status
-bunx agent-loom config codex
+bunx @lachimere/agent-loom start
+bunx @lachimere/agent-loom start -d
+bunx @lachimere/agent-loom status
+bunx @lachimere/agent-loom config codex
 ```
 
 `bunx` requires Bun to be installed locally. Agent Loom does not target Node-only `npx` execution in this release track.
@@ -73,7 +73,7 @@ bun run src/cli.ts status                # daemon status
 bun run src/cli.ts stop                  # stop daemon
 bun run src/cli.ts logs                  # print daemon log path
 bun run src/cli.ts config codex          # configure Codex CLI/Desktop
-bunx agent-loom config codex             # package executable after npm publication
+bunx @lachimere/agent-loom config codex  # package executable after npm publication
 bun run package                          # compile standalone Bun binary to dist/agent-loom
 ```
 
