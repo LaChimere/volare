@@ -189,6 +189,42 @@ describe('OpenAIResponsesAdapter', () => {
         transport: 'http',
         method: 'POST',
         path: '/openai/v1/responses',
+        body: {
+          client_metadata: {
+            'x-codex-installation-id': 'installation',
+          },
+          input: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: [
+                    '<environment_context>',
+                    '  <environments>',
+                    '    <environment id="remote">',
+                    '      <cwd>/tmp/remote-workspace</cwd>',
+                    '      <shell>bash</shell>',
+                    '    </environment>',
+                    '    <environment id="local">',
+                    '      <shell>bash</shell>',
+                    '    </environment>',
+                    '  </environments>',
+                    '</environment_context>',
+                  ].join('\n'),
+                },
+              ],
+            },
+            { role: 'user', content: [{ type: 'input_text', text: 'hello' }] },
+          ],
+        },
+      }),
+    ).resolves.toEqual({ source: 'process-cwd' });
+    await expect(
+      adapter.extractWorkspaceHints({
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
         body: {},
       }),
     ).resolves.toEqual({ source: 'process-cwd' });
