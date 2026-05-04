@@ -10,7 +10,7 @@ Install dependencies:
 bun install
 ```
 
-Start the bridge with a stable token:
+Start the bridge with a stable token from a repository checkout:
 
 ```bash
 export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
@@ -25,18 +25,23 @@ bun run src/cli.ts status
 bun run src/cli.ts logs
 ```
 
-Configure Codex CLI/Desktop:
+Configure Codex CLI/Desktop from a repository checkout:
 
 ```bash
 bun run src/cli.ts config codex
 ```
 
-Before npm publication, use `bun run src/cli.ts ...` from this repository. After publication, the intended package executable form is:
+After npm publication, the intended executable form is `bunx agent-loom ...`:
 
 ```bash
+export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
 bunx agent-loom start
+bunx agent-loom start -d
+bunx agent-loom status
 bunx agent-loom config codex
 ```
+
+`bunx` requires Bun to be installed locally. Agent Loom does not target Node-only `npx` execution in this release track.
 
 ## Documentation
 
@@ -68,6 +73,7 @@ bun run src/cli.ts status                # daemon status
 bun run src/cli.ts stop                  # stop daemon
 bun run src/cli.ts logs                  # print daemon log path
 bun run src/cli.ts config codex          # configure Codex CLI/Desktop
+bunx agent-loom config codex             # package executable after npm publication
 bun run package                          # compile standalone Bun binary to dist/agent-loom
 ```
 

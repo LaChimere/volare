@@ -24,12 +24,20 @@ docs/                         project documentation
 
 ```bash
 bun install
+bun run hooks:install
 bun run check
 bun run test
 bun run package
 ```
 
 `bun run check` runs Biome and TypeScript. `bun run test` runs unit and integration tests. `bun run package` compiles `src/cli.ts` to `dist/agent-loom`.
+Hook installation is explicit so the published CLI package has no install-time side effects.
+
+## PR and release automation
+
+Pull requests and pushes to `main` run the CI workflow in `.github/workflows/ci.yml`. The gate installs dependencies with Bun, runs `bun run check`, `bun run test`, `bun run package`, performs `npm pack --dry-run`, and smoke-tests the packed CLI with `bunx`.
+
+Releases publish through `.github/workflows/release.yml`, not from a developer machine. Publish a GitHub Release whose tag matches the package version, for example `v0.1.0`; the workflow verifies the tag, reruns validation, smoke-tests the packed CLI with `bunx`, and publishes to npm with provenance. Configure npm trusted publishing for the `npm` environment before the first real release. The workflow also supports a manual dry run through `workflow_dispatch`.
 
 ## Naming and type boundaries
 
