@@ -44,6 +44,26 @@ describe('WorkspaceResolver', () => {
     }
   });
 
+  test('allows projectless workspace when an allowlist is configured', async () => {
+    const allowedRoot = await mkdtemp(path.join(tmpdir(), 'volare-allowed-'));
+    const projectlessRoot = path.join(
+      await mkdtemp(path.join(tmpdir(), 'neutralctx-')),
+      'workspace',
+    );
+    const resolver = new WorkspaceResolver();
+    try {
+      const workspace = await resolver.resolve(
+        { source: 'process-cwd' },
+        { allowedWorkspaceRoots: [allowedRoot], projectlessWorkspaceRoot: projectlessRoot },
+      );
+
+      expect(workspace.rootPath).toBe(await realpath(projectlessRoot));
+    } finally {
+      await rm(allowedRoot, { recursive: true, force: true });
+      await rm(path.dirname(projectlessRoot), { recursive: true, force: true });
+    }
+  });
+
   test('uses explicit client metadata instead of the projectless workspace', async () => {
     const requestedRoot = await mkdtemp(path.join(tmpdir(), 'volare-requested-'));
     const projectlessRoot = path.join(
@@ -81,6 +101,32 @@ describe('WorkspaceResolver', () => {
     }
   });
 
+  test('warns when explicit roots are accepted without an allowlist', async () => {
+    const defaultRoot = await mkdtemp(path.join(tmpdir(), 'volare-default-'));
+    const requestedRoot = await mkdtemp(path.join(tmpdir(), 'volare-requested-'));
+    const logger = new CapturingLogger();
+    const resolver = new WorkspaceResolver({ logger });
+    try {
+      await resolver.resolve(
+        { source: 'client-context', requestedRoot },
+        { defaultWorkspaceRoot: defaultRoot },
+      );
+
+      expect(logger.entries).toContainEqual(
+        expect.objectContaining({
+          level: 'warn',
+          fields: expect.objectContaining({
+            event: 'workspace.resolve.permissive',
+            requestedRootSource: 'request',
+          }),
+        }),
+      );
+    } finally {
+      await rm(defaultRoot, { recursive: true, force: true });
+      await rm(requestedRoot, { recursive: true, force: true });
+    }
+  });
+
   test('rejects requested roots outside the allowlist', async () => {
     const allowed = await mkdtemp(path.join(tmpdir(), 'volare-allowed-'));
     const forbidden = await mkdtemp(path.join(tmpdir(), 'volare-forbidden-'));
@@ -100,3 +146,40 @@ describe('WorkspaceResolver', () => {
     }
   });
 });
+
+class CapturingLogger {
+  readonly entries: Array<{ level: string; fields: Record<string, unknown>; message?: string }> =
+    [];
+
+  child(): CapturingLogger {
+    return this;
+  }
+
+  trace(fields: Record<string, unknown>, message?: string): void {
+    this.push('trace', fields, message);
+  }
+
+  debug(fields: Record<string, unknown>, message?: string): void {
+    this.push('debug', fields, message);
+  }
+
+  info(fields: Record<string, unknown>, message?: string): void {
+    this.push('info', fields, message);
+  }
+
+  warn(fields: Record<string, unknown>, message?: string): void {
+    this.push('warn', fields, message);
+  }
+
+  error(fields: Record<string, unknown>, message?: string): void {
+    this.push('error', fields, message);
+  }
+
+  fatal(fields: Record<string, unknown>, message?: string): void {
+    this.push('fatal', fields, message);
+  }
+
+  private push(level: string, fields: Record<string, unknown>, message?: string): void {
+    this.entries.push({ level, fields, ...(message ? { message } : {}) });
+  }
+}

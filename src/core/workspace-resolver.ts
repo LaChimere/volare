@@ -32,6 +32,16 @@ export class WorkspaceResolver implements IWorkspaceResolver {
         this.#canonicalize(root, { createIfMissing: root === config.projectlessWorkspaceRoot }),
       ),
     );
+    if (hints.requestedRoot && !config.allowedWorkspaceRoots) {
+      this.#logger.warn(
+        {
+          event: 'workspace.resolve.permissive',
+          workspaceKey: `workspace_${hashPath(rootPath)}`,
+          requestedRootSource: sourceForRequestedRoot(hints, config),
+        },
+        'explicit workspace root accepted without configured allowed roots',
+      );
+    }
 
     if (!allowedRoots.some((allowedRoot) => isInsideOrEqual(rootPath, allowedRoot))) {
       this.#logger.warn(

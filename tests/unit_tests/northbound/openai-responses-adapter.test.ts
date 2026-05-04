@@ -53,6 +53,48 @@ describe('OpenAIResponsesAdapter', () => {
           }),
         }),
         body: {
+          metadata: {
+            workspace_root: '/tmp/explicit-workspace',
+          },
+          client_metadata: {
+            'x-codex-installation-id': 'installation',
+          },
+          input: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: [
+                    '<environment_context>',
+                    '  <cwd>/tmp/context-workspace</cwd>',
+                    '  <shell>bash</shell>',
+                    '</environment_context>',
+                  ].join('\n'),
+                },
+              ],
+            },
+            { role: 'user', content: [{ type: 'input_text', text: 'hello' }] },
+          ],
+        },
+      }),
+    ).resolves.toEqual({
+      source: 'client-metadata',
+      requestedRoot: '/tmp/explicit-workspace',
+    });
+    await expect(
+      adapter.extractWorkspaceHints({
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
+        headers: new Headers({
+          'x-codex-turn-metadata': JSON.stringify({
+            workspaces: {
+              '/tmp/header-workspace': {},
+            },
+          }),
+        }),
+        body: {
           client_metadata: {
             'x-codex-installation-id': 'installation',
           },
