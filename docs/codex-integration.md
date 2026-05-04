@@ -65,9 +65,9 @@ Volare currently supports the text bridge subset needed by Codex CLI/Desktop:
 - `POST /openai/v1/responses/:id/cancel` for cancellation.
 - `previous_response_id` resolution through durable client refs.
 - Full-history `input[]` parsing into system instructions, conversation history, the latest user message, and image/file attachment summaries.
-- Request `metadata` echoing on encoded Responses snapshots for client correlation.
+- Request `metadata` and Codex `client_metadata` echoing on encoded Responses snapshots for client correlation.
 - Non-empty `tools`, `tool_choice`, and `parallel_tool_calls` request fields as client capability metadata.
-- Explicit rejection of `stream: false`; Volare streams every response.
+- Explicit rejection of `stream: false` and unsupported reasoning/text controls; Volare streams every response and does not advertise reasoning or verbosity controls.
 - Terminal `response.completed`, `response.failed`, and `response.incomplete` events.
 - Standard `usage` fields with best-effort estimated token counts.
 

@@ -29,8 +29,8 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
   constructor(readonly stateStore?: IStateStore) {}
 
   async extractWorkspaceHints(request: INorthboundRequest): Promise<IWorkspaceHints> {
-    const metadata = isRecord(request.body) ? request.body['metadata'] : undefined;
-    const requestedRoot = isRecord(metadata) ? stringValue(metadata['workspace_root']) : undefined;
+    const metadata = metadataFromRequestBody(request.body);
+    const requestedRoot = metadata ? stringValue(metadata['workspace_root']) : undefined;
     if (requestedRoot) {
       return { source: 'client-metadata', requestedRoot };
     }
@@ -50,6 +50,8 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
         'Responses request stream=false is not supported; Volare streams every response',
       );
     }
+    rejectUnsupportedParameter(request.body, 'reasoning');
+    rejectUnsupportedParameter(request.body, 'text');
 
     const tools = request.body['tools'];
     if (tools !== undefined && !Array.isArray(tools)) {
@@ -79,7 +81,7 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
     if (previousResponseId && this.stateStore && !parentRef) {
       throw new VolareError('not_found', 'previous_response_id was not found');
     }
-    const metadata = isRecord(request.body['metadata']) ? request.body['metadata'] : undefined;
+    const metadata = metadataFromRequestBody(request.body);
     return {
       ...(parentRef ? { threadId: parentRef.threadId, parentTurnId: parentRef.turnId } : {}),
       model,
@@ -510,6 +512,34 @@ function mediaTypeFromDataUrl(value: string | undefined): string | undefined {
 function pickDefined(values: Record<string, unknown>): Record<string, unknown> | undefined {
   const entries = Object.entries(values).filter(([, value]) => value !== undefined);
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function metadataFromRequestBody(body: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(body)) {
+    return undefined;
+  }
+  const metadata = isRecord(body['metadata']) ? body['metadata'] : undefined;
+  const clientMetadata = isRecord(body['client_metadata']) ? body['client_metadata'] : undefined;
+  return mergeMetadata(metadata, clientMetadata);
+}
+
+function mergeMetadata(
+  metadata: Record<string, unknown> | undefined,
+  clientMetadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (metadata && clientMetadata) {
+    return { ...clientMetadata, ...metadata };
+  }
+  return metadata ?? clientMetadata;
+}
+
+function rejectUnsupportedParameter(body: Record<string, unknown>, key: string): void {
+  if (body[key] !== undefined) {
+    throw new VolareError(
+      'unsupported_parameter',
+      `Responses request ${key} is not supported by Volare yet`,
+    );
+  }
 }
 
 function roleFromInputItem(item: Record<string, unknown>): 'user' | 'assistant' | 'system' {

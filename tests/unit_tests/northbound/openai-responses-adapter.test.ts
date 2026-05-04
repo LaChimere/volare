@@ -30,9 +30,51 @@ describe('OpenAIResponsesAdapter', () => {
         transport: 'http',
         method: 'POST',
         path: '/openai/v1/responses',
+        body: {
+          client_metadata: {
+            workspace_root: '/tmp/codex-client-workspace',
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      source: 'client-metadata',
+      requestedRoot: '/tmp/codex-client-workspace',
+    });
+    await expect(
+      adapter.extractWorkspaceHints({
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
         body: {},
       }),
     ).resolves.toEqual({ source: 'process-cwd' });
+  });
+
+  test('normalizes request metadata and client_metadata for Codex compatibility', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+
+    await expect(
+      adapter.parseRequest(
+        {
+          transport: 'http',
+          method: 'POST',
+          path: '/openai/v1/responses',
+          body: {
+            model: 'copilot-agent',
+            input: 'hello',
+            metadata: { workspace_root: '/tmp/metadata-root', source: 'metadata' },
+            client_metadata: { workspace_root: '/tmp/client-root', client: 'codex' },
+          },
+        },
+        { workspaceId: 'workspace_1', requestId: 'request_1' },
+      ),
+    ).resolves.toMatchObject({
+      metadata: {
+        workspace_root: '/tmp/metadata-root',
+        source: 'metadata',
+        client: 'codex',
+      },
+    });
   });
 
   test('accepts Codex tool definitions without invoking client-side tools', async () => {
@@ -289,6 +331,24 @@ describe('OpenAIResponsesAdapter', () => {
     ).rejects.toMatchObject({
       code: 'unsupported_parameter',
       message: 'Responses request stream=false is not supported; Volare streams every response',
+    });
+    await expect(
+      adapter.parseRequest(
+        request({ model: 'copilot-agent', input: 'hello', reasoning: { effort: 'medium' } }),
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: 'unsupported_parameter',
+      message: 'Responses request reasoning is not supported by Volare yet',
+    });
+    await expect(
+      adapter.parseRequest(
+        request({ model: 'copilot-agent', input: 'hello', text: { verbosity: 'high' } }),
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: 'unsupported_parameter',
+      message: 'Responses request text is not supported by Volare yet',
     });
   });
 
