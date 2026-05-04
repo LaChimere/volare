@@ -243,7 +243,11 @@ export class DurableSessionManager implements ISessionManager {
       },
       'turn stream started',
     );
-    yield this.#record(resolved.turn.id, { type: 'turn.created', turnId: resolved.turn.id });
+    yield this.#record(resolved.turn.id, {
+      type: 'turn.created',
+      turnId: resolved.turn.id,
+      ...(resolved.request.metadata ? { requestMetadata: resolved.request.metadata } : {}),
+    });
 
     let sawTerminal = false;
     let approvalTimeoutDeadline: number | null = null;

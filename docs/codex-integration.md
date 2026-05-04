@@ -64,14 +64,18 @@ Volare currently supports the text bridge subset needed by Codex CLI/Desktop:
 - `GET /openai/v1/responses/:id` for stored response lookup.
 - `POST /openai/v1/responses/:id/cancel` for cancellation.
 - `previous_response_id` resolution through durable client refs.
-- Full-history `input[]` parsing into system instructions, conversation history, and the latest user message.
+- Full-history `input[]` parsing into system instructions, conversation history, the latest user message, and image/file attachment summaries.
+- Request `metadata` echoing on encoded Responses snapshots for client correlation.
 - Non-empty `tools`, `tool_choice`, and `parallel_tool_calls` request fields as client capability metadata.
+- Explicit rejection of `stream: false`; Volare streams every response.
 - Terminal `response.completed`, `response.failed`, and `response.incomplete` events.
 - Standard `usage` fields with best-effort estimated token counts.
 
 ## Current limitations
 
 Volare does not yet implement a bridge-owned tool-call broker. It accepts Codex tool definitions so clients can connect, but it does not emit tool calls for Codex to execute.
+
+Image and file content parts are preserved as attachment summaries and passed to the backend prompt as client-provided context. Volare does not yet provide binary or vision-model execution for those attachments.
 
 ChatGPT-backed plugin browsing and installation can remain available through Codex/Desktop account state. Actually executing plugin-provided tools through Volare still depends on the current bridge limitation: Volare does not yet route client-side plugin tool calls back to Codex for execution.
 

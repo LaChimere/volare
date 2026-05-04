@@ -52,6 +52,7 @@ function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDepend
       pidPath: '/tmp/volare.pid',
       stateDatabasePath: '/tmp/state.sqlite',
     }),
+    getEnv: () => ({ VOLARE_API_KEY: 'replace-with-at-least-16-characters' }),
     ...overrides,
   };
 }
@@ -170,6 +171,21 @@ describe('Volare CLI', () => {
     expect(stdout.text()).toContain('Volare daemon started (pid 4242)');
   });
 
+  test('warns when starting daemon without a stable API key', async () => {
+    const { io, stderr } = memoryIo();
+    const exitCode = await runCli(
+      ['start', '--daemon'],
+      testDependencies({
+        getEnv: () => ({}),
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stderr.text()).toContain('Warning: VOLARE_API_KEY is not set');
+    expect(stderr.text()).toContain('export VOLARE_API_KEY before starting for Codex CLI/Desktop');
+  });
+
   test('rejects invalid Copilot permission modes before daemon startup', async () => {
     const { io, stderr } = memoryIo();
     const calls: unknown[] = [];
@@ -190,9 +206,9 @@ describe('Volare CLI', () => {
 
     expect(exitCode).toBe(2);
     expect(calls).toEqual([]);
-    expect(stderr.text()).toContain(
-      '--copilot-permission-mode must be one of restricted, web, or full',
-    );
+    expect(stderr.text()).toContain('--copilot-permission-mode "ask" is not valid');
+    expect(stderr.text()).toContain('Valid modes: restricted, web, or full');
+    expect(stderr.text()).toContain('bunx @lachimere/volare start --copilot-permission-mode web');
   });
 
   test('rejects missing start option values before daemon startup', async () => {

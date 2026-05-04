@@ -178,6 +178,7 @@ export function createApp(dependencies: IAppDependencies): {
                 externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
                 previousResponseId: input.clientRef?.parentExternalId ?? null,
                 requestInput: input.input,
+                ...(input.metadata ? { requestMetadata: input.metadata } : {}),
                 model: resolved.turn.model,
                 createdAt: resolved.turn.createdAt,
               },

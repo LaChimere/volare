@@ -19,6 +19,8 @@ bunx @lachimere/volare status
 bunx @lachimere/volare stop
 ```
 
+If `VOLARE_API_KEY` is not set, daemon startup warns that it will generate an ephemeral token in the logs. Use a stable `VOLARE_API_KEY` before starting the daemon when Codex CLI/Desktop will connect.
+
 Daemon logs:
 
 ```bash
