@@ -71,7 +71,7 @@ name = "Agent Loom"
 base_url = "${escapeTomlString(baseUrl)}"
 wire_api = "responses"
 env_key = "${escapeTomlString(envKey)}"
-requires_openai_auth = false
+requires_openai_auth = true
 supports_websockets = false
 
 [profiles.${DEFAULT_PROFILE}]

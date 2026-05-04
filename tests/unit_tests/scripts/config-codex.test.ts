@@ -28,6 +28,8 @@ describe('config-codex script', () => {
     expect(config).toContain('[profiles.other]');
     expect(config).toContain('[model_providers.agent-loom]');
     expect(config).toContain('base_url = "http://127.0.0.1:8000/openai/v1"');
+    expect(config).toContain('env_key = "AGENT_LOOM_API_KEY"');
+    expect(config).toContain('requires_openai_auth = true');
     expect(config).toContain('[profiles.agent-loom]');
   });
 
