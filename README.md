@@ -11,7 +11,7 @@ export VOLARE_API_KEY="replace-with-at-least-16-characters"
 bunx @lachimere/volare start
 ```
 
-The server listens on `http://127.0.0.1:8000/openai/v1` by default and requires bearer auth for every endpoint. For a background daemon:
+The server listens on `http://127.0.0.1:8000/openai/v1` by default, also accepts OpenAI-compatible `/v1` aliases, and requires bearer auth for every endpoint. For a background daemon:
 
 ```bash
 bunx @lachimere/volare start -d
@@ -46,6 +46,8 @@ GET  /openai/v1/responses/:id
 POST /openai/v1/responses/:id/cancel
 GET  /debug/turns/:id/events
 ```
+
+The model and response routes are also available under `/v1/*` for clients that expect the standard OpenAI base path.
 
 ## Commands
 

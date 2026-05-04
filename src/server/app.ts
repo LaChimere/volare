@@ -83,7 +83,9 @@ export function createApp(dependencies: IAppDependencies): {
           );
         }
 
-        if (request.method === 'GET' && url.pathname === '/openai/v1/models') {
+        const openAIPath = openAIResponsesPath(url.pathname);
+
+        if (request.method === 'GET' && openAIPath === '/models') {
           return logHttpResponse(
             logger,
             logFields,
@@ -113,7 +115,7 @@ export function createApp(dependencies: IAppDependencies): {
           );
         }
 
-        if (request.method === 'POST' && url.pathname === '/openai/v1/responses') {
+        if (request.method === 'POST' && openAIPath === '/responses') {
           const body = await parseJsonBody(request);
           const northboundRequest = {
             transport: 'http' as const,
@@ -206,7 +208,7 @@ export function createApp(dependencies: IAppDependencies): {
           );
         }
 
-        const responseMatch = url.pathname.match(/^\/openai\/v1\/responses\/([^/]+)$/);
+        const responseMatch = openAIPath?.match(/^\/responses\/([^/]+)$/);
         if (request.method === 'GET' && responseMatch?.[1]) {
           if (!sessionManager) {
             return logHttpResponse(
@@ -245,7 +247,7 @@ export function createApp(dependencies: IAppDependencies): {
           );
         }
 
-        const cancelMatch = url.pathname.match(/^\/openai\/v1\/responses\/([^/]+)\/cancel$/);
+        const cancelMatch = openAIPath?.match(/^\/responses\/([^/]+)\/cancel$/);
         if (request.method === 'POST' && cancelMatch?.[1]) {
           if (!sessionManager) {
             return logHttpResponse(
@@ -305,6 +307,15 @@ export function createApp(dependencies: IAppDependencies): {
       }
     },
   };
+}
+
+function openAIResponsesPath(pathname: string): string | undefined {
+  for (const basePath of ['/openai/v1', '/v1']) {
+    if (pathname.startsWith(`${basePath}/`)) {
+      return pathname.slice(basePath.length);
+    }
+  }
+  return undefined;
 }
 
 async function parseJsonBody(request: Request): Promise<unknown> {

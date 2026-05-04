@@ -54,7 +54,7 @@ Codex CLI and Desktop share this config. The top-level `profile`, `model_provide
 
 ## Model catalog
 
-`GET /openai/v1/models` returns a Codex-compatible model catalog entry for `copilot-agent`, including fields such as `slug`, `display_name`, `shell_type`, `visibility`, API support metadata, truncation policy, modalities, and context window metadata.
+`GET /openai/v1/models` returns a Codex-compatible model catalog entry for `copilot-agent`, including fields such as `slug`, `display_name`, `shell_type`, `visibility`, API support metadata, truncation policy, modalities, and context window metadata. The same route is also available as `GET /v1/models` for clients that use the standard OpenAI base path.
 
 ## Supported Responses behavior
 
@@ -63,6 +63,7 @@ Volare currently supports the text bridge subset needed by Codex CLI/Desktop:
 - `POST /openai/v1/responses` with streaming SSE responses.
 - `GET /openai/v1/responses/:id` for stored response lookup.
 - `POST /openai/v1/responses/:id/cancel` for cancellation.
+- `/v1/*` aliases for the model and response routes.
 - `previous_response_id` resolution through durable client refs.
 - Full-history `input[]` parsing into system instructions, conversation history, the latest user message, and image/file attachment summaries.
 - Request `metadata` and Codex `client_metadata` echoing on encoded Responses snapshots for client correlation.
