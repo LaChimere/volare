@@ -103,7 +103,11 @@ export class InMemorySessionManager implements ISessionManager {
 
   async *streamTurn(resolved: IResolvedTurn, signal?: AbortSignal): AsyncIterable<AgentEvent> {
     this.#replaceTurn({ ...resolved.turn, status: 'running' });
-    yield this.#record(resolved.turn.id, { type: 'turn.created', turnId: resolved.turn.id });
+    yield this.#record(resolved.turn.id, {
+      type: 'turn.created',
+      turnId: resolved.turn.id,
+      ...(resolved.request.metadata ? { requestMetadata: resolved.request.metadata } : {}),
+    });
 
     let sawTerminal = false;
     try {

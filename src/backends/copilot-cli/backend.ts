@@ -231,8 +231,23 @@ function formatCopilotPrompt(request: IAgentRequest, cwd: string): string {
         .join('\n\n')}`,
     );
   }
+  if (input.attachments && input.attachments.length > 0) {
+    sections.push(`Client attachments:\n${input.attachments.map(formatAttachment).join('\n')}`);
+  }
   sections.push(`User request:\n${input.message}`);
   return sections.join('\n\n');
+}
+
+function formatAttachment(
+  attachment: NonNullable<IAgentRequest['input']['attachments']>[number],
+): string {
+  const fields = [
+    `kind=${attachment.kind}`,
+    attachment.name ? `name=${attachment.name}` : undefined,
+    attachment.mediaType ? `media_type=${attachment.mediaType}` : undefined,
+    attachment.uri ? `uri=${attachment.uri}` : undefined,
+  ].filter((field): field is string => field !== undefined);
+  return `- ${fields.join(' ')}`;
 }
 
 function formatBridgeContext(request: IAgentRequest, cwd: string): string {

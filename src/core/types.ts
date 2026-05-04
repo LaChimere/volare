@@ -86,9 +86,11 @@ export interface IConversationMessage {
 
 export interface IAgentAttachment {
   kind: 'image' | 'file' | 'other';
+  name?: string;
   mediaType?: string;
   data?: Uint8Array;
   uri?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface IAgentOutput {
@@ -106,7 +108,12 @@ export interface IAgentUsage {
 }
 
 export type AgentEvent =
-  | { type: 'turn.created'; turnId: TurnId; emittedAt?: number }
+  | {
+      type: 'turn.created';
+      turnId: TurnId;
+      requestMetadata?: Record<string, unknown>;
+      emittedAt?: number;
+    }
   | { type: 'text.delta'; turnId: TurnId; delta: string; emittedAt?: number }
   | { type: 'progress'; turnId: TurnId; message: string; data?: unknown; emittedAt?: number }
   | {
@@ -261,7 +268,7 @@ export interface INorthboundAdapter {
   encodeStoredResponse(
     record: ITurnRecord,
     events: AgentEvent[],
-    options?: { previousResponseId?: string | null },
+    options?: { previousResponseId?: string | null; metadata?: Record<string, unknown> },
   ): unknown;
   encodeError(error: IVolareError): unknown;
   capabilities(): INorthboundCapabilities;
@@ -290,6 +297,7 @@ export interface IResponseContext {
   externalResponseId?: string;
   previousResponseId?: string | null;
   requestInput?: IAgentInput;
+  requestMetadata?: Record<string, unknown>;
   model?: string;
   createdAt?: Date;
 }

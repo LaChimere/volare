@@ -110,6 +110,140 @@ describe('OpenAIResponsesAdapter', () => {
     ).rejects.toMatchObject({ code: 'invalid_request' });
   });
 
+  test('extracts supported Responses attachment parts without dropping text', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+
+    await expect(
+      adapter.parseRequest(
+        {
+          transport: 'http',
+          method: 'POST',
+          path: '/openai/v1/responses',
+          body: {
+            model: 'copilot-agent',
+            input: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'input_text', text: 'describe these inputs' },
+                  {
+                    type: 'input_image',
+                    image_url: 'data:image/png;base64,AAAA',
+                    detail: 'low',
+                  },
+                  {
+                    type: 'input_file',
+                    filename: 'notes.txt',
+                    file_id: 'file_123',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        { workspaceId: 'workspace_1', requestId: 'request_1' },
+      ),
+    ).resolves.toMatchObject({
+      input: {
+        message: 'describe these inputs',
+        attachments: [
+          {
+            kind: 'image',
+            uri: 'data:image/png;base64,AAAA',
+            mediaType: 'image/png',
+            metadata: { detail: 'low' },
+          },
+          {
+            kind: 'file',
+            name: 'notes.txt',
+            uri: 'file_123',
+            metadata: { file_id: 'file_123' },
+          },
+        ],
+      },
+    });
+  });
+
+  test('only associates attachments from the latest user message', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+
+    await expect(
+      adapter.parseRequest(
+        {
+          transport: 'http',
+          method: 'POST',
+          path: '/openai/v1/responses',
+          body: {
+            model: 'copilot-agent',
+            input: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'input_text', text: 'first request' },
+                  {
+                    type: 'input_image',
+                    image_url: 'data:image/png;base64,OLD',
+                  },
+                ],
+              },
+              { role: 'assistant', content: [{ type: 'output_text', text: 'first answer' }] },
+              {
+                role: 'user',
+                content: [{ type: 'input_text', text: 'second request' }],
+              },
+            ],
+          },
+        },
+        { workspaceId: 'workspace_1', requestId: 'request_1' },
+      ),
+    ).resolves.toMatchObject({
+      input: {
+        message: 'second request',
+        conversationHistory: [
+          { role: 'user', content: 'first request' },
+          { role: 'assistant', content: 'first answer' },
+        ],
+      },
+    });
+
+    const parsed = await adapter.parseRequest(
+      {
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
+        body: {
+          model: 'copilot-agent',
+          input: [
+            {
+              role: 'user',
+              content: [
+                { type: 'input_text', text: 'first request' },
+                { type: 'input_image', image_url: 'data:image/png;base64,OLD' },
+              ],
+            },
+            {
+              role: 'user',
+              content: [
+                { type: 'input_text', text: 'second request' },
+                { type: 'input_file', filename: 'current.txt', file_id: 'file_current' },
+              ],
+            },
+          ],
+        },
+      },
+      { workspaceId: 'workspace_1', requestId: 'request_1' },
+    );
+
+    expect(parsed.input.attachments).toEqual([
+      {
+        kind: 'file',
+        name: 'current.txt',
+        uri: 'file_current',
+        metadata: { file_id: 'file_current' },
+      },
+    ]);
+  });
+
   test('rejects invalid Responses request boundary shapes', async () => {
     const adapter = new OpenAIResponsesAdapter();
     const context = { workspaceId: 'workspace_1', requestId: 'request_1' };
@@ -146,6 +280,15 @@ describe('OpenAIResponsesAdapter', () => {
     ).rejects.toMatchObject({
       code: 'invalid_request',
       message: 'Responses request tools must be an array',
+    });
+    await expect(
+      adapter.parseRequest(
+        request({ model: 'copilot-agent', input: 'hello', stream: false }),
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: 'unsupported_parameter',
+      message: 'Responses request stream=false is not supported; Volare streams every response',
     });
   });
 
@@ -260,6 +403,58 @@ describe('OpenAIResponsesAdapter', () => {
         input_tokens: 0,
         output_tokens: 1,
         total_tokens: 1,
+      },
+    });
+  });
+
+  test('echoes request metadata on encoded Responses snapshots', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+    const createdAt = new Date('2026-05-02T00:00:00.000Z');
+    const events = [
+      {
+        type: 'turn.created' as const,
+        turnId: 'turn_1',
+        requestMetadata: { workspace_root: '/tmp/project', client: 'codex-desktop' },
+      },
+      { type: 'text.delta' as const, turnId: 'turn_1', delta: 'done' },
+      { type: 'turn.succeeded' as const, turnId: 'turn_1', output: { text: 'done' } },
+    ];
+
+    expect(
+      adapter.encodeStoredResponse(
+        {
+          id: 'resp_1',
+          threadId: 'thread_1',
+          parentTurnId: null,
+          bridgeSessionId: 'bridge_session_1',
+          status: 'succeeded',
+          model: 'copilot-agent',
+          createdAt,
+          completedAt: createdAt,
+        },
+        events,
+      ),
+    ).toMatchObject({
+      metadata: { workspace_root: '/tmp/project', client: 'codex-desktop' },
+    });
+
+    const encoded = await collectSse(
+      adapter.encodeStream(toAsyncIterable(events), {
+        turnId: 'turn_1',
+        threadId: 'thread_1',
+        externalResponseId: 'resp_metadata',
+        previousResponseId: null,
+        requestMetadata: { workspace_root: '/tmp/project', client: 'codex-desktop' },
+        model: 'copilot-agent',
+        createdAt,
+      }),
+    );
+
+    expect(encoded[5]).toMatchObject({
+      type: 'response.completed',
+      response: {
+        id: 'resp_metadata',
+        metadata: { workspace_root: '/tmp/project', client: 'codex-desktop' },
       },
     });
   });
@@ -553,4 +748,10 @@ async function collectSse(chunks: AsyncIterable<Uint8Array>): Promise<unknown[]>
     .split('\n\n')
     .map((entry) => entry.replace(/^data: /, ''))
     .map((entry) => (entry === '[DONE]' ? entry : JSON.parse(entry)));
+}
+
+async function* toAsyncIterable<T>(items: T[]): AsyncIterable<T> {
+  for (const item of items) {
+    yield item;
+  }
 }

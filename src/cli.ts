@@ -51,6 +51,7 @@ export interface ICliDependencies {
   stopDaemon: () => Promise<IDaemonStopResult>;
   getDaemonStatus: () => Promise<IDaemonStatusResult>;
   getDaemonPaths: () => IDaemonPaths;
+  getEnv: () => Record<string, string | undefined>;
 }
 
 export interface IDaemonPaths {
@@ -102,6 +103,12 @@ export async function runCli(
         return 0;
       case 'start':
         if (command.daemon) {
+          if (!dependencies.getEnv()['VOLARE_API_KEY']?.trim()) {
+            await writeLine(
+              io.stderr,
+              'Warning: VOLARE_API_KEY is not set. The daemon will generate an ephemeral token in its logs; export VOLARE_API_KEY before starting for Codex CLI/Desktop.',
+            );
+          }
           const result = await dependencies.startDaemon(command);
           await writeLine(
             io.stdout,
@@ -187,7 +194,9 @@ export function parseCli(argv: string[]): ICliCommand {
     assertNoArgs(rest, 'logs');
     return { type: 'logs' };
   }
-  throw new CliUsageError(`Unknown command: ${command}`);
+  throw new CliUsageError(
+    `Unknown command: ${command}. Expected one of: start, config, status, stop, logs, help, version.`,
+  );
 }
 
 function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
@@ -250,7 +259,7 @@ function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
       const parsed = readFlagValue(args, index, '--copilot-permission-mode');
       if (!isCopilotCliPermissionMode(parsed.value)) {
         throw new CliUsageError(
-          '--copilot-permission-mode must be one of restricted, web, or full',
+          `--copilot-permission-mode "${parsed.value}" is not valid. Valid modes: restricted, web, or full. Example: bunx @lachimere/volare start --copilot-permission-mode web`,
         );
       }
       env.VOLARE_COPILOT_PERMISSION_MODE = parsed.value;
@@ -341,6 +350,7 @@ function defaultDependencies(): ICliDependencies {
     stopDaemon,
     getDaemonStatus,
     getDaemonPaths: defaultDaemonPaths,
+    getEnv: () => Bun.env,
   };
 }
 

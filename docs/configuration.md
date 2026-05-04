@@ -10,7 +10,7 @@ Every endpoint requires bearer auth.
 export VOLARE_API_KEY="replace-with-at-least-16-characters"
 ```
 
-If `VOLARE_API_KEY` is not set, the server generates an ephemeral token and prints it once to stderr. This is useful for manual experiments but not for Codex CLI/Desktop, because clients need a stable token through `env_key = "VOLARE_API_KEY"`.
+If `VOLARE_API_KEY` is not set, the server generates an ephemeral token and prints it once to stderr. Daemon startup warns in this mode. This is useful for manual experiments but not for Codex CLI/Desktop, because clients need a stable token through `env_key = "VOLARE_API_KEY"`.
 
 ## Runtime environment
 

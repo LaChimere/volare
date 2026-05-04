@@ -153,6 +153,55 @@ describe('CopilotCliBackend', () => {
     }
   });
 
+  test('includes client attachment summaries in the Copilot prompt', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const runner = new FakeCopilotPromptRunner();
+    const backend = new CopilotCliBackend({ runner });
+    const workspace: IWorkspace = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+
+      await collectEvents(
+        backend.send(session, {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          workspaceId: 'workspace_1',
+          input: {
+            message: 'Use the provided context',
+            attachments: [
+              {
+                kind: 'image',
+                mediaType: 'image/png',
+                uri: 'data:image/png;base64,AAAA',
+              },
+              {
+                kind: 'file',
+                name: 'notes.txt',
+                uri: 'file_123',
+              },
+            ],
+          },
+          model: 'copilot-agent',
+        }),
+      );
+
+      expect(runner.lastPrompt).toContain('Client attachments:');
+      expect(runner.lastPrompt).toContain(
+        '- kind=image media_type=image/png uri=data:image/png;base64,AAAA',
+      );
+      expect(runner.lastPrompt).toContain('- kind=file name=notes.txt uri=file_123');
+      expect(runner.lastPrompt).toContain('User request:\nUse the provided context');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('marks explicitly requested workspace metadata in the bridge context', async () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
     const runner = new FakeCopilotPromptRunner();

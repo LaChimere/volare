@@ -2,6 +2,7 @@ import { toVolareError, VolareError } from '../../core/errors';
 import { createId } from '../../core/ids';
 import type {
   AgentEvent,
+  IAgentAttachment,
   IAgentRequestInput,
   IAgentUsage,
   INorthboundAdapter,
@@ -43,6 +44,12 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
     if (!isRecord(request.body)) {
       throw new VolareError('invalid_request', 'Responses request body must be a JSON object');
     }
+    if (request.body['stream'] === false) {
+      throw new VolareError(
+        'unsupported_parameter',
+        'Responses request stream=false is not supported; Volare streams every response',
+      );
+    }
 
     const tools = request.body['tools'];
     if (tools !== undefined && !Array.isArray(tools)) {
@@ -82,6 +89,7 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
           ? { conversationHistory: parsedInput.conversationHistory }
           : {}),
         ...(systemInstructions ? { systemInstructions } : {}),
+        ...(parsedInput.attachments.length > 0 ? { attachments: parsedInput.attachments } : {}),
       },
       ...(metadata ? { metadata } : {}),
       clientRef: {
@@ -184,7 +192,10 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
                 completedAt: new Date(),
               },
               replayedEvents,
-              { previousResponseId: context.previousResponseId ?? null },
+              {
+                previousResponseId: context.previousResponseId ?? null,
+                ...(context.requestMetadata ? { metadata: context.requestMetadata } : {}),
+              },
             ),
           });
           yield encoder.encode('data: [DONE]\n\n');
@@ -257,7 +268,7 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
   encodeStoredResponse(
     record: ITurnRecord,
     events: AgentEvent[],
-    options: { previousResponseId?: string | null } = {},
+    options: { previousResponseId?: string | null; metadata?: Record<string, unknown> } = {},
   ): unknown {
     const text = events
       .filter(
@@ -288,6 +299,7 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
       incomplete_details: incompleteDetailsFromEvents(events),
       usage: usageFromEvents(events, text),
       previous_response_id: options.previousResponseId ?? null,
+      metadata: options.metadata ?? metadataFromEvents(events) ?? null,
     };
   }
 
@@ -355,34 +367,48 @@ interface IParsedInput {
   message: string;
   conversationHistory: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
   systemInstructions?: string;
+  attachments: IAgentAttachment[];
 }
+
+type ParsedMessage = {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  attachments: IAgentAttachment[];
+};
 
 function parseInput(input: unknown): IParsedInput | null {
   if (typeof input === 'string') {
     const message = input.trim();
-    return message ? { message, conversationHistory: [] } : null;
+    return message ? { message, conversationHistory: [], attachments: [] } : null;
   }
   if (!Array.isArray(input)) {
     return null;
   }
   if (input.every((item) => typeof item === 'string')) {
     const message = input.join('\n').trim();
-    return message ? { message, conversationHistory: [] } : null;
+    return message ? { message, conversationHistory: [], attachments: [] } : null;
   }
 
-  const messages = input.flatMap((item) => {
+  const messages = input.flatMap((item): ParsedMessage[] => {
     if (typeof item === 'string') {
       const content = item.trim();
-      return content ? [{ role: 'user' as const, content }] : [];
+      return content ? [{ role: 'user', content, attachments: [] }] : [];
     }
     if (!isRecord(item)) {
       return [];
     }
-    const content = contentToParts(item['content']).join('\n').trim();
+    const parsedContent = parseContent(item['content']);
+    const content = parsedContent.textParts.join('\n').trim();
     if (!content) {
       return [];
     }
-    return [{ role: roleFromInputItem(item), content }];
+    return [
+      {
+        role: roleFromInputItem(item),
+        content,
+        attachments: parsedContent.attachments,
+      },
+    ];
   });
   const systemInstructions = messages
     .filter((message) => message.role === 'system')
@@ -404,26 +430,86 @@ function parseInput(input: unknown): IParsedInput | null {
     message: latest.content,
     conversationHistory: nonSystemMessages.slice(0, latestIndex),
     ...(systemInstructions ? { systemInstructions } : {}),
+    attachments: latest.attachments,
   };
 }
 
-function contentToParts(content: unknown): string[] {
+function parseContent(content: unknown): { textParts: string[]; attachments: IAgentAttachment[] } {
   if (typeof content === 'string') {
-    return [content];
+    return { textParts: [content], attachments: [] };
   }
   if (!Array.isArray(content)) {
-    return [];
+    return { textParts: [], attachments: [] };
   }
 
-  return content.flatMap((part) => {
+  const textParts: string[] = [];
+  const attachments: IAgentAttachment[] = [];
+  for (const part of content) {
     if (typeof part === 'string') {
-      return [part];
+      textParts.push(part);
+      continue;
     }
     if (!isRecord(part)) {
-      return [];
+      continue;
     }
-    return typeof part['text'] === 'string' ? [part['text']] : [];
-  });
+    const text = typeof part['text'] === 'string' ? part['text'] : undefined;
+    if (text !== undefined) {
+      textParts.push(text);
+    }
+    const attachment = attachmentFromContentPart(part);
+    if (attachment) {
+      attachments.push(attachment);
+    }
+  }
+  return { textParts, attachments };
+}
+
+function attachmentFromContentPart(part: Record<string, unknown>): IAgentAttachment | null {
+  switch (part['type']) {
+    case 'input_image': {
+      const imageUrl = stringValue(part['image_url']) ?? urlFromObject(part['image_url']);
+      const mediaType = mediaTypeFromDataUrl(imageUrl);
+      const metadata = pickDefined({ detail: part['detail'] });
+      return {
+        kind: 'image',
+        ...(imageUrl ? { uri: imageUrl } : {}),
+        ...(mediaType ? { mediaType } : {}),
+        ...(metadata ? { metadata } : {}),
+      };
+    }
+    case 'input_file': {
+      const fileUrl = stringValue(part['file_url']) ?? urlFromObject(part['file_url']);
+      const fileId = stringValue(part['file_id']);
+      const filename = stringValue(part['filename']);
+      const fileData = stringValue(part['file_data']);
+      const mediaType = mediaTypeFromDataUrl(fileData);
+      const uri = fileUrl ?? fileId ?? fileData;
+      const metadata = pickDefined({ file_id: fileId, has_file_data: fileData ? true : undefined });
+      return {
+        kind: 'file',
+        ...(filename ? { name: filename } : {}),
+        ...(uri ? { uri } : {}),
+        ...(mediaType ? { mediaType } : {}),
+        ...(metadata ? { metadata } : {}),
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+function urlFromObject(value: unknown): string | undefined {
+  return isRecord(value) ? stringValue(value['url']) : undefined;
+}
+
+function mediaTypeFromDataUrl(value: string | undefined): string | undefined {
+  const match = value?.match(/^data:([^;,]+)[;,]/);
+  return match?.[1];
+}
+
+function pickDefined(values: Record<string, unknown>): Record<string, unknown> | undefined {
+  const entries = Object.entries(values).filter(([, value]) => value !== undefined);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function roleFromInputItem(item: Record<string, unknown>): 'user' | 'assistant' | 'system' {
@@ -504,6 +590,14 @@ function incompleteDetailsFromEvents(events: AgentEvent[]): { reason: string } |
       event.type === 'turn.cancelled' || event.type === 'turn.interrupted',
   );
   return terminal ? { reason: incompleteReason(terminal) } : null;
+}
+
+function metadataFromEvents(events: AgentEvent[]): Record<string, unknown> | null {
+  const created = events.find(
+    (event): event is Extract<AgentEvent, { type: 'turn.created' }> =>
+      event.type === 'turn.created',
+  );
+  return created?.requestMetadata ?? null;
 }
 
 function incompleteReason(
