@@ -143,18 +143,18 @@ async function probeNonInteractivePrompt(copilotPath: string): Promise<IProbeRes
       '--output-format',
       'json',
       '--prompt',
-      'Reply with exactly AGENT_LOOM_PROBE_OK and no other text.',
+      'Reply with exactly VOLARE_PROBE_OK and no other text.',
     ],
     { timeoutMs: 60_000 },
   );
   const output = `${result.stdout}\n${result.stderr}`;
-  const sawExpectedText = output.includes('AGENT_LOOM_PROBE_OK');
+  const sawExpectedText = output.includes('VOLARE_PROBE_OK');
 
   return {
     name: 'session creation, prompt send, and text response',
     status: result.exitCode === 0 && sawExpectedText ? 'supported' : 'unknown',
     command: 'copilot --prompt <safe text> --output-format json --stream off',
-    evidence: sawExpectedText ? 'received AGENT_LOOM_PROBE_OK' : summarize(result),
+    evidence: sawExpectedText ? 'received VOLARE_PROBE_OK' : summarize(result),
   };
 }
 
@@ -172,18 +172,18 @@ async function probeStreamingPrompt(copilotPath: string): Promise<IProbeResult> 
       '--output-format',
       'json',
       '--prompt',
-      'Reply with exactly AGENT_LOOM_STREAM_PROBE_OK and no other text.',
+      'Reply with exactly VOLARE_STREAM_PROBE_OK and no other text.',
     ],
     { timeoutMs: 60_000 },
   );
   const output = `${result.stdout}\n${result.stderr}`;
-  const sawExpectedText = output.includes('AGENT_LOOM_STREAM_PROBE_OK');
+  const sawExpectedText = output.includes('VOLARE_STREAM_PROBE_OK');
 
   return {
     name: 'streaming text',
     status: result.exitCode === 0 && sawExpectedText ? 'supported' : 'unknown',
     command: 'copilot --prompt <safe text> --output-format json --stream on',
-    evidence: sawExpectedText ? 'received AGENT_LOOM_STREAM_PROBE_OK' : summarize(result),
+    evidence: sawExpectedText ? 'received VOLARE_STREAM_PROBE_OK' : summarize(result),
   };
 }
 
@@ -234,7 +234,7 @@ async function probeAcpInitialize(copilotPath: string): Promise<IProbeResult> {
     params: {
       protocolVersion: 1,
       clientInfo: {
-        name: 'agent-loom-probe',
+        name: 'volare-probe',
         version: '0.0.0',
       },
       capabilities: {},
@@ -270,7 +270,7 @@ async function probeProcessCancellation(copilotPath: string): Promise<IProbeResu
       '--log-level',
       'error',
       '--prompt',
-      'Wait briefly, then reply with AGENT_LOOM_CANCEL_PROBE_DONE.',
+      'Wait briefly, then reply with VOLARE_CANCEL_PROBE_DONE.',
     ],
     {
       stdin: 'ignore',

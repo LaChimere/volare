@@ -108,7 +108,7 @@ export function createLogger(options: ICreateLoggerOptions = {}): ILogger {
     {
       level: options.level ?? 'info',
       base: {
-        service: 'agent-loom',
+        service: 'volare',
         ...(options.bindings ?? {}),
       },
       timestamp: pino.stdTimeFunctions.isoTime,

@@ -14,7 +14,7 @@ function createStore(): SQLiteStateStore {
 describe('ShutdownController', () => {
   test('stops accepting requests and interrupts leftover state idempotently', async () => {
     const store = createStore();
-    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
     const thread = await store.createThread({ workspaceId: workspace.id });
     const session = await store.reserveBackendSession({
       workspaceId: workspace.id,
@@ -55,7 +55,7 @@ describe('ShutdownController', () => {
 
   test('force-stops and recovers state when graceful stop fails', async () => {
     const store = createStore();
-    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
     const thread = await store.createThread({ workspaceId: workspace.id });
     const session = await store.reserveBackendSession({
       workspaceId: workspace.id,

@@ -17,13 +17,13 @@ describe('OpenAIResponsesAdapter', () => {
         path: '/openai/v1/responses',
         body: {
           metadata: {
-            workspace_root: '/tmp/agent-loom-workspace',
+            workspace_root: '/tmp/volare-workspace',
           },
         },
       }),
     ).resolves.toEqual({
       source: 'client-metadata',
-      requestedRoot: '/tmp/agent-loom-workspace',
+      requestedRoot: '/tmp/volare-workspace',
     });
     await expect(
       adapter.extractWorkspaceHints({
@@ -269,7 +269,7 @@ describe('OpenAIResponsesAdapter', () => {
     migrate(database);
     const store = new SQLiteStateStore(database);
     const journal = new SQLiteEventJournal(database);
-    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
     const thread = await store.createThread({ workspaceId: workspace.id });
     const session = await store.reserveBackendSession({
       workspaceId: workspace.id,

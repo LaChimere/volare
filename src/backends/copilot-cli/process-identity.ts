@@ -1,4 +1,4 @@
-import { AgentLoomError } from '../../core/errors';
+import { VolareError } from '../../core/errors';
 
 export interface IProcessIdentity {
   processId: string;
@@ -14,7 +14,7 @@ export class DefaultProcessIdentityValidator implements IProcessIdentityValidato
   assertMatches(expected: IProcessIdentity, observedProcessId: string): void {
     const observedHash = createProcessIdentityHash(expected.processId, expected.processStartedAt);
     if (expected.processId !== observedProcessId || expected.processIdentityHash !== observedHash) {
-      throw new AgentLoomError('process_identity_mismatch', 'Process identity did not match');
+      throw new VolareError('process_identity_mismatch', 'Process identity did not match');
     }
   }
 }

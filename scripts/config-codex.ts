@@ -1,10 +1,10 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-const DEFAULT_PROFILE = 'agent-loom';
+const DEFAULT_PROFILE = 'volare';
 const DEFAULT_MODEL = 'copilot-agent';
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8000/openai/v1';
-const DEFAULT_ENV_KEY = 'AGENT_LOOM_API_KEY';
+const DEFAULT_ENV_KEY = 'VOLARE_API_KEY';
 
 export interface ICodexConfigOptions {
   configPath?: string;
@@ -36,7 +36,7 @@ export async function configureCodex(
   await mkdir(dirname(configPath), { recursive: true });
   const backupPath =
     existing.length > 0
-      ? `${configPath}.agent-loom-backup-${options.backupSuffix ?? backupSuffix()}`
+      ? `${configPath}.volare-backup-${options.backupSuffix ?? backupSuffix()}`
       : undefined;
   if (backupPath) {
     await Bun.write(backupPath, existing);
@@ -67,7 +67,7 @@ export function buildCodexConfig(
   return `${trimTrailingWhitespace(withDefaults)}
 
 [model_providers.${DEFAULT_PROFILE}]
-name = "Agent Loom"
+name = "Volare"
 base_url = "${escapeTomlString(baseUrl)}"
 wire_api = "responses"
 env_key = "${escapeTomlString(envKey)}"
@@ -147,17 +147,17 @@ function validateBaseUrl(value: string): string {
   try {
     url = new URL(value);
   } catch (cause) {
-    throw new Error('Agent Loom Codex base URL must be a valid URL', { cause });
+    throw new Error('Volare Codex base URL must be a valid URL', { cause });
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('Agent Loom Codex base URL must use http or https');
+    throw new Error('Volare Codex base URL must use http or https');
   }
   return value;
 }
 
 function validateEnvKey(value: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
-    throw new Error('Agent Loom Codex env key must be a valid environment variable name');
+    throw new Error('Volare Codex env key must be a valid environment variable name');
   }
   return value;
 }
@@ -190,11 +190,11 @@ function backupSuffix(): string {
 if (import.meta.main) {
   const result = await configureCodex();
   if (result.changed) {
-    console.log(`Configured Codex for Agent Loom: ${result.configPath}`);
+    console.log(`Configured Codex for Volare: ${result.configPath}`);
     if (result.backupPath) {
       console.log(`Backup written: ${result.backupPath}`);
     }
   } else {
-    console.log(`Codex is already configured for Agent Loom: ${result.configPath}`);
+    console.log(`Codex is already configured for Volare: ${result.configPath}`);
   }
 }

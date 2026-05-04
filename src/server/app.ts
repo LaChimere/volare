@@ -1,4 +1,4 @@
-import { AgentLoomError, toAgentLoomError } from '../core/errors';
+import { toVolareError, VolareError } from '../core/errors';
 import type {
   AgentEvent,
   IEventJournal,
@@ -99,7 +99,7 @@ export function createApp(dependencies: IAppDependencies): {
               logger,
               logFields,
               requestStartedAt,
-              encodeOpenAIError(new AgentLoomError('not_found', 'Debug events not found')),
+              encodeOpenAIError(new VolareError('not_found', 'Debug events not found')),
             );
           }
           return logHttpResponse(
@@ -146,7 +146,7 @@ export function createApp(dependencies: IAppDependencies): {
             requestId,
           });
           if (!sessionManager) {
-            throw new AgentLoomError('internal_error', 'Session manager is not configured');
+            throw new VolareError('internal_error', 'Session manager is not configured');
           }
           const resolved = await sessionManager.startTurn(input, {
             workspaceId: persistedWorkspace.id,
@@ -212,7 +212,7 @@ export function createApp(dependencies: IAppDependencies): {
               logger,
               logFields,
               requestStartedAt,
-              encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
+              encodeOpenAIError(new VolareError('not_found', 'Response not found')),
             );
           }
           const clientRef = await stateStore?.resolveClientRef(adapter.protocol, responseMatch[1]);
@@ -223,7 +223,7 @@ export function createApp(dependencies: IAppDependencies): {
               logger,
               logFields,
               requestStartedAt,
-              encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
+              encodeOpenAIError(new VolareError('not_found', 'Response not found')),
             );
           }
           let events = sessionManager.getEvents(turn.id);
@@ -251,7 +251,7 @@ export function createApp(dependencies: IAppDependencies): {
               logger,
               logFields,
               requestStartedAt,
-              encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
+              encodeOpenAIError(new VolareError('not_found', 'Response not found')),
             );
           }
           const clientRef = await stateStore?.resolveClientRef(adapter.protocol, cancelMatch[1]);
@@ -262,7 +262,7 @@ export function createApp(dependencies: IAppDependencies): {
               logger,
               logFields,
               requestStartedAt,
-              encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
+              encodeOpenAIError(new VolareError('not_found', 'Response not found')),
             );
           }
           const turn = await sessionManager.getTurn(turnId);
@@ -271,7 +271,7 @@ export function createApp(dependencies: IAppDependencies): {
               logger,
               logFields,
               requestStartedAt,
-              encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
+              encodeOpenAIError(new VolareError('not_found', 'Response not found')),
             );
           }
           return logHttpResponse(
@@ -292,11 +292,11 @@ export function createApp(dependencies: IAppDependencies): {
           logger,
           logFields,
           requestStartedAt,
-          encodeOpenAIError(new AgentLoomError('not_found', 'Route not found')),
+          encodeOpenAIError(new VolareError('not_found', 'Route not found')),
         );
       } catch (error) {
         const response = encodeOpenAIError(error);
-        const agentError = toAgentLoomError(error);
+        const agentError = toVolareError(error);
         return logHttpResponse(logger, logFields, requestStartedAt, response, {
           errorCode: agentError.code,
           ...(response.status >= 500 ? { error: agentError } : {}),
@@ -310,7 +310,7 @@ async function parseJsonBody(request: Request): Promise<unknown> {
   try {
     return await request.json();
   } catch (cause) {
-    throw new AgentLoomError('invalid_request', 'Malformed JSON body', { cause });
+    throw new VolareError('invalid_request', 'Malformed JSON body', { cause });
   }
 }
 
@@ -356,7 +356,7 @@ async function* logAgentEventStream(
     );
   } catch (error) {
     failed = true;
-    const agentError = toAgentLoomError(error);
+    const agentError = toVolareError(error);
     logger.error(
       {
         event: 'responses.stream.failed',

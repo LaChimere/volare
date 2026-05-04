@@ -12,7 +12,7 @@ function createStore(): SQLiteStateStore {
 }
 
 async function createFixture(store: SQLiteStateStore) {
-  const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+  const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
   const thread = await store.createThread({ workspaceId: workspace.id });
   const session = await store.reserveBackendSession({
     workspaceId: workspace.id,

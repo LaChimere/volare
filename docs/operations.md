@@ -7,32 +7,32 @@ This guide covers local operation and debugging.
 Foreground:
 
 ```bash
-export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
-bunx @lachimere/agent-loom start
+export VOLARE_API_KEY="replace-with-at-least-16-characters"
+bunx @lachimere/volare start
 ```
 
 Daemon:
 
 ```bash
-bunx @lachimere/agent-loom start -d
-bunx @lachimere/agent-loom status
-bunx @lachimere/agent-loom stop
+bunx @lachimere/volare start -d
+bunx @lachimere/volare status
+bunx @lachimere/volare stop
 ```
 
 Daemon logs:
 
 ```bash
-bunx @lachimere/agent-loom logs
-tail -f ~/.agent-loom/logs/agent-loom.log
+bunx @lachimere/volare logs
+tail -f ~/.volare/logs/volare.log
 ```
 
 ## Health and metrics
 
 ```bash
-curl -H "Authorization: Bearer $AGENT_LOOM_API_KEY" \
+curl -H "Authorization: Bearer $VOLARE_API_KEY" \
   http://127.0.0.1:8000/healthz
 
-curl -H "Authorization: Bearer $AGENT_LOOM_API_KEY" \
+curl -H "Authorization: Bearer $VOLARE_API_KEY" \
   http://127.0.0.1:8000/metrics
 ```
 
@@ -60,7 +60,7 @@ Logs can contain old non-JSON lines from earlier crashes or stack traces. Use li
 Fetch canonical/debug events for a turn:
 
 ```bash
-curl -H "Authorization: Bearer $AGENT_LOOM_API_KEY" \
+curl -H "Authorization: Bearer $VOLARE_API_KEY" \
   http://127.0.0.1:8000/debug/turns/<turn-id>/events
 ```
 
@@ -70,7 +70,7 @@ The journal is useful when comparing backend events with encoded Responses SSE o
 
 ### `401 Unauthorized`
 
-The server and client are using different tokens. Start Agent Loom with the same `AGENT_LOOM_API_KEY` that Codex uses through `env_key = "AGENT_LOOM_API_KEY"`.
+The server and client are using different tokens. Start Volare with the same `VOLARE_API_KEY` that Codex uses through `env_key = "VOLARE_API_KEY"`.
 
 ### `EADDRINUSE`
 
@@ -82,9 +82,9 @@ bun run src/cli.ts status
 
 Stop the existing daemon or start a new instance with `--port`.
 
-### `bunx @lachimere/agent-loom` returns npm 404
+### `bunx @lachimere/volare` returns npm 404
 
-The package must be published before `bunx @lachimere/agent-loom ...` can resolve it from npm. Use the local source entrypoint before publication:
+The package must be published before `bunx @lachimere/volare ...` can resolve it from npm. Use the local source entrypoint before publication:
 
 ```bash
 bun run src/cli.ts help
@@ -92,7 +92,7 @@ bun run src/cli.ts help
 
 ### Context appears to mention an unexpected Codex/Desktop path
 
-Agent Loom may still be in projectless mode. Check logs for `projectless: true` and inspect the persisted workspace root. Codex/Desktop can include its own UI or temporary workspace context in request text; Agent Loom labels this as client-provided context in backend prompts.
+Volare may still be in projectless mode. Check logs for `projectless: true` and inspect the persisted workspace root. Codex/Desktop can include its own UI or temporary workspace context in request text; Volare labels this as client-provided context in backend prompts.
 
 ### Context usage shows approximate values
 
@@ -100,4 +100,4 @@ Usage is estimated from prompt/output text because Copilot CLI does not currentl
 
 ## Shutdown and recovery
 
-On shutdown, Agent Loom stops accepting requests, runs state recovery cleanup, and force-stops the server even if recovery fails. On startup, non-terminal turns are marked interrupted and non-terminal backend sessions are abandoned so state is not left in an ambiguous active state.
+On shutdown, Volare stops accepting requests, runs state recovery cleanup, and force-stops the server even if recovery fails. On startup, non-terminal turns are marked interrupted and non-terminal backend sessions are abandoned so state is not left in an ambiguous active state.

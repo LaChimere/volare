@@ -1,6 +1,6 @@
 # Development
 
-Agent Loom is a Bun/TypeScript project. Use Bun for dependency management, scripts, tests, and packaging.
+Volare is a Bun/TypeScript project. Use Bun for dependency management, scripts, tests, and packaging.
 
 ## Repository layout
 
@@ -30,14 +30,14 @@ bun run test
 bun run package
 ```
 
-`bun run check` runs Biome and TypeScript. `bun run test` runs unit and integration tests. `bun run package` compiles `src/cli.ts` to `dist/agent-loom`.
+`bun run check` runs Biome and TypeScript. `bun run test` runs unit and integration tests. `bun run package` compiles `src/cli.ts` to `dist/volare`.
 Hook installation is explicit so the published CLI package has no install-time side effects.
 
 ## PR and release automation
 
 Pull requests and pushes to `main` run the CI workflow in `.github/workflows/ci.yml`. The gate installs dependencies with Bun, runs `bun run check`, `bun run test`, `bun run package`, performs `npm pack --dry-run`, and smoke-tests the packed CLI with `bunx`.
 
-Releases publish `@lachimere/agent-loom` through `.github/workflows/release.yml`, not from a developer machine. Publish a GitHub Release whose tag matches the package version, for example `v0.1.0`; the workflow verifies the tag, reruns validation, smoke-tests the packed CLI with `bunx`, and publishes to npm with provenance. Configure npm trusted publishing for the `npm` environment before the first real release. The workflow also supports a manual dry run through `workflow_dispatch`.
+Releases publish `@lachimere/volare` through `.github/workflows/release.yml`, not from a developer machine. Publish a GitHub Release whose tag matches the package version, for example `v0.2.0`; the workflow verifies the tag, reruns validation, smoke-tests the packed CLI with `bunx`, and publishes to npm with provenance. Configure npm trusted publishing for the `npm` environment before the first workflow-driven release. The workflow also supports a manual dry run through `workflow_dispatch` and skips npm publish when the exact package version already exists.
 
 ## Naming and type boundaries
 
@@ -48,7 +48,7 @@ Releases publish `@lachimere/agent-loom` through `.github/workflows/release.yml`
 
 ## Error handling
 
-Prefer explicit, typed errors using `AgentLoomError` or `toAgentLoomError`. Do not add broad catch blocks that silently return success-shaped values. Cleanup failures should not mask original errors; log cleanup failures and preserve the root cause where possible.
+Prefer explicit, typed errors using `VolareError` or `toVolareError`. Do not add broad catch blocks that silently return success-shaped values. Cleanup failures should not mask original errors; log cleanup failures and preserve the root cause where possible.
 
 ## Logging
 

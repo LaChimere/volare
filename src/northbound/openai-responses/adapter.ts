@@ -1,8 +1,7 @@
-import { AgentLoomError, toAgentLoomError } from '../../core/errors';
+import { toVolareError, VolareError } from '../../core/errors';
 import { createId } from '../../core/ids';
 import type {
   AgentEvent,
-  IAgentLoomError,
   IAgentRequestInput,
   IAgentUsage,
   INorthboundAdapter,
@@ -12,6 +11,7 @@ import type {
   IResponseContext,
   IStateStore,
   ITurnRecord,
+  IVolareError,
   IWorkspaceHints,
 } from '../../core/types';
 import {
@@ -41,22 +41,22 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
     _context: IRequestContext,
   ): Promise<IAgentRequestInput> {
     if (!isRecord(request.body)) {
-      throw new AgentLoomError('invalid_request', 'Responses request body must be a JSON object');
+      throw new VolareError('invalid_request', 'Responses request body must be a JSON object');
     }
 
     const tools = request.body['tools'];
     if (tools !== undefined && !Array.isArray(tools)) {
-      throw new AgentLoomError('invalid_request', 'Responses request tools must be an array');
+      throw new VolareError('invalid_request', 'Responses request tools must be an array');
     }
 
     const model = stringValue(request.body['model']);
     if (!model) {
-      throw new AgentLoomError('invalid_request', 'Responses request requires a model');
+      throw new VolareError('invalid_request', 'Responses request requires a model');
     }
 
     const parsedInput = parseInput(request.body['input']);
     if (!parsedInput) {
-      throw new AgentLoomError('invalid_request', 'Responses request requires text input');
+      throw new VolareError('invalid_request', 'Responses request requires text input');
     }
     const systemInstructions = [
       stringValue(request.body['instructions']),
@@ -70,7 +70,7 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
       ? await this.stateStore?.resolveClientRef(this.protocol, previousResponseId)
       : null;
     if (previousResponseId && this.stateStore && !parentRef) {
-      throw new AgentLoomError('not_found', 'previous_response_id was not found');
+      throw new VolareError('not_found', 'previous_response_id was not found');
     }
     const metadata = isRecord(request.body['metadata']) ? request.body['metadata'] : undefined;
     return {
@@ -291,7 +291,7 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
     };
   }
 
-  encodeError(error: IAgentLoomError): unknown {
+  encodeError(error: IVolareError): unknown {
     return {
       error: {
         type: error.code,
@@ -316,7 +316,7 @@ export function createCodexModelsResponse(): unknown {
       {
         slug: 'copilot-agent',
         display_name: 'Copilot Agent',
-        description: 'Agent Loom bridge to a Copilot-backed local agent runtime.',
+        description: 'Volare bridge to a Copilot-backed local agent runtime.',
         default_reasoning_level: null,
         supported_reasoning_levels: [],
         shell_type: 'shell_command',
@@ -342,7 +342,7 @@ export function createCodexModelsResponse(): unknown {
 }
 
 export function encodeOpenAIError(error: unknown): Response {
-  const agentError = toAgentLoomError(error);
+  const agentError = toVolareError(error);
   const status = statusForErrorCode(agentError.code);
   return Response.json(new OpenAIResponsesAdapter().encodeError(agentError), { status });
 }
@@ -395,7 +395,7 @@ function parseInput(input: unknown): IParsedInput | null {
     return null;
   }
   if (latest.role !== 'user') {
-    throw new AgentLoomError(
+    throw new VolareError(
       'invalid_request',
       'Responses request input must end with a user message',
     );
@@ -477,7 +477,7 @@ function errorFromEvents(events: AgentEvent[]): { code: string; message: string 
 }
 
 function toResponseError(error: unknown): { code: string; message: string } {
-  if (error instanceof AgentLoomError) {
+  if (error instanceof VolareError) {
     return { code: error.code, message: error.message };
   }
   if (error instanceof Error) {

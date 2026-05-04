@@ -3,12 +3,12 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import type { AgentLoomError } from '../../../src/core/errors';
+import type { VolareError } from '../../../src/core/errors';
 import { WorkspaceResolver } from '../../../src/core/workspace-resolver';
 
 describe('WorkspaceResolver', () => {
   test('canonicalizes the configured workspace root', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'agent-loom-workspace-'));
+    const root = await mkdtemp(path.join(tmpdir(), 'volare-workspace-'));
     const resolver = new WorkspaceResolver();
     try {
       const workspace = await resolver.resolve(
@@ -24,7 +24,7 @@ describe('WorkspaceResolver', () => {
   });
 
   test('uses an isolated projectless workspace for process-cwd requests', async () => {
-    const defaultRoot = await mkdtemp(path.join(tmpdir(), 'agent-loom-default-'));
+    const defaultRoot = await mkdtemp(path.join(tmpdir(), 'volare-default-'));
     const projectlessRoot = path.join(
       await mkdtemp(path.join(tmpdir(), 'neutralctx-')),
       'workspace',
@@ -45,7 +45,7 @@ describe('WorkspaceResolver', () => {
   });
 
   test('uses explicit client metadata instead of the projectless workspace', async () => {
-    const requestedRoot = await mkdtemp(path.join(tmpdir(), 'agent-loom-requested-'));
+    const requestedRoot = await mkdtemp(path.join(tmpdir(), 'volare-requested-'));
     const projectlessRoot = path.join(
       await mkdtemp(path.join(tmpdir(), 'neutralctx-')),
       'workspace',
@@ -65,8 +65,8 @@ describe('WorkspaceResolver', () => {
   });
 
   test('rejects requested roots outside the allowlist', async () => {
-    const allowed = await mkdtemp(path.join(tmpdir(), 'agent-loom-allowed-'));
-    const forbidden = await mkdtemp(path.join(tmpdir(), 'agent-loom-forbidden-'));
+    const allowed = await mkdtemp(path.join(tmpdir(), 'volare-allowed-'));
+    const forbidden = await mkdtemp(path.join(tmpdir(), 'volare-forbidden-'));
     const resolver = new WorkspaceResolver();
     try {
       await expect(
@@ -76,7 +76,7 @@ describe('WorkspaceResolver', () => {
         ),
       ).rejects.toMatchObject({
         code: 'workspace_forbidden',
-      } satisfies Partial<AgentLoomError>);
+      } satisfies Partial<VolareError>);
     } finally {
       await rm(allowed, { recursive: true, force: true });
       await rm(forbidden, { recursive: true, force: true });

@@ -26,7 +26,7 @@ export type BackendSessionStatus =
   | 'lost';
 export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'timed_out' | 'aborted';
 
-export interface IAgentLoomError {
+export interface IVolareError {
   code: string;
   message: string;
   cause?: unknown;
@@ -263,7 +263,7 @@ export interface INorthboundAdapter {
     events: AgentEvent[],
     options?: { previousResponseId?: string | null },
   ): unknown;
-  encodeError(error: IAgentLoomError): unknown;
+  encodeError(error: IVolareError): unknown;
   capabilities(): INorthboundCapabilities;
 }
 

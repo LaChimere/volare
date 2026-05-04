@@ -1,4 +1,4 @@
-# Agent Loom agent guide
+# Volare agent guide
 
 This repository is a Bun/TypeScript project for a local agent-runtime bridge backed by Copilot CLI. It currently exposes an OpenAI Responses-compatible adapter, but the core runtime should remain protocol-neutral. Prefer small, protocol-safe changes and keep the runtime easy to inspect locally.
 
@@ -32,11 +32,11 @@ This repository is a Bun/TypeScript project for a local agent-runtime bridge bac
 - Keep `README.md` concise and link to detailed docs under `docs/`.
 - Update docs when behavior, configuration, CLI commands, protocol compatibility, or operational workflows change.
 - Do not reference concrete `plans/<slug>/...` paths outside `plans/`; completed slugs may be deleted.
-- Preserve projectless workspace isolation in examples: generic Codex/Desktop chats should not inherit the Agent Loom repository context unless the client explicitly sends `metadata.workspace_root`.
+- Preserve projectless workspace isolation in examples: generic Codex/Desktop chats should not inherit the Volare repository context unless the client explicitly sends `metadata.workspace_root`.
 
 ## Security and privacy
 
 - Never commit secrets or bearer tokens.
-- Keep `AGENT_LOOM_API_KEY` in the environment, not in command-line flags.
+- Keep `VOLARE_API_KEY` in the environment, not in command-line flags.
 - Redact sensitive request, shell, and journal data in diagnostics.
 - Do not bypass content exclusion or local access policies when debugging.

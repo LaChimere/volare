@@ -161,7 +161,7 @@ class StubApprovalProvider implements IApprovalProvider {
 describe('DurableSessionManager', () => {
   test('marks reserved backend sessions lost when activation fails', async () => {
     const store = createStore();
-    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
     const manager = new DurableSessionManager({
       store,
       backend: new CreateFailingBackend(),
@@ -235,8 +235,8 @@ describe('DurableSessionManager', () => {
 
   test('rejects continuation when the request workspace does not match the thread', async () => {
     const store = createStore();
-    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
-    const otherWorkspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/other-agent-loom' });
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
+    const otherWorkspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/other-volare' });
     const backend = new TerminalOmittingBackend();
     const manager = new DurableSessionManager({ store, backend });
     const first = await manager.startTurn(

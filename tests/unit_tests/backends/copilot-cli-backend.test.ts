@@ -136,7 +136,7 @@ describe('CopilotCliBackend', () => {
         }),
       );
 
-      expect(runner.lastPrompt).toContain('Agent Loom bridge context:');
+      expect(runner.lastPrompt).toContain('Volare bridge context:');
       expect(runner.lastPrompt).toContain(
         'No explicit client workspace_root metadata was provided.',
       );

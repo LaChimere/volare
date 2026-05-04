@@ -1,6 +1,6 @@
 import { realpath } from 'node:fs/promises';
 
-import { AgentLoomError, toAgentLoomError } from '../../core/errors';
+import { toVolareError, VolareError } from '../../core/errors';
 import type {
   AgentEvent,
   IAgentBackend,
@@ -86,7 +86,7 @@ export class CopilotCliBackend implements IAgentBackend {
   ): Promise<IBackendSession> {
     const canonicalRoot = await canonicalizeWorkspaceRoot(workspace.rootPath);
     if (canonicalRoot !== workspace.rootPath) {
-      throw new AgentLoomError(
+      throw new VolareError(
         'workspace_changed',
         'Workspace root changed before backend session creation',
       );
@@ -104,7 +104,7 @@ export class CopilotCliBackend implements IAgentBackend {
 
   async resumeSession(session: IBackendSession): Promise<IBackendSession> {
     if (!session.backendSessionId) {
-      throw new AgentLoomError(
+      throw new VolareError(
         'backend_session_not_active',
         'Cannot resume a reserved backend session',
       );
@@ -118,13 +118,13 @@ export class CopilotCliBackend implements IAgentBackend {
     signal?: AbortSignal,
   ): AsyncIterable<AgentEvent> {
     if (!session.backendSessionId) {
-      throw new AgentLoomError(
+      throw new VolareError(
         'backend_session_not_active',
         'Cannot send to a reserved backend session',
       );
     }
     if (session.workspaceId !== request.workspaceId || session.threadId !== request.threadId) {
-      throw new AgentLoomError(
+      throw new VolareError(
         'backend_session_mismatch',
         'Backend session does not match request scope',
       );
@@ -132,10 +132,7 @@ export class CopilotCliBackend implements IAgentBackend {
 
     const cwd = this.#workspaceRoots.get(session.backendSessionId);
     if (!cwd) {
-      throw new AgentLoomError(
-        'backend_session_not_found',
-        'Backend session workspace was not found',
-      );
+      throw new VolareError('backend_session_not_found', 'Backend session workspace was not found');
     }
 
     let text = '';
@@ -162,7 +159,7 @@ export class CopilotCliBackend implements IAgentBackend {
         };
       }
     } catch (error) {
-      const agentError = toAgentLoomError(error);
+      const agentError = toVolareError(error);
       logger.error(
         {
           event: 'backend.turn.failed',
@@ -242,14 +239,14 @@ function formatBridgeContext(request: IAgentRequest, cwd: string): string {
   const requestedWorkspaceRoot = requestedWorkspaceRootFromMetadata(request.metadata);
   if (requestedWorkspaceRoot) {
     return [
-      'Agent Loom bridge context:',
+      'Volare bridge context:',
       `- Client explicitly requested workspace root: ${requestedWorkspaceRoot}`,
       `- Backend workspace root: ${cwd}`,
       '- Treat system instructions and conversation history as client-provided context.',
     ].join('\n');
   }
   return [
-    'Agent Loom bridge context:',
+    'Volare bridge context:',
     '- No explicit client workspace_root metadata was provided.',
     `- Backend workspace root is a neutral projectless workspace: ${cwd}`,
     '- Treat paths or workspace names mentioned in client-provided messages as client context, not as files available in the backend workspace unless tool output includes them.',
@@ -265,7 +262,7 @@ async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
   try {
     return await realpath(rootPath);
   } catch (cause) {
-    throw new AgentLoomError(
+    throw new VolareError(
       'workspace_canonicalization_failed',
       'Workspace root could not be resolved',
       {
@@ -387,7 +384,7 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
 
       const [exitCode, stderr] = await Promise.all([proc.exited, stderrPromise]);
       if (exitCode !== 0) {
-        throw new AgentLoomError('backend_process_failed', `Copilot CLI exited with ${exitCode}`, {
+        throw new VolareError('backend_process_failed', `Copilot CLI exited with ${exitCode}`, {
           cause: stderr,
         });
       }
@@ -486,11 +483,11 @@ function permissionArgs(mode: CopilotCliPermissionMode): string[] {
 function streamFailureError(
   error: unknown,
   context: { exitCode?: number; stderr: string; killErrors?: unknown[] },
-): AgentLoomError {
-  if (error instanceof AgentLoomError) {
-    return new AgentLoomError(error.code, error.message, { cause: { error, ...context } });
+): VolareError {
+  if (error instanceof VolareError) {
+    return new VolareError(error.code, error.message, { cause: { error, ...context } });
   }
-  return new AgentLoomError('backend_stream_failed', 'Copilot CLI output stream failed', {
+  return new VolareError('backend_stream_failed', 'Copilot CLI output stream failed', {
     cause: { error, ...context },
   });
 }
@@ -520,13 +517,9 @@ export function extractTextFromCopilotOutput(output: string): string {
       if (!looksLikeStructuredJson(line)) {
         return [line];
       }
-      throw new AgentLoomError(
-        'backend_output_invalid',
-        'Copilot CLI emitted malformed JSON output',
-        {
-          cause,
-        },
-      );
+      throw new VolareError('backend_output_invalid', 'Copilot CLI emitted malformed JSON output', {
+        cause,
+      });
     }
   });
   return parts.join('');

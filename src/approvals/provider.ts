@@ -1,4 +1,4 @@
-import { AgentLoomError } from '../core/errors';
+import { VolareError } from '../core/errors';
 import type {
   ApprovalDecision,
   ApprovalEvaluation,
@@ -157,7 +157,7 @@ export class ApprovalProvider implements IApprovalProvider {
   async #requireApproval(approvalId: string) {
     const approval = await this.#store.getApproval(approvalId);
     if (!approval) {
-      throw new AgentLoomError('approval_not_found', 'Approval was not found');
+      throw new VolareError('approval_not_found', 'Approval was not found');
     }
     return approval;
   }

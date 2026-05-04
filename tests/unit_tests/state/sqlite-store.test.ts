@@ -48,15 +48,15 @@ describe('SQLiteStateStore', () => {
   test('gets or creates workspaces atomically by root path', async () => {
     const store = createStore();
 
-    const first = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
-    const second = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+    const first = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
+    const second = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
 
     expect(second).toEqual(first);
   });
 
   test('creates queued turns and compare-and-set status updates', async () => {
     const store = createStore();
-    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
     const thread = await store.createThread({ workspaceId: workspace.id });
     const session = await store.reserveBackendSession({
       workspaceId: workspace.id,
@@ -79,7 +79,7 @@ describe('SQLiteStateStore', () => {
 
   test('reserves, activates, and updates backend sessions', async () => {
     const store = createStore();
-    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
     const thread = await store.createThread({ workspaceId: workspace.id });
     const session = await store.reserveBackendSession({
       workspaceId: workspace.id,
@@ -108,7 +108,7 @@ describe('SQLiteStateStore', () => {
 
   test('binds and resolves client refs', async () => {
     const store = createStore();
-    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
     const thread = await store.createThread({ workspaceId: workspace.id });
     const session = await store.reserveBackendSession({
       workspaceId: workspace.id,
@@ -320,7 +320,7 @@ describe('SQLiteStateStore', () => {
 });
 
 async function createTurnFixture(store: SQLiteStateStore) {
-  const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+  const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
   const thread = await store.createThread({ workspaceId: workspace.id });
   const session = await store.reserveBackendSession({
     workspaceId: workspace.id,

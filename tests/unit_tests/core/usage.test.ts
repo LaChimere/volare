@@ -30,7 +30,7 @@ describe('usage estimation', () => {
       outputTokens: 2,
       totalTokens: 4,
       estimated: true,
-      source: 'agent-loom-heuristic',
+      source: 'volare-heuristic',
     });
   });
 

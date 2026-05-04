@@ -47,5 +47,5 @@ jobs:
           (
             cd "${smoke_dir}"
             bun install "./${packed_name}"
-            bunx --bun agent-loom help
+            bunx --bun volare help
           )

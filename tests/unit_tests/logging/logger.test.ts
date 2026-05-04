@@ -24,7 +24,7 @@ describe('structured logger', () => {
 
     const entry = JSON.parse(destination.lines[0] ?? '{}') as Record<string, unknown>;
     expect(entry['level']).toBe('info');
-    expect(entry['service']).toBe('agent-loom');
+    expect(entry['service']).toBe('volare');
     expect(entry['component']).toBe('test');
     expect(entry['requestId']).toBe('request_1');
     expect(entry['status']).toBe(200);

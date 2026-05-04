@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { buildCodexConfig, configureCodex } from '../../../scripts/config-codex';
 
 describe('config-codex script', () => {
-  test('builds Codex Agent Loom config while preserving unrelated sections', () => {
+  test('builds Codex Volare config while preserving unrelated sections', () => {
     const config = buildCodexConfig(
       [
         'model = "old-model"',
@@ -21,63 +21,63 @@ describe('config-codex script', () => {
       ].join('\n'),
     );
 
-    expect(config).toContain('profile = "agent-loom"');
-    expect(config).toContain('model_provider = "agent-loom"');
+    expect(config).toContain('profile = "volare"');
+    expect(config).toContain('model_provider = "volare"');
     expect(config).toContain('model = "copilot-agent"');
     expect(config).toContain('[model_providers.other]');
     expect(config).toContain('[profiles.other]');
-    expect(config).toContain('[model_providers.agent-loom]');
+    expect(config).toContain('[model_providers.volare]');
     expect(config).toContain('base_url = "http://127.0.0.1:8000/openai/v1"');
-    expect(config).toContain('env_key = "AGENT_LOOM_API_KEY"');
+    expect(config).toContain('env_key = "VOLARE_API_KEY"');
     expect(config).toContain('requires_openai_auth = true');
-    expect(config).toContain('[profiles.agent-loom]');
+    expect(config).toContain('[profiles.volare]');
   });
 
-  test('replaces existing Agent Loom sections instead of duplicating them', () => {
+  test('replaces existing Volare sections instead of duplicating them', () => {
     const config = buildCodexConfig(
       [
         'profile = "old"',
         'model_provider = "old"',
         'model = "old"',
         '',
-        '[model_providers.agent-loom]',
-        'name = "Old Agent Loom"',
+        '[model_providers.volare]',
+        'name = "Old Volare"',
         'base_url = "http://127.0.0.1:1/openai/v1"',
         'requires_openai_auth = false',
         '',
-        '[profiles.agent-loom]',
+        '[profiles.volare]',
         'model_provider = "old"',
         'model = "old"',
       ].join('\n'),
       {
         baseUrl: 'http://127.0.0.1:8765/openai/v1',
-        envKey: 'CUSTOM_AGENT_LOOM_API_KEY',
+        envKey: 'CUSTOM_VOLARE_API_KEY',
       },
     );
 
-    expect(config.match(/\[model_providers\.agent-loom\]/g)).toHaveLength(1);
-    expect(config.match(/\[profiles\.agent-loom\]/g)).toHaveLength(1);
-    expect(config).not.toContain('Old Agent Loom');
+    expect(config.match(/\[model_providers\.volare\]/g)).toHaveLength(1);
+    expect(config.match(/\[profiles\.volare\]/g)).toHaveLength(1);
+    expect(config).not.toContain('Old Volare');
     expect(config).toContain('base_url = "http://127.0.0.1:8765/openai/v1"');
-    expect(config).toContain('env_key = "CUSTOM_AGENT_LOOM_API_KEY"');
+    expect(config).toContain('env_key = "CUSTOM_VOLARE_API_KEY"');
     expect(config).toContain('requires_openai_auth = true');
     expect(config).not.toContain('requires_openai_auth = false');
   });
 
   test('rejects invalid Codex provider settings', () => {
     expect(() => buildCodexConfig('', { baseUrl: 'not a url' })).toThrow(
-      'Agent Loom Codex base URL must be a valid URL',
+      'Volare Codex base URL must be a valid URL',
     );
     expect(() => buildCodexConfig('', { baseUrl: 'ftp://example.test/openai/v1' })).toThrow(
-      'Agent Loom Codex base URL must use http or https',
+      'Volare Codex base URL must use http or https',
     );
     expect(() => buildCodexConfig('', { envKey: 'BAD-KEY' })).toThrow(
-      'Agent Loom Codex env key must be a valid environment variable name',
+      'Volare Codex env key must be a valid environment variable name',
     );
   });
 
   test('writes config and backs up an existing file only when changed', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-loom-codex-config-'));
+    const root = await mkdtemp(join(tmpdir(), 'volare-codex-config-'));
     const configPath = join(root, 'config.toml');
     await writeFile(configPath, 'profile = "other"\n');
 
@@ -94,16 +94,16 @@ describe('config-codex script', () => {
       expect(first).toMatchObject({
         configPath,
         changed: true,
-        backupPath: `${configPath}.agent-loom-backup-test`,
+        backupPath: `${configPath}.volare-backup-test`,
       });
       expect(second).toEqual({
         configPath,
         changed: false,
       });
-      await expect(readFile(`${configPath}.agent-loom-backup-test`, 'utf8')).resolves.toBe(
+      await expect(readFile(`${configPath}.volare-backup-test`, 'utf8')).resolves.toBe(
         'profile = "other"\n',
       );
-      await expect(readFile(configPath, 'utf8')).resolves.toContain('[model_providers.agent-loom]');
+      await expect(readFile(configPath, 'utf8')).resolves.toContain('[model_providers.volare]');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

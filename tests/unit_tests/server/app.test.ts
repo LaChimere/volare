@@ -15,8 +15,8 @@ import { SQLiteStateStore } from '../../../src/state/sqlite-store';
 import { MockBackend } from '../../support/backends/mock-backend';
 
 const config = createServerRuntimeConfig({
-  AGENT_LOOM_API_KEY: '0123456789abcdef',
-  AGENT_LOOM_WORKSPACE_ROOT: process.cwd(),
+  VOLARE_API_KEY: '0123456789abcdef',
+  VOLARE_WORKSPACE_ROOT: process.cwd(),
 });
 
 function request(path: string, init: RequestInit = {}): Request {
@@ -724,14 +724,14 @@ describe('server app', () => {
   });
 
   test('rejects clearly too-short configured tokens', () => {
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_API_KEY: 'short' })).toThrow(
-      'AGENT_LOOM_API_KEY must be at least 16 non-whitespace characters',
+    expect(() => createServerRuntimeConfig({ VOLARE_API_KEY: 'short' })).toThrow(
+      'VOLARE_API_KEY must be at least 16 non-whitespace characters',
     );
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_API_KEY: '                ' })).toThrow(
-      'AGENT_LOOM_API_KEY must be at least 16 non-whitespace characters',
+    expect(() => createServerRuntimeConfig({ VOLARE_API_KEY: '                ' })).toThrow(
+      'VOLARE_API_KEY must be at least 16 non-whitespace characters',
     );
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_API_KEY: ' 0123456789abcdef ' })).toThrow(
-      'AGENT_LOOM_API_KEY must be at least 16 non-whitespace characters',
+    expect(() => createServerRuntimeConfig({ VOLARE_API_KEY: ' 0123456789abcdef ' })).toThrow(
+      'VOLARE_API_KEY must be at least 16 non-whitespace characters',
     );
   });
 
@@ -744,62 +744,62 @@ describe('server app', () => {
   });
 
   test('configures the durable state database path', () => {
-    expect(createServerRuntimeConfig({}).stateDatabasePath).toBe('.agent-loom/state.sqlite');
+    expect(createServerRuntimeConfig({}).stateDatabasePath).toBe('.volare/state.sqlite');
     expect(
       createServerRuntimeConfig({
-        AGENT_LOOM_STATE_DB_PATH: ':memory:',
+        VOLARE_STATE_DB_PATH: ':memory:',
       }).stateDatabasePath,
     ).toBe(':memory:');
   });
 
   test('rejects unsafe server configuration values', () => {
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_CORS_ALLOWED_ORIGINS: '*' })).toThrow(
+    expect(() => createServerRuntimeConfig({ VOLARE_CORS_ALLOWED_ORIGINS: '*' })).toThrow(
       'Wildcard CORS origins are not allowed',
     );
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_CORS_MODE: 'browser' })).toThrow(
+    expect(() => createServerRuntimeConfig({ VOLARE_CORS_MODE: 'browser' })).toThrow(
       'CORS browser mode is not supported',
     );
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: '*' })).toThrow(
-      'AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS must contain only concrete workspace paths',
+    expect(() => createServerRuntimeConfig({ VOLARE_ALLOWED_WORKSPACE_ROOTS: '*' })).toThrow(
+      'VOLARE_ALLOWED_WORKSPACE_ROOTS must contain only concrete workspace paths',
     );
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_WORKSPACE_ROOT: '*' })).toThrow(
-      'AGENT_LOOM_WORKSPACE_ROOT must be a concrete workspace path',
+    expect(() => createServerRuntimeConfig({ VOLARE_WORKSPACE_ROOT: '*' })).toThrow(
+      'VOLARE_WORKSPACE_ROOT must be a concrete workspace path',
     );
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: '*' })).toThrow(
-      'AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT must be a concrete workspace path',
+    expect(() => createServerRuntimeConfig({ VOLARE_PROJECTLESS_WORKSPACE_ROOT: '*' })).toThrow(
+      'VOLARE_PROJECTLESS_WORKSPACE_ROOT must be a concrete workspace path',
     );
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_PORT: '0' })).toThrow(
-      'AGENT_LOOM_PORT must be an integer',
+    expect(() => createServerRuntimeConfig({ VOLARE_PORT: '0' })).toThrow(
+      'VOLARE_PORT must be an integer',
     );
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_CANCEL_TIMEOUT_MS: '-1' })).toThrow(
-      'AGENT_LOOM_CANCEL_TIMEOUT_MS must be an integer',
+    expect(() => createServerRuntimeConfig({ VOLARE_CANCEL_TIMEOUT_MS: '-1' })).toThrow(
+      'VOLARE_CANCEL_TIMEOUT_MS must be an integer',
     );
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_EVENT_RETENTION_DAYS: '0' })).toThrow(
-      'AGENT_LOOM_EVENT_RETENTION_DAYS must be an integer',
+    expect(() => createServerRuntimeConfig({ VOLARE_EVENT_RETENTION_DAYS: '0' })).toThrow(
+      'VOLARE_EVENT_RETENTION_DAYS must be an integer',
     );
-    expect(() =>
-      createServerRuntimeConfig({ AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: '256' }),
-    ).toThrow('AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS must be an integer');
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_LOG_LEVEL: 'verbose' })).toThrow(
-      'AGENT_LOOM_LOG_LEVEL must be one of trace, debug, info, warn, error, fatal, or silent',
+    expect(() => createServerRuntimeConfig({ VOLARE_HTTP_IDLE_TIMEOUT_SECONDS: '256' })).toThrow(
+      'VOLARE_HTTP_IDLE_TIMEOUT_SECONDS must be an integer',
     );
-    expect(() => createServerRuntimeConfig({ AGENT_LOOM_COPILOT_PERMISSION_MODE: 'ask' })).toThrow(
-      'AGENT_LOOM_COPILOT_PERMISSION_MODE must be restricted, web, or full',
+    expect(() => createServerRuntimeConfig({ VOLARE_LOG_LEVEL: 'verbose' })).toThrow(
+      'VOLARE_LOG_LEVEL must be one of trace, debug, info, warn, error, fatal, or silent',
+    );
+    expect(() => createServerRuntimeConfig({ VOLARE_COPILOT_PERMISSION_MODE: 'ask' })).toThrow(
+      'VOLARE_COPILOT_PERMISSION_MODE must be restricted, web, or full',
     );
   });
 
   test('parses safe timeout and retention configuration values', () => {
     expect(
       createServerRuntimeConfig({
-        AGENT_LOOM_APPROVAL_TIMEOUT_MS: '60000',
-        AGENT_LOOM_CANCEL_TIMEOUT_MS: '10000',
-        AGENT_LOOM_DISCONNECT_GRACE_MS: '5000',
-        AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: '0',
-        AGENT_LOOM_LOG_LEVEL: 'debug',
-        AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: '/tmp/neutralctx',
-        AGENT_LOOM_MAX_ACTIVE_SESSIONS: '10',
-        AGENT_LOOM_EVENT_RETENTION_DAYS: '30',
-        AGENT_LOOM_COPILOT_PERMISSION_MODE: 'full',
+        VOLARE_APPROVAL_TIMEOUT_MS: '60000',
+        VOLARE_CANCEL_TIMEOUT_MS: '10000',
+        VOLARE_DISCONNECT_GRACE_MS: '5000',
+        VOLARE_HTTP_IDLE_TIMEOUT_SECONDS: '0',
+        VOLARE_LOG_LEVEL: 'debug',
+        VOLARE_PROJECTLESS_WORKSPACE_ROOT: '/tmp/neutralctx',
+        VOLARE_MAX_ACTIVE_SESSIONS: '10',
+        VOLARE_EVENT_RETENTION_DAYS: '30',
+        VOLARE_COPILOT_PERMISSION_MODE: 'full',
       }),
     ).toMatchObject({
       approvalTimeoutMs: 60_000,
@@ -814,12 +814,11 @@ describe('server app', () => {
     });
     expect(createServerRuntimeConfig({}).copilotPermissionMode).toBe('full');
     expect(
-      createServerRuntimeConfig({ AGENT_LOOM_COPILOT_PERMISSION_MODE: 'restricted' })
+      createServerRuntimeConfig({ VOLARE_COPILOT_PERMISSION_MODE: 'restricted' })
         .copilotPermissionMode,
     ).toBe('restricted');
     expect(
-      createServerRuntimeConfig({ AGENT_LOOM_COPILOT_PERMISSION_MODE: 'web' })
-        .copilotPermissionMode,
+      createServerRuntimeConfig({ VOLARE_COPILOT_PERMISSION_MODE: 'web' }).copilotPermissionMode,
     ).toBe('web');
   });
 

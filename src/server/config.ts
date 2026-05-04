@@ -5,7 +5,7 @@ import {
   DEFAULT_COPILOT_CLI_PERMISSION_MODE,
   isCopilotCliPermissionMode,
 } from '../backends/copilot-cli/backend';
-import { AgentLoomError } from '../core/errors';
+import { VolareError } from '../core/errors';
 import type { LogLevel } from '../logging/logger';
 
 export interface IServerRuntimeConfig {
@@ -29,97 +29,97 @@ export interface IServerRuntimeConfig {
 }
 
 export interface IServerRuntimeEnv {
-  AGENT_LOOM_API_KEY: string | undefined;
-  AGENT_LOOM_HOST: string | undefined;
-  AGENT_LOOM_PORT: string | undefined;
-  AGENT_LOOM_WORKSPACE_ROOT: string | undefined;
-  AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: string | undefined;
-  AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: string | undefined;
-  AGENT_LOOM_STATE_DB_PATH: string | undefined;
-  AGENT_LOOM_CORS_MODE: string | undefined;
-  AGENT_LOOM_CORS_ALLOWED_ORIGINS: string | undefined;
-  AGENT_LOOM_APPROVAL_TIMEOUT_MS: string | undefined;
-  AGENT_LOOM_CANCEL_TIMEOUT_MS: string | undefined;
-  AGENT_LOOM_DISCONNECT_GRACE_MS: string | undefined;
-  AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: string | undefined;
-  AGENT_LOOM_LOG_LEVEL: string | undefined;
-  AGENT_LOOM_MAX_ACTIVE_SESSIONS: string | undefined;
-  AGENT_LOOM_EVENT_RETENTION_DAYS: string | undefined;
-  AGENT_LOOM_COPILOT_PERMISSION_MODE: string | undefined;
+  VOLARE_API_KEY: string | undefined;
+  VOLARE_HOST: string | undefined;
+  VOLARE_PORT: string | undefined;
+  VOLARE_WORKSPACE_ROOT: string | undefined;
+  VOLARE_PROJECTLESS_WORKSPACE_ROOT: string | undefined;
+  VOLARE_ALLOWED_WORKSPACE_ROOTS: string | undefined;
+  VOLARE_STATE_DB_PATH: string | undefined;
+  VOLARE_CORS_MODE: string | undefined;
+  VOLARE_CORS_ALLOWED_ORIGINS: string | undefined;
+  VOLARE_APPROVAL_TIMEOUT_MS: string | undefined;
+  VOLARE_CANCEL_TIMEOUT_MS: string | undefined;
+  VOLARE_DISCONNECT_GRACE_MS: string | undefined;
+  VOLARE_HTTP_IDLE_TIMEOUT_SECONDS: string | undefined;
+  VOLARE_LOG_LEVEL: string | undefined;
+  VOLARE_MAX_ACTIVE_SESSIONS: string | undefined;
+  VOLARE_EVENT_RETENTION_DAYS: string | undefined;
+  VOLARE_COPILOT_PERMISSION_MODE: string | undefined;
 }
 
 export function createServerRuntimeConfig(
   env: Partial<IServerRuntimeEnv> = readServerRuntimeEnv(),
 ): IServerRuntimeConfig {
-  const providedApiKey = env.AGENT_LOOM_API_KEY;
+  const providedApiKey = env.VOLARE_API_KEY;
   const apiKey = providedApiKey ?? generateApiKey();
   if (
     providedApiKey !== undefined &&
     (providedApiKey.trim().length < 16 || /\s/.test(providedApiKey))
   ) {
-    throw new AgentLoomError(
+    throw new VolareError(
       'invalid_api_key',
-      'AGENT_LOOM_API_KEY must be at least 16 non-whitespace characters',
+      'VOLARE_API_KEY must be at least 16 non-whitespace characters',
     );
   }
   validateCorsConfig(env);
   const defaultWorkspaceRoot = parseWorkspaceRoot(
-    'AGENT_LOOM_WORKSPACE_ROOT',
-    env.AGENT_LOOM_WORKSPACE_ROOT,
+    'VOLARE_WORKSPACE_ROOT',
+    env.VOLARE_WORKSPACE_ROOT,
   );
-  const allowedWorkspaceRoots = parseAllowedWorkspaceRoots(env.AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS);
+  const allowedWorkspaceRoots = parseAllowedWorkspaceRoots(env.VOLARE_ALLOWED_WORKSPACE_ROOTS);
   const projectlessWorkspaceRoot =
     parseWorkspaceRoot(
-      'AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT',
-      env.AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT,
-    ) ?? join(tmpdir(), 'al-projectless-workspace');
+      'VOLARE_PROJECTLESS_WORKSPACE_ROOT',
+      env.VOLARE_PROJECTLESS_WORKSPACE_ROOT,
+    ) ?? join(tmpdir(), 'volare-projectless-workspace');
   const eventRetentionDays = optionalIntegerInRange(
-    'AGENT_LOOM_EVENT_RETENTION_DAYS',
-    env.AGENT_LOOM_EVENT_RETENTION_DAYS,
+    'VOLARE_EVENT_RETENTION_DAYS',
+    env.VOLARE_EVENT_RETENTION_DAYS,
     1,
     3650,
   );
 
   return {
-    host: env.AGENT_LOOM_HOST ?? '127.0.0.1',
-    port: integerInRange('AGENT_LOOM_PORT', env.AGENT_LOOM_PORT, 1, 65_535, 8000),
+    host: env.VOLARE_HOST ?? '127.0.0.1',
+    port: integerInRange('VOLARE_PORT', env.VOLARE_PORT, 1, 65_535, 8000),
     apiKey,
     generatedApiKey: !providedApiKey,
-    stateDatabasePath: env.AGENT_LOOM_STATE_DB_PATH ?? '.agent-loom/state.sqlite',
+    stateDatabasePath: env.VOLARE_STATE_DB_PATH ?? '.volare/state.sqlite',
     corsMode: 'disabled',
     approvalTimeoutMs: integerInRange(
-      'AGENT_LOOM_APPROVAL_TIMEOUT_MS',
-      env.AGENT_LOOM_APPROVAL_TIMEOUT_MS,
+      'VOLARE_APPROVAL_TIMEOUT_MS',
+      env.VOLARE_APPROVAL_TIMEOUT_MS,
       1,
       600_000,
       60_000,
     ),
     cancelTimeoutMs: integerInRange(
-      'AGENT_LOOM_CANCEL_TIMEOUT_MS',
-      env.AGENT_LOOM_CANCEL_TIMEOUT_MS,
+      'VOLARE_CANCEL_TIMEOUT_MS',
+      env.VOLARE_CANCEL_TIMEOUT_MS,
       1,
       600_000,
       10_000,
     ),
     disconnectGraceMs: integerInRange(
-      'AGENT_LOOM_DISCONNECT_GRACE_MS',
-      env.AGENT_LOOM_DISCONNECT_GRACE_MS,
+      'VOLARE_DISCONNECT_GRACE_MS',
+      env.VOLARE_DISCONNECT_GRACE_MS,
       0,
       60_000,
       5000,
     ),
     httpIdleTimeoutSeconds: integerInRange(
-      'AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS',
-      env.AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS,
+      'VOLARE_HTTP_IDLE_TIMEOUT_SECONDS',
+      env.VOLARE_HTTP_IDLE_TIMEOUT_SECONDS,
       0,
       255,
       0,
     ),
-    logLevel: parseLogLevel(env.AGENT_LOOM_LOG_LEVEL),
-    copilotPermissionMode: parseCopilotPermissionMode(env.AGENT_LOOM_COPILOT_PERMISSION_MODE),
+    logLevel: parseLogLevel(env.VOLARE_LOG_LEVEL),
+    copilotPermissionMode: parseCopilotPermissionMode(env.VOLARE_COPILOT_PERMISSION_MODE),
     maxActiveSessions: integerInRange(
-      'AGENT_LOOM_MAX_ACTIVE_SESSIONS',
-      env.AGENT_LOOM_MAX_ACTIVE_SESSIONS,
+      'VOLARE_MAX_ACTIVE_SESSIONS',
+      env.VOLARE_MAX_ACTIVE_SESSIONS,
       1,
       1000,
       10,
@@ -133,23 +133,23 @@ export function createServerRuntimeConfig(
 
 export function readServerRuntimeEnv(): IServerRuntimeEnv {
   return {
-    AGENT_LOOM_API_KEY: Bun.env['AGENT_LOOM_API_KEY'],
-    AGENT_LOOM_HOST: Bun.env['AGENT_LOOM_HOST'],
-    AGENT_LOOM_PORT: Bun.env['AGENT_LOOM_PORT'],
-    AGENT_LOOM_WORKSPACE_ROOT: Bun.env['AGENT_LOOM_WORKSPACE_ROOT'],
-    AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: Bun.env['AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT'],
-    AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS: Bun.env['AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS'],
-    AGENT_LOOM_STATE_DB_PATH: Bun.env['AGENT_LOOM_STATE_DB_PATH'],
-    AGENT_LOOM_CORS_MODE: Bun.env['AGENT_LOOM_CORS_MODE'],
-    AGENT_LOOM_CORS_ALLOWED_ORIGINS: Bun.env['AGENT_LOOM_CORS_ALLOWED_ORIGINS'],
-    AGENT_LOOM_APPROVAL_TIMEOUT_MS: Bun.env['AGENT_LOOM_APPROVAL_TIMEOUT_MS'],
-    AGENT_LOOM_CANCEL_TIMEOUT_MS: Bun.env['AGENT_LOOM_CANCEL_TIMEOUT_MS'],
-    AGENT_LOOM_DISCONNECT_GRACE_MS: Bun.env['AGENT_LOOM_DISCONNECT_GRACE_MS'],
-    AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS: Bun.env['AGENT_LOOM_HTTP_IDLE_TIMEOUT_SECONDS'],
-    AGENT_LOOM_LOG_LEVEL: Bun.env['AGENT_LOOM_LOG_LEVEL'],
-    AGENT_LOOM_MAX_ACTIVE_SESSIONS: Bun.env['AGENT_LOOM_MAX_ACTIVE_SESSIONS'],
-    AGENT_LOOM_EVENT_RETENTION_DAYS: Bun.env['AGENT_LOOM_EVENT_RETENTION_DAYS'],
-    AGENT_LOOM_COPILOT_PERMISSION_MODE: Bun.env['AGENT_LOOM_COPILOT_PERMISSION_MODE'],
+    VOLARE_API_KEY: Bun.env['VOLARE_API_KEY'],
+    VOLARE_HOST: Bun.env['VOLARE_HOST'],
+    VOLARE_PORT: Bun.env['VOLARE_PORT'],
+    VOLARE_WORKSPACE_ROOT: Bun.env['VOLARE_WORKSPACE_ROOT'],
+    VOLARE_PROJECTLESS_WORKSPACE_ROOT: Bun.env['VOLARE_PROJECTLESS_WORKSPACE_ROOT'],
+    VOLARE_ALLOWED_WORKSPACE_ROOTS: Bun.env['VOLARE_ALLOWED_WORKSPACE_ROOTS'],
+    VOLARE_STATE_DB_PATH: Bun.env['VOLARE_STATE_DB_PATH'],
+    VOLARE_CORS_MODE: Bun.env['VOLARE_CORS_MODE'],
+    VOLARE_CORS_ALLOWED_ORIGINS: Bun.env['VOLARE_CORS_ALLOWED_ORIGINS'],
+    VOLARE_APPROVAL_TIMEOUT_MS: Bun.env['VOLARE_APPROVAL_TIMEOUT_MS'],
+    VOLARE_CANCEL_TIMEOUT_MS: Bun.env['VOLARE_CANCEL_TIMEOUT_MS'],
+    VOLARE_DISCONNECT_GRACE_MS: Bun.env['VOLARE_DISCONNECT_GRACE_MS'],
+    VOLARE_HTTP_IDLE_TIMEOUT_SECONDS: Bun.env['VOLARE_HTTP_IDLE_TIMEOUT_SECONDS'],
+    VOLARE_LOG_LEVEL: Bun.env['VOLARE_LOG_LEVEL'],
+    VOLARE_MAX_ACTIVE_SESSIONS: Bun.env['VOLARE_MAX_ACTIVE_SESSIONS'],
+    VOLARE_EVENT_RETENTION_DAYS: Bun.env['VOLARE_EVENT_RETENTION_DAYS'],
+    VOLARE_COPILOT_PERMISSION_MODE: Bun.env['VOLARE_COPILOT_PERMISSION_MODE'],
   };
 }
 
@@ -164,9 +164,9 @@ function parseLogLevel(value: string | undefined): LogLevel {
   if (isLogLevel(level)) {
     return level;
   }
-  throw new AgentLoomError(
+  throw new VolareError(
     'invalid_config',
-    'AGENT_LOOM_LOG_LEVEL must be one of trace, debug, info, warn, error, fatal, or silent',
+    'VOLARE_LOG_LEVEL must be one of trace, debug, info, warn, error, fatal, or silent',
   );
 }
 
@@ -179,20 +179,20 @@ function parseCopilotPermissionMode(value: string | undefined): CopilotCliPermis
   if (isCopilotCliPermissionMode(mode)) {
     return mode;
   }
-  throw new AgentLoomError(
+  throw new VolareError(
     'invalid_config',
-    'AGENT_LOOM_COPILOT_PERMISSION_MODE must be restricted, web, or full',
+    'VOLARE_COPILOT_PERMISSION_MODE must be restricted, web, or full',
   );
 }
 
 function validateCorsConfig(env: Partial<IServerRuntimeEnv>): void {
-  const mode = env.AGENT_LOOM_CORS_MODE?.trim() ?? 'disabled';
-  const origins = splitList(env.AGENT_LOOM_CORS_ALLOWED_ORIGINS);
+  const mode = env.VOLARE_CORS_MODE?.trim() ?? 'disabled';
+  const origins = splitList(env.VOLARE_CORS_ALLOWED_ORIGINS);
   if (mode !== 'disabled') {
-    throw new AgentLoomError('invalid_config', 'CORS browser mode is not supported in the MVP');
+    throw new VolareError('invalid_config', 'CORS browser mode is not supported in the MVP');
   }
   if (origins.includes('*')) {
-    throw new AgentLoomError('invalid_config', 'Wildcard CORS origins are not allowed');
+    throw new VolareError('invalid_config', 'Wildcard CORS origins are not allowed');
   }
 }
 
@@ -202,7 +202,7 @@ function parseWorkspaceRoot(name: string, value: string | undefined): string | u
   }
   const trimmed = value.trim();
   if (!trimmed || trimmed === '*') {
-    throw new AgentLoomError('invalid_config', `${name} must be a concrete workspace path`);
+    throw new VolareError('invalid_config', `${name} must be a concrete workspace path`);
   }
   return trimmed;
 }
@@ -213,9 +213,9 @@ function parseAllowedWorkspaceRoots(value: string | undefined): string[] | undef
   }
   const roots = splitList(value);
   if (roots.length === 0 || roots.some((root) => root === '*')) {
-    throw new AgentLoomError(
+    throw new VolareError(
       'invalid_config',
-      'AGENT_LOOM_ALLOWED_WORKSPACE_ROOTS must contain only concrete workspace paths',
+      'VOLARE_ALLOWED_WORKSPACE_ROOTS must contain only concrete workspace paths',
     );
   }
   return roots;
@@ -252,7 +252,7 @@ function optionalIntegerInRange(
   }
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
-    throw new AgentLoomError(
+    throw new VolareError(
       'invalid_config',
       `${name} must be an integer between ${minimum} and ${maximum}`,
     );
