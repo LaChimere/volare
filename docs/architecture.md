@@ -2,6 +2,42 @@
 
 Agent Loom runs a local OpenAI Responses-compatible HTTP server and translates requests into a protocol-neutral agent runtime. The production runtime currently uses Copilot CLI as the backend.
 
+## Design stance
+
+Agent Loom is an agent bridge, not a plain model provider. The backend is treated as a stateful coding-agent runtime with workspace context, durable threads, cancellation, approvals, tool-capable execution, and replayable event history.
+
+Codex CLI/Desktop over OpenAI Responses is the first northbound client, but it is not the core abstraction. Core runtime types stay protocol-neutral; protocol-specific wire shapes live in adapters.
+
+The current design favors:
+
+- **Stateful continuity**: external response IDs map to canonical threads, turns, and backend sessions.
+- **Event journaling**: canonical events are persisted so failures and completed turns can be debugged or replayed.
+- **Security by default**: local bind, bearer auth, disabled CORS by default, workspace boundaries, and redacted diagnostics.
+- **Honest compatibility**: Agent Loom accepts Codex tool metadata, but it does not pretend to support a client-side tool-call lifecycle until a bridge-owned tool broker exists.
+- **Narrow protocol breadth**: OpenAI Responses is the MVP surface; additional client protocols should wait until the core agent lifecycle needs them.
+
+## Scope boundaries
+
+The supported MVP surface is intentionally small:
+
+```text
+GET  /openai/v1/models
+POST /openai/v1/responses
+GET  /openai/v1/responses/:id
+POST /openai/v1/responses/:id/cancel
+GET  /debug/turns/:id/events
+```
+
+Out of scope for the current architecture:
+
+- `/chat/completions`.
+- Anthropic Messages or Gemini adapters.
+- A custom UI.
+- A full MCP manager.
+- Bridge-owned local tool execution or OpenAI client-side function-call brokering.
+- Remote multi-user deployment.
+- Private or reverse-engineered Copilot APIs.
+
 ## Component map
 
 | Area | Path | Responsibility |

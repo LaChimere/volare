@@ -18,7 +18,6 @@ src/
 scripts/                      local helper scripts
 tests/                        unit and integration tests plus test-only helpers
 docs/                         project documentation
-plans/                        goal/plan history
 ```
 
 ## Commands
@@ -71,4 +70,4 @@ Update `docs/` when changing:
 - Development conventions.
 
 Keep `README.md` short and link to the detailed docs rather than duplicating them.
-Do not reference concrete `plans/<slug>/...` paths from non-`plans/` documentation because completed slugs can be cleaned up.
+Planning and goal artifacts are temporary execution records. Promote durable design decisions into `docs/` before cleaning those artifacts up.
