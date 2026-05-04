@@ -37,7 +37,7 @@ Hook installation is explicit so the published CLI package has no install-time s
 
 Pull requests and pushes to `main` run the CI workflow in `.github/workflows/ci.yml`. The gate installs dependencies with Bun, runs `bun run check`, `bun run test`, `bun run package`, performs `npm pack --dry-run`, and smoke-tests the packed CLI with `bunx`.
 
-Releases publish `@lachimere/volare` through `.github/workflows/release.yml`, not from a developer machine. Publish a GitHub Release whose tag matches the package version, for example `v0.2.0`; the workflow verifies the tag, reruns validation, smoke-tests the packed CLI with `bunx`, and publishes to npm with provenance. Configure npm trusted publishing for the `npm` environment before the first workflow-driven release. The workflow also supports a manual dry run through `workflow_dispatch` and skips npm publish when the exact package version already exists.
+Releases publish `@lachimere/volare` through `.github/workflows/release.yml`, not from a developer machine. Publish a GitHub Release whose tag matches the package version, for example `v0.2.0`; the workflow verifies the tag, reruns validation, smoke-tests the packed CLI with `bunx`, and publishes to npm with provenance. Configure npm trusted publishing for the `npm` environment before workflow-driven publishing. If npm OIDC cannot create a brand-new package, a maintainer may need a one-time bootstrap publish; after the package exists, subsequent releases should go through the workflow. The workflow also supports a manual dry run through `workflow_dispatch` and skips npm publish when the exact package version already exists.
 
 ## Naming and type boundaries
 
