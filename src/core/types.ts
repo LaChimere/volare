@@ -285,6 +285,8 @@ export interface IRequestContext {
 export interface IResponseContext {
   turnId: TurnId;
   threadId: ThreadId;
+  parentTurnId?: TurnId | null;
+  bridgeSessionId?: BridgeSessionId;
   externalResponseId?: string;
   previousResponseId?: string | null;
   requestInput?: IAgentInput;

@@ -176,8 +176,8 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
               {
                 id: responseId,
                 threadId: context.threadId,
-                parentTurnId: null,
-                bridgeSessionId: '',
+                parentTurnId: context.parentTurnId ?? null,
+                bridgeSessionId: context.bridgeSessionId ?? '',
                 status: 'succeeded',
                 model: context.model ?? '',
                 createdAt: context.createdAt ?? new Date(),

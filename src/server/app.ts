@@ -173,6 +173,8 @@ export function createApp(dependencies: IAppDependencies): {
               {
                 turnId: resolved.turn.id,
                 threadId: resolved.thread.id,
+                parentTurnId: resolved.turn.parentTurnId,
+                bridgeSessionId: resolved.turn.bridgeSessionId,
                 externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
                 previousResponseId: input.clientRef?.parentExternalId ?? null,
                 requestInput: input.input,

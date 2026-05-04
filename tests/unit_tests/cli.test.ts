@@ -195,6 +195,41 @@ describe('Agent Loom CLI', () => {
     );
   });
 
+  test('rejects missing start option values before daemon startup', async () => {
+    const { io, stderr } = memoryIo();
+    const calls: unknown[] = [];
+    const exitCode = await runCli(
+      ['start', '--daemon', '--port'],
+      testDependencies({
+        startDaemon: async (command) => {
+          calls.push(command);
+          return {
+            pid: 4242,
+            logPath: '/tmp/agent-loom.log',
+            pidPath: '/tmp/agent-loom.pid',
+          };
+        },
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(2);
+    expect(calls).toEqual([]);
+    expect(stderr.text()).toContain('Missing value for --port');
+  });
+
+  test('rejects unknown config targets and missing config option values', async () => {
+    const invalidTarget = memoryIo();
+    const missingValue = memoryIo();
+
+    expect(await runCli(['config', 'plugins'], testDependencies(), invalidTarget.io)).toBe(2);
+    expect(invalidTarget.stderr.text()).toContain('Expected config target: codex');
+    expect(
+      await runCli(['config', 'codex', '--base-url'], testDependencies(), missingValue.io),
+    ).toBe(2);
+    expect(missingValue.stderr.text()).toContain('Missing value for --base-url');
+  });
+
   test('reports daemon status and log paths', async () => {
     const { io, stdout } = memoryIo();
     const exitCode = await runCli(

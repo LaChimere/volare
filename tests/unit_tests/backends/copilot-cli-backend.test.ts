@@ -410,6 +410,41 @@ while true; do sleep 1; done
     }
   });
 
+  test('terminates a tracked Copilot process when the run signal aborts', async () => {
+    const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const bin = await installFakeCopilot(
+      'abort',
+      `#!/bin/sh
+printf '{"type":"assistant.message_delta","data":{"deltaContent":"started"}}\\n'
+trap 'exit 0' TERM
+while true; do sleep 1; done
+`,
+    );
+    try {
+      const runner = new BunCopilotPromptRunner(undefined, bin);
+      const controller = new AbortController();
+      const iterator = runner
+        .run('hello', {
+          backendSessionId: 'backend_session_1',
+          cwd: workspace,
+          signal: controller.signal,
+        })
+        [Symbol.asyncIterator]();
+
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: 'started',
+      });
+      controller.abort();
+
+      await expect(iterator.next()).resolves.toMatchObject({ done: true });
+      await expect(runner.cancel('backend_session_1')).resolves.toEqual({ status: 'not_found' });
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(path.dirname(bin), { recursive: true, force: true });
+    }
+  });
+
   test('passes configured permission mode to the default Copilot runner', async () => {
     const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
     const bin = await installFakeCopilot(
