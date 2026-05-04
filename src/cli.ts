@@ -83,6 +83,7 @@ export interface ISetupOptions {
 export interface ISetupResult {
   apiKeySource: 'environment' | 'persisted' | 'generated';
   envPath: string;
+  daemonRunning: boolean;
   codexConfig?: ICodexConfigResult;
   macosEnvironment?: {
     launchAgentPath: string;
@@ -177,6 +178,12 @@ export async function runCli(
           if (result.codexConfig.backupPath) {
             await writeLine(io.stdout, `Backup written: ${result.codexConfig.backupPath}`);
           }
+        }
+        if (result.daemonRunning && result.apiKeySource === 'generated') {
+          await writeLine(
+            io.stderr,
+            'Warning: setup generated a new API token while the Volare daemon is running. Restart the daemon before reconnecting Codex Desktop.',
+          );
         }
         await writeLine(io.stdout, `Next: bunx ${PACKAGE_NAME} start -d`);
         await writeLine(
@@ -541,10 +548,12 @@ async function setupVolare(options: ISetupOptions): Promise<ISetupResult> {
     options.macosEnvironment && process.platform === 'darwin'
       ? { launchAgentPath: await configureMacosEnvironment(apiKey, Bun.env) }
       : undefined;
+  const daemonRunning = (await getDaemonStatus()).running;
 
   return {
     apiKeySource,
     envPath,
+    daemonRunning,
     ...(codexConfig ? { codexConfig } : {}),
     ...(macosEnvironment ? { macosEnvironment } : {}),
   };
@@ -595,12 +604,27 @@ async function configureMacosEnvironment(
     mode: 0o600,
   });
   await chmod(launchAgentPath, 0o600);
+  await registerMacosLaunchAgent(launchAgentPath);
   await runCommand(
     '/bin/launchctl',
     ['setenv', VOLARE_API_KEY_ENV, apiKey],
     ['setenv', VOLARE_API_KEY_ENV, '<redacted>'],
   );
   return launchAgentPath;
+}
+
+async function registerMacosLaunchAgent(launchAgentPath: string): Promise<void> {
+  const uid = process.getuid?.();
+  if (uid === undefined) {
+    throw new CliUsageError('Unable to determine current user id for launchd registration');
+  }
+  const domain = `gui/${uid}`;
+  await runCommandWithAllowedExitCodes(
+    '/bin/launchctl',
+    ['bootout', domain, launchAgentPath],
+    [0, 5],
+  );
+  await runCommand('/bin/launchctl', ['bootstrap', domain, launchAgentPath]);
 }
 
 function macosLaunchAgentPlist(apiKey: string): string {
@@ -739,8 +763,17 @@ async function runCommand(
   args: string[],
   displayArgs: string[] = args,
 ): Promise<string> {
+  return runCommandWithAllowedExitCodes(command, args, [0], displayArgs);
+}
+
+async function runCommandWithAllowedExitCodes(
+  command: string,
+  args: string[],
+  allowedExitCodes: number[],
+  displayArgs: string[] = args,
+): Promise<string> {
   const result = await runChildProcess(command, args);
-  if (result.exitCode !== 0) {
+  if (result.exitCode === null || !allowedExitCodes.includes(result.exitCode)) {
     throw new CliUsageError(
       [
         `Command failed: ${[command, ...displayArgs].join(' ')}`,
@@ -971,7 +1004,8 @@ Update:
 Setup:
   volare setup generates or reuses a stable ${VOLARE_API_KEY_ENV}, saves it under
   ${defaultPersistentEnvPath()}, configures Codex, and updates the macOS GUI environment
-  for Codex Desktop when running on macOS.
+  for Codex Desktop when running on macOS. If setup generates a new token while
+  the daemon is already running, restart the daemon before reconnecting clients.
 
 Set ${VOLARE_API_KEY_ENV} in the environment or run "volare setup" for a stable API token.
 If it is omitted, Volare generates an ephemeral startup token and prints it to stderr or

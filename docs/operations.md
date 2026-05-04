@@ -84,6 +84,13 @@ bunx @lachimere/volare setup
 
 On macOS, setup applies `VOLARE_API_KEY` to the current GUI environment and writes a user LaunchAgent so future Codex Desktop launches can read the same token. It also saves the token under `~/.volare/env` so Volare can start without a manual shell export.
 
+If setup generated a new token while the daemon was already running, restart the daemon too:
+
+```bash
+bunx @lachimere/volare stop
+bunx @lachimere/volare start -d
+```
+
 ### `EADDRINUSE`
 
 Port `8000` is already listening. Check daemon status:

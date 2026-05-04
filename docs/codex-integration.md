@@ -11,7 +11,7 @@ bunx @lachimere/volare setup
 bunx @lachimere/volare start -d
 ```
 
-The setup command generates or reuses `VOLARE_API_KEY`, saves it under `~/.volare/env`, updates the macOS GUI environment for Codex Desktop, and writes Codex config. Restart Codex Desktop after setup so it can read the saved token. It updates `~/.codex/config.toml`, preserves unrelated settings, and creates a `.volare-backup-*` backup before changing an existing file.
+The setup command generates or reuses `VOLARE_API_KEY`, saves it under `~/.volare/env`, updates the macOS GUI environment for Codex Desktop, and writes Codex config. Restart Codex Desktop after setup so it can read the saved token. If setup generates a new token while the daemon is already running, restart the daemon before reconnecting Codex Desktop. It updates `~/.codex/config.toml`, preserves unrelated settings, and creates a `.volare-backup-*` backup before changing an existing file.
 
 Optional flags are available for non-default installs:
 
