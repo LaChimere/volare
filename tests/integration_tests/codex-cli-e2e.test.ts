@@ -23,6 +23,15 @@ import { migrate } from '../../src/state/migrations';
 import { SQLiteStateStore } from '../../src/state/sqlite-store';
 
 const apiKey = '0123456789abcdef';
+const codexExecTimeoutMs = 45_000;
+// Terms from Volare/Codex config projects that must not leak into isolated test projects.
+const unrelatedProjectContextTerms = [
+  'AGENTS.md',
+  'auth.json',
+  'config.toml',
+  'version.json',
+  'skills/',
+];
 
 describe('Codex CLI end-to-end integration', () => {
   test('routes a temporary project through Volare without leaking unrelated project context', async () => {
@@ -95,9 +104,8 @@ describe('Codex CLI end-to-end integration', () => {
       });
 
       expect(result.exitCode).not.toBe(0);
-      const output = `${result.stdout}\n${result.stderr}`;
-      expect(output).toContain('unexpected status 403 Forbidden');
-      expect(output).toContain('Workspace root is outside the allowed roots');
+      expect(result.stderr).toContain('unexpected status 403 Forbidden');
+      expect(result.stderr).toContain('Workspace root is outside the allowed roots');
       expect(backend.requests).toEqual([]);
       expect(backend.workspaceRoots).toEqual([]);
     } finally {
@@ -279,7 +287,11 @@ function startE2EServer(projectRoot: string, backend: IAgentBackend): ICodexE2ES
   return {
     baseUrl: `http://${server.hostname}:${server.port}`,
     async stop(): Promise<void> {
-      await server.stop(true);
+      try {
+        await server.stop(true);
+      } finally {
+        database.close();
+      }
     },
   };
 }
@@ -339,15 +351,26 @@ async function runCodexExec(options: {
       stderr: 'pipe',
     },
   );
+  let timedOut = false;
   const timeout = setTimeout(() => {
+    timedOut = true;
     proc.kill();
-  }, 45_000);
+  }, codexExecTimeoutMs);
   try {
     const [exitCode, stdout, stderr] = await Promise.all([
       proc.exited,
       readPipeText(proc.stdout),
       readPipeText(proc.stderr),
     ]);
+    if (timedOut) {
+      throw new Error(
+        [
+          `codex exec exceeded ${codexExecTimeoutMs}ms and was terminated`,
+          `stdout=${stdout.slice(0, 2_000)}`,
+          `stderr=${stderr.slice(0, 2_000)}`,
+        ].join('\n'),
+      );
+    }
     return { exitCode, stdout, stderr };
   } finally {
     clearTimeout(timeout);
@@ -361,15 +384,13 @@ async function readPipeText(
 }
 
 function expectProjectOnlyStatus(output: string): void {
-  const forbidden = ['AGENTS.md', 'auth.json', 'config.toml', 'version.json', 'skills/'];
-  const leaked = forbidden.filter((value) => output.includes(value));
-  expect(leaked, output).toEqual([]);
+  const leaked = unrelatedProjectContextTerms.filter((value) => output.includes(value));
+  expect(leaked).toEqual([]);
   expect(output).toContain('README.md');
   expect(output).toContain('no application source code has been added yet');
 }
 
 function expectNoUnrelatedProjectContext(output: string): void {
-  const forbidden = ['AGENTS.md', 'auth.json', 'config.toml', 'version.json', 'skills/'];
-  const leaked = forbidden.filter((value) => output.includes(value));
-  expect(leaked, output).toEqual([]);
+  const leaked = unrelatedProjectContextTerms.filter((value) => output.includes(value));
+  expect(leaked).toEqual([]);
 }
