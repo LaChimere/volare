@@ -340,8 +340,8 @@ export function createCodexModelsResponse(): unknown {
   return {
     models: [
       {
-        slug: 'copilot-agent',
-        display_name: 'Copilot Agent',
+        slug: 'gpt-5.5',
+        display_name: 'GPT-5.5',
         description: 'Volare bridge to a Copilot-backed local agent runtime.',
         default_reasoning_level: null,
         supported_reasoning_levels: [],

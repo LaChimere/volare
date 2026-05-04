@@ -33,7 +33,7 @@ It writes the equivalent provider/profile:
 ```toml
 profile = "volare"
 model_provider = "volare"
-model = "copilot-agent"
+model = "gpt-5.5"
 
 [model_providers.volare]
 name = "Volare"
@@ -45,7 +45,7 @@ supports_websockets = false
 
 [profiles.volare]
 model_provider = "volare"
-model = "copilot-agent"
+model = "gpt-5.5"
 ```
 
 Codex CLI and Desktop share this config. The top-level `profile`, `model_provider`, and `model` entries keep commands such as `codex exec resume --last` on Volare even when a subcommand does not accept `--profile`.
@@ -54,7 +54,7 @@ Codex CLI and Desktop share this config. The top-level `profile`, `model_provide
 
 ## Model catalog
 
-`GET /openai/v1/models` returns a Codex-compatible model catalog entry for `copilot-agent`, including fields such as `slug`, `display_name`, `shell_type`, `visibility`, API support metadata, truncation policy, modalities, and context window metadata. The same route is also available as `GET /v1/models` for clients that use the standard OpenAI base path.
+`GET /openai/v1/models` returns a Codex-compatible model catalog entry for `gpt-5.5` (`GPT-5.5` in Codex/Desktop), including fields such as `slug`, `display_name`, `shell_type`, `visibility`, API support metadata, truncation policy, modalities, and context window metadata. The same route is also available as `GET /v1/models` for clients that use the standard OpenAI base path.
 
 ## Supported Responses behavior
 

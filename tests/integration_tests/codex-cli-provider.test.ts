@@ -91,7 +91,7 @@ describe('Codex CLI provider integration', () => {
         '[model_providers.volare]\nname = "Volare"\nbase_url = "http://127.0.0.1:8765/openai/v1"\nwire_api = "responses"\nenv_key = "VOLARE_API_KEY"\nrequires_openai_auth = true',
       );
       await expect(readFile(configPath, 'utf8')).resolves.toContain(
-        '[profiles.volare]\nmodel_provider = "volare"\nmodel = "copilot-agent"',
+        '[profiles.volare]\nmodel_provider = "volare"\nmodel = "gpt-5.5"',
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -117,7 +117,7 @@ describe('Codex CLI provider integration', () => {
     await expect(models.json()).resolves.toMatchObject({
       models: [
         {
-          slug: 'copilot-agent',
+          slug: 'gpt-5.5',
           supported_in_api: true,
           supported_reasoning_levels: [],
           support_verbosity: false,
