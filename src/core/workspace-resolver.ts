@@ -28,7 +28,7 @@ export class WorkspaceResolver implements IWorkspaceResolver {
       process.cwd();
     const rootPath = await this.#canonicalize(requestedRoot, { createIfMissing: projectless });
     const allowedRoots = await Promise.all(
-      allowedRootCandidates(config).map((root) =>
+      allowedRootCandidates(config, hints).map((root) =>
         this.#canonicalize(root, { createIfMissing: root === config.projectlessWorkspaceRoot }),
       ),
     );
@@ -100,13 +100,14 @@ function sourceForRequestedRoot(
   return 'cwd';
 }
 
-function allowedRootCandidates(config: IServerConfig): string[] {
+function allowedRootCandidates(config: IServerConfig, hints: IWorkspaceHints): string[] {
   if (config.allowedWorkspaceRoots) {
     return config.projectlessWorkspaceRoot
       ? [...config.allowedWorkspaceRoots, config.projectlessWorkspaceRoot]
       : config.allowedWorkspaceRoots;
   }
   return [
+    ...(hints.requestedRoot ? [hints.requestedRoot] : []),
     config.defaultWorkspaceRoot ?? process.cwd(),
     ...(config.projectlessWorkspaceRoot ? [config.projectlessWorkspaceRoot] : []),
   ];

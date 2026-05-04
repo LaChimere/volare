@@ -254,7 +254,13 @@ export interface IServerConfig {
 
 export interface IWorkspaceHints {
   requestedRoot?: string;
-  source: 'server-config' | 'client-metadata' | 'process-cwd' | 'projectless';
+  source:
+    | 'server-config'
+    | 'client-metadata'
+    | 'request-header'
+    | 'client-context'
+    | 'process-cwd'
+    | 'projectless';
 }
 
 export interface INorthboundAdapter {

@@ -29,6 +29,8 @@ import { MockBackend } from '../support/backends/mock-backend';
 const apiKey = '0123456789abcdef';
 const explicitWorkspaceRoot = process.cwd();
 const projectlessWorkspaceRoot = join(tmpdir(), 'volare-it-projectless-workspace');
+const codexHeaderWorkspaceRoot = join(tmpdir(), 'volare-it-codex-header-workspace');
+const codexContextWorkspaceRoot = join(tmpdir(), 'volare-it-codex-context-workspace');
 
 const config = createServerRuntimeConfig({
   VOLARE_API_KEY: apiKey,
@@ -124,7 +126,7 @@ describe('Codex CLI provider integration', () => {
     });
   });
 
-  test('routes projectless and explicit workspace requests through workspace hints', async () => {
+  test('routes projectless and Codex workspace requests through workspace hints', async () => {
     const resolver = new CapturingWorkspaceResolver();
     const server = startServer(createInMemoryApp({ workspaceResolver: resolver }));
 
@@ -139,12 +141,49 @@ describe('Codex CLI provider integration', () => {
       stream: true,
       metadata: { workspace_root: explicitWorkspaceRoot },
     });
+    const headerWorkspace = await postJson(
+      server.baseUrl,
+      '/openai/v1/responses',
+      {
+        model: 'copilot-agent',
+        input: 'header workspace request',
+        stream: true,
+        client_metadata: { 'x-codex-installation-id': 'installation' },
+      },
+      {
+        headers: {
+          'x-codex-turn-metadata': JSON.stringify({
+            workspaces: {
+              [codexHeaderWorkspaceRoot]: {
+                has_changes: false,
+              },
+            },
+          }),
+        },
+      },
+    );
+    const contextWorkspace = await postJson(server.baseUrl, '/openai/v1/responses', {
+      model: 'copilot-agent',
+      input: [
+        {
+          role: 'system',
+          content: [{ type: 'input_text', text: codexStartupContext(codexContextWorkspaceRoot) }],
+        },
+        { role: 'user', content: [{ type: 'input_text', text: 'context workspace request' }] },
+      ],
+      stream: true,
+      client_metadata: { 'x-codex-installation-id': 'installation' },
+    });
 
     expect(projectless.status).toBe(200);
     expect(explicit.status).toBe(200);
+    expect(headerWorkspace.status).toBe(200);
+    expect(contextWorkspace.status).toBe(200);
     expect(resolver.hints).toEqual([
       { source: 'process-cwd' },
       { source: 'client-metadata', requestedRoot: explicitWorkspaceRoot },
+      { source: 'request-header', requestedRoot: codexHeaderWorkspaceRoot },
+      { source: 'client-context', requestedRoot: codexContextWorkspaceRoot },
     ]);
   });
 
@@ -611,14 +650,31 @@ async function postJson(
   baseUrl: string,
   path: string,
   body: unknown,
-  init: Pick<RequestInit, 'signal'> = {},
+  init: Pick<RequestInit, 'headers' | 'signal'> = {},
 ): Promise<Response> {
+  const headers = new Headers(jsonHeaders());
+  new Headers(init.headers).forEach((value, key) => {
+    headers.set(key, value);
+  });
   return await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: jsonHeaders(),
+    headers,
     body: JSON.stringify(body),
-    ...init,
+    ...(init.signal ? { signal: init.signal } : {}),
   });
+}
+
+function codexStartupContext(workspaceRoot: string): string {
+  return [
+    '<startup_context>',
+    'Startup context from Codex.',
+    'This is background context about recent work and machine/workspace layout. It may be incomplete or stale. Use it to inform responses, and do not repeat it back unless relevant.',
+    '',
+    '## Machine / Workspace Map',
+    `Current working directory: ${workspaceRoot}`,
+    `Working directory name: ${workspaceRoot.split('/').at(-1)}`,
+    '</startup_context>',
+  ].join('\n');
 }
 
 function parseSseEvents(streamText: string): ISseEvent[] {
