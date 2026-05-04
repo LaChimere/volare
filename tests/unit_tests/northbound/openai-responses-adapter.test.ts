@@ -159,6 +159,26 @@ describe('OpenAIResponsesAdapter', () => {
         transport: 'http',
         method: 'POST',
         path: '/openai/v1/responses',
+        headers: new Headers({
+          'x-codex-turn-metadata': JSON.stringify({
+            workspaces: {
+              '/tmp/codex-header-without-client-metadata': {
+                has_changes: false,
+              },
+            },
+          }),
+        }),
+        body: {},
+      }),
+    ).resolves.toEqual({
+      source: 'request-header',
+      requestedRoot: '/tmp/codex-header-without-client-metadata',
+    });
+    await expect(
+      adapter.extractWorkspaceHints({
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
         body: {
           client_metadata: {
             'x-codex-installation-id': 'installation',
