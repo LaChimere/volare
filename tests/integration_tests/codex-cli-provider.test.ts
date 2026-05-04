@@ -31,6 +31,7 @@ const explicitWorkspaceRoot = process.cwd();
 const projectlessWorkspaceRoot = join(tmpdir(), 'volare-it-projectless-workspace');
 const codexHeaderWorkspaceRoot = join(tmpdir(), 'volare-it-codex-header-workspace');
 const codexContextWorkspaceRoot = join(tmpdir(), 'volare-it-codex-context-workspace');
+const codexEnvironmentWorkspaceRoot = join(tmpdir(), 'volare-it-codex-environment-workspace');
 
 const config = createServerRuntimeConfig({
   VOLARE_API_KEY: apiKey,
@@ -174,16 +175,32 @@ describe('Codex CLI provider integration', () => {
       stream: true,
       client_metadata: { 'x-codex-installation-id': 'installation' },
     });
+    const environmentWorkspace = await postJson(server.baseUrl, '/openai/v1/responses', {
+      model: 'copilot-agent',
+      input: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: codexEnvironmentContext(codexEnvironmentWorkspaceRoot) },
+          ],
+        },
+        { role: 'user', content: [{ type: 'input_text', text: 'environment workspace request' }] },
+      ],
+      stream: true,
+      client_metadata: { 'x-codex-installation-id': 'installation' },
+    });
 
     expect(projectless.status).toBe(200);
     expect(explicit.status).toBe(200);
     expect(headerWorkspace.status).toBe(200);
     expect(contextWorkspace.status).toBe(200);
+    expect(environmentWorkspace.status).toBe(200);
     expect(resolver.hints).toEqual([
       { source: 'process-cwd' },
       { source: 'client-metadata', requestedRoot: explicitWorkspaceRoot },
       { source: 'request-header', requestedRoot: codexHeaderWorkspaceRoot },
       { source: 'client-context', requestedRoot: codexContextWorkspaceRoot },
+      { source: 'client-context', requestedRoot: codexEnvironmentWorkspaceRoot },
     ]);
   });
 
@@ -674,6 +691,15 @@ function codexStartupContext(workspaceRoot: string): string {
     `Current working directory: ${workspaceRoot}`,
     `Working directory name: ${workspaceRoot.split('/').at(-1)}`,
     '</startup_context>',
+  ].join('\n');
+}
+
+function codexEnvironmentContext(workspaceRoot: string): string {
+  return [
+    '<environment_context>',
+    `  <cwd>${workspaceRoot}</cwd>`,
+    '  <shell>bash</shell>',
+    '</environment_context>',
   ].join('\n');
 }
 

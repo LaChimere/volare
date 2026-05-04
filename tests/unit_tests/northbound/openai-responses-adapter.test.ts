@@ -48,6 +48,53 @@ describe('OpenAIResponsesAdapter', () => {
         headers: new Headers({
           'x-codex-turn-metadata': JSON.stringify({
             workspaces: {
+              '/tmp/header-workspace': {},
+            },
+          }),
+        }),
+        body: {
+          client_metadata: {
+            'x-codex-installation-id': 'installation',
+          },
+          input: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: [
+                    '<environment_context>',
+                    '  <environments>',
+                    '    <environment id="local">',
+                    '      <cwd>/tmp/codex-environment-workspace</cwd>',
+                    '      <shell>bash</shell>',
+                    '    </environment>',
+                    '    <environment id="remote">',
+                    '      <cwd>/tmp/remote-workspace</cwd>',
+                    '      <shell>bash</shell>',
+                    '    </environment>',
+                    '  </environments>',
+                    '</environment_context>',
+                  ].join('\n'),
+                },
+              ],
+            },
+            { role: 'user', content: [{ type: 'input_text', text: 'hello' }] },
+          ],
+        },
+      }),
+    ).resolves.toEqual({
+      source: 'client-context',
+      requestedRoot: '/tmp/codex-environment-workspace',
+    });
+    await expect(
+      adapter.extractWorkspaceHints({
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
+        headers: new Headers({
+          'x-codex-turn-metadata': JSON.stringify({
+            workspaces: {
               '/tmp/codex-git-workspace': {
                 latest_git_commit_hash: 'abc123',
               },
