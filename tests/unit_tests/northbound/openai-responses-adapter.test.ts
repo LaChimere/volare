@@ -633,6 +633,125 @@ describe('OpenAIResponsesAdapter', () => {
     });
   });
 
+  test('filters Codex client context fragments from conversation history', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+
+    const parsed = await adapter.parseRequest(
+      {
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
+        body: {
+          model: 'copilot-agent',
+          instructions: [
+            'You are a coding agent running in the Codex CLI, a terminal-based coding assistant.',
+            '',
+            '# AGENTS.md spec',
+            'Repos often contain AGENTS.md files.',
+          ].join('\n'),
+          input: [
+            { role: 'system', content: [{ text: 'Keep the answer short.' }] },
+            {
+              role: 'user',
+              content: [
+                {
+                  text: [
+                    '<environment_context>',
+                    '  <cwd>/tmp/current-project</cwd>',
+                    '  <shell>zsh</shell>',
+                    '</environment_context>',
+                  ].join('\n'),
+                },
+              ],
+            },
+            {
+              role: 'user',
+              content: [
+                {
+                  text: [
+                    '<skills_instructions>',
+                    'A skill may reference AGENTS.md or skills/ as generic agent context.',
+                    '</skills_instructions>',
+                  ].join('\n'),
+                },
+              ],
+            },
+            { role: 'user', content: [{ text: 'What is the status of this project?' }] },
+          ],
+        },
+      },
+      { workspaceId: 'workspace_1', requestId: 'request_1' },
+    );
+
+    expect(parsed).toMatchObject({
+      input: {
+        message: 'What is the status of this project?',
+        systemInstructions: 'Keep the answer short.',
+      },
+    });
+    expect(parsed.input.conversationHistory).toBeUndefined();
+  });
+
+  test('filters Codex runtime harness instructions', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+
+    await expect(
+      adapter.parseRequest(
+        {
+          transport: 'http',
+          method: 'POST',
+          path: '/openai/v1/responses',
+          body: {
+            model: 'copilot-agent',
+            instructions: [
+              '<permissions instructions>',
+              'Filesystem sandboxing defines which files can be read or written.',
+              '</permissions instructions>',
+              '<skills_instructions>',
+              '### Available skills',
+              '- Bun: Use when building JavaScript/TypeScript applications.',
+              'Skill bodies live on disk at the listed paths.',
+              '</skills_instructions>',
+            ].join('\n'),
+            input: 'Inspect the current project.',
+          },
+        },
+        { workspaceId: 'workspace_1', requestId: 'request_1' },
+      ),
+    ).resolves.toMatchObject({
+      input: {
+        message: 'Inspect the current project.',
+      },
+    });
+  });
+
+  test('preserves ordinary instructions that mention agent context terms', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+
+    await expect(
+      adapter.parseRequest(
+        {
+          transport: 'http',
+          method: 'POST',
+          path: '/openai/v1/responses',
+          body: {
+            model: 'copilot-agent',
+            instructions:
+              'When summarizing, mention whether AGENTS.md spec or <skills_instructions> content exists.',
+            input: 'Inspect the current project.',
+          },
+        },
+        { workspaceId: 'workspace_1', requestId: 'request_1' },
+      ),
+    ).resolves.toMatchObject({
+      input: {
+        message: 'Inspect the current project.',
+        systemInstructions:
+          'When summarizing, mention whether AGENTS.md spec or <skills_instructions> content exists.',
+      },
+    });
+  });
+
   test('rejects full-history Responses input that does not end with a user message', async () => {
     const adapter = new OpenAIResponsesAdapter();
 

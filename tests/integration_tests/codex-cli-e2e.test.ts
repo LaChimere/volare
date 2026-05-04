@@ -1,0 +1,290 @@
+import { Database } from 'bun:sqlite';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { configureCodex } from '../../scripts/config-codex';
+import { DurableSessionManager } from '../../src/core/durable-session-manager';
+import type {
+  AgentEvent,
+  IAgentBackend,
+  IAgentRequest,
+  IBackendCapabilities,
+  IBackendSession,
+  ICancelOptions,
+  ICancelResult,
+  ICreateSessionOptions,
+  IWorkspace,
+} from '../../src/core/types';
+import { createEstimatedUsage } from '../../src/core/usage';
+import { createApp } from '../../src/server/app';
+import { createServerRuntimeConfig } from '../../src/server/config';
+import { migrate } from '../../src/state/migrations';
+import { SQLiteStateStore } from '../../src/state/sqlite-store';
+
+const apiKey = '0123456789abcdef';
+const servers: Array<ReturnType<typeof Bun.serve>> = [];
+
+afterEach(() => {
+  for (const server of servers.splice(0)) {
+    server.stop(true);
+  }
+});
+
+describe('Codex CLI end-to-end integration', () => {
+  test('routes a temporary project through Volare without leaking unrelated project context', async () => {
+    await assertCodexCliAvailable();
+    const root = await mkdtemp(join(tmpdir(), 'volare-codex-cli-e2e-'));
+    const projectPath = join(root, 'project');
+    const codexHome = join(root, 'codex-home');
+    const outputPath = join(root, 'last-message.txt');
+    const backend = new ProjectStatusBackend();
+
+    try {
+      await mkdir(projectPath, { recursive: true });
+      await mkdir(codexHome, { recursive: true });
+      const projectRoot = await realpath(projectPath);
+      await writeFile(
+        join(projectRoot, 'README.md'),
+        [
+          '# temporary-project',
+          '',
+          'This is a temporary workspace for Volare Codex CLI integration testing.',
+          '',
+          '## Status',
+          '',
+          '- No application source code has been added yet.',
+          '- No build system or test framework is configured.',
+        ].join('\n'),
+      );
+      await configureCodexForE2E(codexHome, startE2EServer(projectRoot, backend).baseUrl);
+
+      const result = await runCodexExec({
+        cwd: projectRoot,
+        codexHome,
+        outputPath,
+      });
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(backend.requests).toHaveLength(1);
+      expect(backend.workspaceRoots).toEqual([projectRoot]);
+      expectNoUnrelatedProjectContext(JSON.stringify(backend.requests[0]));
+      expectProjectOnlyStatus(await readFile(outputPath, 'utf8'));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
+async function assertCodexCliAvailable(): Promise<void> {
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn(['codex', '--version'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+  } catch (cause) {
+    throw new Error('codex CLI is required for integration tests but was not found on PATH', {
+      cause,
+    });
+  }
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    readPipeText(proc.stdout),
+    readPipeText(proc.stderr),
+  ]);
+  expect(exitCode, `codex --version failed\nstdout=${stdout}\nstderr=${stderr}`).toBe(0);
+}
+
+class ProjectStatusBackend implements IAgentBackend {
+  readonly name = 'project-status';
+  readonly requests: IAgentRequest[] = [];
+  readonly workspaceRoots: string[] = [];
+  readonly #workspaceRootsBySession = new Map<string, string>();
+
+  capabilities(): IBackendCapabilities {
+    return {
+      persistentSessions: false,
+      serverSideTools: false,
+      permissionRequests: false,
+      externalApprovalDecisions: false,
+      backendInternalPauseResume: false,
+      cancellation: true,
+    };
+  }
+
+  async createSession(
+    workspace: IWorkspace,
+    options: ICreateSessionOptions,
+  ): Promise<IBackendSession> {
+    const backendSessionId = `project_status_${options.bridgeSessionId}`;
+    this.workspaceRoots.push(workspace.rootPath);
+    this.#workspaceRootsBySession.set(backendSessionId, workspace.rootPath);
+    return {
+      bridgeSessionId: options.bridgeSessionId,
+      backendSessionId,
+      workspaceId: workspace.id,
+      threadId: options.threadId,
+      status: 'active',
+    };
+  }
+
+  async resumeSession(session: IBackendSession): Promise<IBackendSession> {
+    return session;
+  }
+
+  async *send(
+    session: IBackendSession,
+    request: IAgentRequest,
+    signal?: AbortSignal,
+  ): AsyncIterable<AgentEvent> {
+    this.requests.push(request);
+    if (signal?.aborted) {
+      yield { type: 'turn.cancelled', turnId: request.turnId };
+      return;
+    }
+
+    const root = this.#workspaceRootsBySession.get(session.backendSessionId ?? '');
+    if (!root) {
+      yield {
+        type: 'turn.failed',
+        turnId: request.turnId,
+        error: { code: 'backend_session_not_found' },
+      };
+      return;
+    }
+
+    const entries = (await readdir(root)).sort();
+    const readme = await readFile(join(root, 'README.md'), 'utf8');
+    const output = [
+      'Project status: temporary placeholder workspace.',
+      `Visible files: ${entries.join(', ') || 'none'}.`,
+      readme.includes('No application source code has been added yet.')
+        ? 'README says no application source code has been added yet.'
+        : 'README status marker was not found.',
+    ].join('\n');
+
+    yield { type: 'text.delta', turnId: request.turnId, delta: output };
+    yield {
+      type: 'turn.succeeded',
+      turnId: request.turnId,
+      output: { text: output },
+      usage: createEstimatedUsage(request.input.message, output),
+    };
+  }
+
+  async cancel(_session: IBackendSession, _options?: ICancelOptions): Promise<ICancelResult> {
+    return { status: 'cancelled' };
+  }
+
+  async disposeSession(_session: IBackendSession): Promise<void> {}
+}
+
+function startE2EServer(projectRoot: string, backend: IAgentBackend): { baseUrl: string } {
+  const database = new Database(':memory:');
+  migrate(database);
+  const stateStore = new SQLiteStateStore(database);
+  const config = createServerRuntimeConfig({
+    VOLARE_API_KEY: apiKey,
+    VOLARE_ALLOWED_WORKSPACE_ROOTS: projectRoot,
+    VOLARE_PROJECTLESS_WORKSPACE_ROOT: join(tmpdir(), 'volare-codex-cli-e2e-projectless'),
+  });
+  const app = createApp({
+    config,
+    stateStore,
+    sessionManager: new DurableSessionManager({ store: stateStore, backend }),
+  });
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: app.fetch,
+  });
+  servers.push(server);
+  return { baseUrl: `http://${server.hostname}:${server.port}` };
+}
+
+async function configureCodexForE2E(codexHome: string, baseUrl: string): Promise<void> {
+  const configPath = join(codexHome, 'config.toml');
+  await configureCodex({
+    configPath,
+    baseUrl: `${baseUrl}/openai/v1`,
+    envKey: 'VOLARE_API_KEY',
+    backupSuffix: 'e2e',
+  });
+  const config = await readFile(configPath, 'utf8');
+  await writeFile(
+    configPath,
+    config.replace('requires_openai_auth = true', 'requires_openai_auth = false'),
+  );
+}
+
+async function runCodexExec(options: {
+  cwd: string;
+  codexHome: string;
+  outputPath: string;
+}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(
+    [
+      'codex',
+      'exec',
+      '--profile',
+      'volare',
+      '--cd',
+      options.cwd,
+      '--skip-git-repo-check',
+      '--ephemeral',
+      '--ignore-rules',
+      '--sandbox',
+      'read-only',
+      '--color',
+      'never',
+      '--output-last-message',
+      options.outputPath,
+      'What is the status of this project? Answer only from the current project files.',
+    ],
+    {
+      cwd: options.cwd,
+      env: {
+        ...Bun.env,
+        CODEX_HOME: options.codexHome,
+        VOLARE_API_KEY: apiKey,
+        NO_COLOR: '1',
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  );
+  const timeout = setTimeout(() => {
+    proc.kill();
+  }, 45_000);
+  try {
+    const [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      readPipeText(proc.stdout),
+      readPipeText(proc.stderr),
+    ]);
+    return { exitCode, stdout, stderr };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readPipeText(
+  pipe: ReadableStream<Uint8Array> | number | undefined,
+): Promise<string> {
+  return pipe instanceof ReadableStream ? await new Response(pipe).text() : '';
+}
+
+function expectProjectOnlyStatus(output: string): void {
+  const forbidden = ['AGENTS.md', 'auth.json', 'config.toml', 'version.json', 'skills/'];
+  const leaked = forbidden.filter((value) => output.includes(value));
+  expect(leaked, output).toEqual([]);
+  expect(output).toContain('README.md');
+  expect(output).toContain('no application source code has been added yet');
+}
+
+function expectNoUnrelatedProjectContext(output: string): void {
+  const forbidden = ['AGENTS.md', 'auth.json', 'config.toml', 'version.json', 'skills/'];
+  const leaked = forbidden.filter((value) => output.includes(value));
+  expect(leaked, output).toEqual([]);
+}
