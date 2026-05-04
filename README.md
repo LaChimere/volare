@@ -4,40 +4,24 @@ Agent Loom is a local agent-runtime bridge backed by Copilot CLI. It currently e
 
 ## Quick start
 
-Install dependencies:
-
-```bash
-bun install
-```
-
-Start the bridge with a stable token from a repository checkout:
+Start the bridge with a stable token:
 
 ```bash
 export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
-bun run src/cli.ts start
+bunx @lachimere/agent-loom start
 ```
 
 The server listens on `http://127.0.0.1:8000/openai/v1` by default and requires bearer auth for every endpoint. For a background daemon:
 
 ```bash
-bun run src/cli.ts start -d
-bun run src/cli.ts status
-bun run src/cli.ts logs
-```
-
-Configure Codex CLI/Desktop from a repository checkout:
-
-```bash
-bun run src/cli.ts config codex
-```
-
-After npm publication, the intended executable form is `bunx @lachimere/agent-loom ...`:
-
-```bash
-export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
-bunx @lachimere/agent-loom start
 bunx @lachimere/agent-loom start -d
 bunx @lachimere/agent-loom status
+bunx @lachimere/agent-loom logs
+```
+
+Configure Codex CLI/Desktop:
+
+```bash
 bunx @lachimere/agent-loom config codex
 ```
 
@@ -66,15 +50,13 @@ GET  /debug/turns/:id/events
 ## Commands
 
 ```bash
-bun run src/cli.ts help
-bun run src/cli.ts start                 # foreground server
-bun run src/cli.ts start -d              # daemon server
-bun run src/cli.ts status                # daemon status
-bun run src/cli.ts stop                  # stop daemon
-bun run src/cli.ts logs                  # print daemon log path
-bun run src/cli.ts config codex          # configure Codex CLI/Desktop
-bunx @lachimere/agent-loom config codex  # package executable after npm publication
-bun run package                          # compile standalone Bun binary to dist/agent-loom
+bunx @lachimere/agent-loom help
+bunx @lachimere/agent-loom start         # foreground server
+bunx @lachimere/agent-loom start -d      # daemon server
+bunx @lachimere/agent-loom status        # daemon status
+bunx @lachimere/agent-loom stop          # stop daemon
+bunx @lachimere/agent-loom logs          # print daemon log path
+bunx @lachimere/agent-loom config codex  # configure Codex CLI/Desktop
 ```
 
 ## Current compatibility scope

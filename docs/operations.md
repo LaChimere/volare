@@ -8,21 +8,21 @@ Foreground:
 
 ```bash
 export AGENT_LOOM_API_KEY="replace-with-at-least-16-characters"
-bun run src/cli.ts start
+bunx @lachimere/agent-loom start
 ```
 
 Daemon:
 
 ```bash
-bun run src/cli.ts start -d
-bun run src/cli.ts status
-bun run src/cli.ts stop
+bunx @lachimere/agent-loom start -d
+bunx @lachimere/agent-loom status
+bunx @lachimere/agent-loom stop
 ```
 
 Daemon logs:
 
 ```bash
-bun run src/cli.ts logs
+bunx @lachimere/agent-loom logs
 tail -f ~/.agent-loom/logs/agent-loom.log
 ```
 
