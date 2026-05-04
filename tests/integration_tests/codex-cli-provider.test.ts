@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configureCodex } from '../../scripts/config-codex';
@@ -202,6 +202,49 @@ describe('Codex CLI provider integration', () => {
       { source: 'client-context', requestedRoot: codexContextWorkspaceRoot },
       { source: 'client-context', requestedRoot: codexEnvironmentWorkspaceRoot },
     ]);
+  });
+
+  test('rejects Codex-derived workspace roots outside the configured allowlist', async () => {
+    const forbiddenRoot = await mkdtemp(join(tmpdir(), 'volare-it-forbidden-workspace-'));
+    await mkdir(forbiddenRoot, { recursive: true });
+    const workspace: IWorkspace = {
+      id: 'workspace_integration',
+      rootPath: explicitWorkspaceRoot,
+    };
+    const server = startServer(
+      createApp({
+        config,
+        sessionManager: new InMemorySessionManager({
+          backend: new MockBackend(),
+          workspace,
+        }),
+      }),
+    );
+
+    try {
+      const response = await postJson(server.baseUrl, '/openai/v1/responses', {
+        model: 'copilot-agent',
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: codexEnvironmentContext(forbiddenRoot) }],
+          },
+          { role: 'user', content: [{ type: 'input_text', text: 'forbidden workspace request' }] },
+        ],
+        stream: true,
+        client_metadata: { 'x-codex-installation-id': 'installation' },
+      });
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          type: 'workspace_forbidden',
+          message: 'Workspace root is outside the allowed roots',
+        },
+      });
+    } finally {
+      await rm(forbiddenRoot, { recursive: true, force: true });
+    }
   });
 
   test('streams a Codex CLI Responses request and stores a retrievable snapshot', async () => {

@@ -108,27 +108,58 @@ function textPartsFromRequestBody(body: unknown): string[] {
     return [];
   }
   const parts: string[] = [];
-  collectTextParts(body['instructions'], parts);
-  collectTextParts(body['input'], parts);
+  const instructions = stringValue(body['instructions']);
+  if (instructions) {
+    parts.push(instructions);
+  }
+  collectInputTextParts(body['input'], parts);
   return parts;
 }
 
-function collectTextParts(value: unknown, parts: string[]): void {
-  if (typeof value === 'string') {
-    parts.push(value);
+function collectInputTextParts(input: unknown, parts: string[]): void {
+  const inputText = stringValue(input);
+  if (inputText) {
+    parts.push(inputText);
     return;
   }
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      collectTextParts(item, parts);
+  if (!Array.isArray(input)) {
+    return;
+  }
+  for (const item of input) {
+    const itemText = stringValue(item);
+    if (itemText) {
+      parts.push(itemText);
+      continue;
     }
+    if (!isRecord(item)) {
+      continue;
+    }
+    collectContentTextParts(item['content'], parts);
+  }
+}
+
+function collectContentTextParts(content: unknown, parts: string[]): void {
+  const contentText = stringValue(content);
+  if (contentText) {
+    parts.push(contentText);
     return;
   }
-  if (!isRecord(value)) {
+  if (!Array.isArray(content)) {
     return;
   }
-  collectTextParts(value['content'], parts);
-  collectTextParts(value['text'], parts);
+  for (const part of content) {
+    const partText = stringValue(part);
+    if (partText) {
+      parts.push(partText);
+      continue;
+    }
+    if (isRecord(part)) {
+      const text = stringValue(part['text']);
+      if (text) {
+        parts.push(text);
+      }
+    }
+  }
 }
 
 function safeAbsolutePath(value: unknown): string | undefined {
