@@ -52,7 +52,7 @@ Codex CLI and Desktop share this config. The top-level `profile`, `model_provide
 
 ## Model catalog
 
-`GET /openai/v1/models` returns a Codex-compatible model catalog entry for `gpt-5.5` (`GPT-5.5` in Codex/Desktop), including fields such as `slug`, `display_name`, `shell_type`, `visibility`, API support metadata, reasoning levels, truncation policy, modalities, and context window metadata. The same route is also available as `GET /v1/models` for clients that use the standard OpenAI base path. GPT-5.5 defaults to high reasoning and advertises low, medium, and high as selectable reasoning levels.
+`GET /openai/v1/models` returns a Codex-compatible model catalog entry for `gpt-5.5` (`GPT-5.5` in Codex/Desktop), including fields such as `slug`, `model`, `display_name`, `shell_type`, `visibility`, API support metadata, reasoning levels, truncation policy, modalities, and context window metadata. The same route is also available as `GET /v1/models` for clients that use the standard OpenAI base path. GPT-5.5 defaults to high reasoning and advertises low, medium, high, and xhigh as selectable reasoning levels, including the camelCase fields Codex Desktop uses for its reasoning picker.
 
 ## Supported Responses behavior
 

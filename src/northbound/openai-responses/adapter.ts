@@ -341,10 +341,18 @@ export function createCodexModelsResponse(): unknown {
     models: [
       {
         slug: 'gpt-5.5',
+        model: 'gpt-5.5',
         display_name: 'GPT-5.5',
         description: 'Volare bridge to a Copilot-backed local agent runtime.',
         default_reasoning_level: 'high',
-        supported_reasoning_levels: ['low', 'medium', 'high'],
+        supported_reasoning_levels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high',
+        supportedReasoningEfforts: [
+          { reasoningEffort: 'low', description: 'low effort' },
+          { reasoningEffort: 'medium', description: 'medium effort' },
+          { reasoningEffort: 'high', description: 'high effort' },
+          { reasoningEffort: 'xhigh', description: 'extra high effort' },
+        ],
         shell_type: 'shell_command',
         visibility: 'list',
         supported_in_api: true,
