@@ -23,6 +23,13 @@ import {
 import { codexWorkspaceHintsFromRequest } from './codex-workspace-hints';
 
 const encoder = new TextEncoder();
+const CLIENT_CONTEXT_ONLY_TAGS = new Set([
+  'available_skills',
+  'environment_context',
+  'skills_instructions',
+  'startup_context',
+  'system_reminder',
+]);
 
 export class OpenAIResponsesAdapter implements INorthboundAdapter {
   readonly protocol = 'openai-responses-v1';
@@ -69,8 +76,11 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
     if (!parsedInput) {
       throw new VolareError('invalid_request', 'Responses request requires text input');
     }
+    const requestInstructions = stringValue(request.body['instructions']);
     const systemInstructions = [
-      stringValue(request.body['instructions']),
+      requestInstructions && !isCodexHarnessInstructions(requestInstructions)
+        ? requestInstructions
+        : undefined,
       parsedInput.systemInstructions,
     ]
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -415,10 +425,12 @@ function parseInput(input: unknown): IParsedInput | null {
     ];
   });
   const systemInstructions = messages
-    .filter((message) => message.role === 'system')
+    .filter((message) => message.role === 'system' && !isClientContextOnlyMessage(message))
     .map((message) => message.content)
     .join('\n\n');
-  const nonSystemMessages = messages.filter((message) => message.role !== 'system');
+  const nonSystemMessages = messages.filter(
+    (message) => message.role !== 'system' && !isClientContextOnlyMessage(message),
+  );
   const latestIndex = nonSystemMessages.length - 1;
   const latest = nonSystemMessages[latestIndex];
   if (!latest) {
@@ -436,6 +448,51 @@ function parseInput(input: unknown): IParsedInput | null {
     ...(systemInstructions ? { systemInstructions } : {}),
     attachments: latest.attachments,
   };
+}
+
+function isClientContextOnlyMessage(message: ParsedMessage): boolean {
+  if (message.attachments.length > 0) {
+    return false;
+  }
+  if (message.role === 'system' && isCodexHarnessInstructions(message.content)) {
+    return true;
+  }
+  if (message.role !== 'user') {
+    return false;
+  }
+  let remaining = message.content.trim();
+  if (!remaining.startsWith('<')) {
+    return false;
+  }
+  while (remaining.length > 0) {
+    const match = remaining.match(/^<([a-z_]+)\b[\s\S]*?<\/\1>\s*/);
+    if (!match) {
+      return false;
+    }
+    const tag = match[1];
+    if (!tag || !CLIENT_CONTEXT_ONLY_TAGS.has(tag)) {
+      return false;
+    }
+    remaining = remaining.slice(match[0].length).trimStart();
+  }
+  return true;
+}
+
+function isCodexHarnessInstructions(content: string): boolean {
+  const trimmed = content.trimStart();
+  const codexPersonaHarness =
+    trimmed.startsWith('You are a coding agent running in the Codex CLI') &&
+    (trimmed.includes('# AGENTS.md spec') ||
+      trimmed.includes('<skills_instructions>') ||
+      trimmed.includes(
+        'Within this context, Codex refers to the open-source agentic coding interface',
+      ));
+  const codexRuntimeHarness =
+    trimmed.includes('<permissions instructions>') &&
+    trimmed.includes('<skills_instructions>') &&
+    trimmed.includes('### Available skills') &&
+    trimmed.includes('Skill bodies live on disk');
+  return codexPersonaHarness || codexRuntimeHarness;
 }
 
 function parseContent(content: unknown): { textParts: string[]; attachments: IAgentAttachment[] } {
