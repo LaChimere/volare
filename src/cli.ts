@@ -14,7 +14,7 @@ import {
 } from './runtime/server';
 import type { IServerRuntimeEnv } from './server/config';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.1';
 
 export type ICliCommand =
   | { type: 'help' }
