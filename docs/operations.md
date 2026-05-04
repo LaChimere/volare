@@ -95,6 +95,16 @@ bunx --bun @lachimere/volare help
 
 If a release was just published, wait for npm registry propagation and retry. Also check that the command uses the scoped package name; unscoped `volare` is not this project.
 
+### `bunx @lachimere/volare` keeps running an older version
+
+Refresh Bun's package cache and verify the npm latest version:
+
+```bash
+bunx @lachimere/volare update
+```
+
+The command clears Bun's global install/bunx cache and resolves `@lachimere/volare@latest`, so unrelated cached `bunx` tools may be reinstalled later. If a release was published moments ago and the registry has not propagated yet, wait briefly and run the update command again.
+
 ### Context appears to mention an unexpected Codex/Desktop path
 
 Volare may still be in projectless mode. Check logs for `projectless: true` and inspect the persisted workspace root. Codex/Desktop can include its own UI or temporary workspace context in request text; Volare labels this as client-provided context in backend prompts.

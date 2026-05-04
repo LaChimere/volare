@@ -14,11 +14,13 @@ import {
 } from './runtime/server';
 import type { IServerRuntimeEnv } from './server/config';
 
-const VERSION = '0.3.1';
+const VERSION = '0.3.2';
+const PACKAGE_NAME = '@lachimere/volare';
 
 export type ICliCommand =
   | { type: 'help' }
   | { type: 'version' }
+  | { type: 'update' }
   | {
       type: 'start';
       daemon: boolean;
@@ -52,6 +54,11 @@ export interface ICliDependencies {
   getDaemonStatus: () => Promise<IDaemonStatusResult>;
   getDaemonPaths: () => IDaemonPaths;
   getEnv: () => Record<string, string | undefined>;
+  updatePackage: () => Promise<IUpdateResult>;
+}
+
+export interface IUpdateResult {
+  latestVersion: string;
 }
 
 export interface IDaemonPaths {
@@ -101,6 +108,22 @@ export async function runCli(
       case 'version':
         await writeLine(io.stdout, VERSION);
         return 0;
+      case 'update': {
+        await writeLine(
+          io.stdout,
+          `Refreshing Bun's global package cache and resolving ${PACKAGE_NAME}@latest...`,
+        );
+        const result = await dependencies.updatePackage();
+        await writeLine(
+          io.stdout,
+          `Volare update complete. Latest version: ${result.latestVersion}`,
+        );
+        await writeLine(
+          io.stdout,
+          `Future bunx runs will resolve ${PACKAGE_NAME}@latest from the refreshed cache.`,
+        );
+        return 0;
+      }
       case 'start':
         if (command.daemon) {
           if (!dependencies.getEnv()['VOLARE_API_KEY']?.trim()) {
@@ -176,6 +199,10 @@ export function parseCli(argv: string[]): ICliCommand {
   if (command === 'version' || command === '--version' || command === '-v') {
     return { type: 'version' };
   }
+  if (command === 'update') {
+    assertNoArgs(rest, 'update');
+    return { type: 'update' };
+  }
   if (command === 'start') {
     return parseStart(rest);
   }
@@ -195,7 +222,7 @@ export function parseCli(argv: string[]): ICliCommand {
     return { type: 'logs' };
   }
   throw new CliUsageError(
-    `Unknown command: ${command}. Expected one of: start, config, status, stop, logs, help, version.`,
+    `Unknown command: ${command}. Expected one of: start, config, status, stop, logs, update, help, version.`,
   );
 }
 
@@ -351,6 +378,7 @@ function defaultDependencies(): ICliDependencies {
     getDaemonStatus,
     getDaemonPaths: defaultDaemonPaths,
     getEnv: () => Bun.env,
+    updatePackage,
   };
 }
 
@@ -458,6 +486,61 @@ async function stopDaemon(): Promise<IDaemonStopResult> {
   }
   await rm(paths.pidPath, { force: true });
   return { stopped: true, pid, pidPath: paths.pidPath };
+}
+
+async function updatePackage(): Promise<IUpdateResult> {
+  const bunExecutable = Bun.argv[0] ?? 'bun';
+  await runCommand(bunExecutable, ['pm', 'cache', 'rm']);
+  const latestVersion = (
+    await runCommand(bunExecutable, ['x', '--bun', `${PACKAGE_NAME}@latest`, 'version'])
+  ).trim();
+  if (!latestVersion) {
+    throw new CliUsageError(`Unable to verify latest ${PACKAGE_NAME} version after update`);
+  }
+  return { latestVersion };
+}
+
+async function runCommand(command: string, args: string[]): Promise<string> {
+  const result = await runChildProcess(command, args);
+  if (result.exitCode !== 0) {
+    throw new CliUsageError(
+      [
+        `Command failed: ${[command, ...args].join(' ')}`,
+        result.stderr.trim() ? `stderr: ${result.stderr.trim()}` : undefined,
+        result.stdout.trim() ? `stdout: ${result.stdout.trim()}` : undefined,
+      ]
+        .filter((line): line is string => line !== undefined)
+        .join('\n'),
+    );
+  }
+  return result.stdout;
+}
+
+function runChildProcess(
+  command: string,
+  args: string[],
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.on('error', reject);
+    child.on('close', (exitCode) => {
+      resolve({ exitCode, stdout, stderr });
+    });
+  });
 }
 
 async function waitForDaemonStart(
@@ -605,6 +688,7 @@ Usage:
   volare status
   volare stop
   volare logs
+  volare update
 
 Start options:
   -d, --daemon                         Start in the background
@@ -622,6 +706,10 @@ Config options:
       --config, --config-path <path>   Codex config path
       --base-url <url>                 Volare OpenAI Responses base URL
       --env-key <name>                 Codex env_key for the Volare API token
+
+Update:
+  volare update clears Bun's global package cache, resolves ${PACKAGE_NAME}@latest,
+  and verifies the latest published Volare version for future bunx runs.
 
 Set VOLARE_API_KEY in the environment for a stable API token. If it is omitted,
 Volare generates an ephemeral startup token and prints it to stderr or the daemon log.`;

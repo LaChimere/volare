@@ -27,6 +27,14 @@ bunx @lachimere/volare config codex
 
 `bunx` requires Bun to be installed locally. Volare does not target Node-only `npx` execution in this release track.
 
+Upgrade the `bunx`-resolved package cache:
+
+```bash
+bunx @lachimere/volare update
+```
+
+This clears Bun's global package cache and resolves `@lachimere/volare@latest`, so unrelated `bunx` tools may be reinstalled the next time you run them.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md) - runtime components, request flow, state, and protocol boundaries.
@@ -58,6 +66,7 @@ bunx @lachimere/volare start -d      # daemon server
 bunx @lachimere/volare status        # daemon status
 bunx @lachimere/volare stop          # stop daemon
 bunx @lachimere/volare logs          # print daemon log path
+bunx @lachimere/volare update        # refresh Bun's global cache to npm latest
 bunx @lachimere/volare config codex  # configure Codex CLI/Desktop
 ```
 
