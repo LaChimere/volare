@@ -23,7 +23,7 @@ describe('config-codex script', () => {
 
     expect(config).toContain('profile = "volare"');
     expect(config).toContain('model_provider = "volare"');
-    expect(config).toContain('model = "copilot-agent"');
+    expect(config).toContain('model = "gpt-5.5"');
     expect(config).toContain('[model_providers.other]');
     expect(config).toContain('[profiles.other]');
     expect(config).toContain('[model_providers.volare]');

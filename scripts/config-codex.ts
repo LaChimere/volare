@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 const DEFAULT_PROFILE = 'volare';
-const DEFAULT_MODEL = 'copilot-agent';
+const DEFAULT_MODEL = 'gpt-5.5';
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8000/openai/v1';
 const DEFAULT_ENV_KEY = 'VOLARE_API_KEY';
 

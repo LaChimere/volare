@@ -253,8 +253,8 @@ describe('server app', () => {
     await expect(response.json()).resolves.toMatchObject({
       models: [
         {
-          slug: 'copilot-agent',
-          display_name: 'Copilot Agent',
+          slug: 'gpt-5.5',
+          display_name: 'GPT-5.5',
           shell_type: 'shell_command',
           visibility: 'list',
           supported_in_api: true,
