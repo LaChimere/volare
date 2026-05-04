@@ -52,6 +52,33 @@ describe('ShutdownController', () => {
 
     expect(server.stopCalls).toEqual([false, true]);
   });
+
+  test('force-stops and recovers state when graceful stop fails', async () => {
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/agent-loom' });
+    const thread = await store.createThread({ workspaceId: workspace.id });
+    const session = await store.reserveBackendSession({
+      workspaceId: workspace.id,
+      threadId: thread.id,
+      backend: 'mock',
+    });
+    await store.activateBackendSession(session, { backendSessionId: 'backend_1' });
+    const turn = await store.createTurn({
+      threadId: thread.id,
+      bridgeSessionId: session.bridgeSessionId,
+      model: 'copilot-agent',
+    });
+    const server = new FakeServer({ failGraceful: true });
+    const shutdown = new ShutdownController({ server, stateStore: store });
+
+    await expect(shutdown.shutdown()).rejects.toThrow('graceful stop failed');
+
+    expect(server.stopCalls).toEqual([false, true]);
+    await expect(store.getTurn(turn.id)).resolves.toMatchObject({ status: 'interrupted' });
+    await expect(store.getBackendSession(session.bridgeSessionId)).resolves.toMatchObject({
+      status: 'abandoned',
+    });
+  });
 });
 
 function createFailingRecoveryStore(): SQLiteStateStore {
@@ -63,8 +90,16 @@ function createFailingRecoveryStore(): SQLiteStateStore {
 class FakeServer {
   readonly stopCalls: boolean[] = [];
 
+  constructor(readonly options: { failGraceful?: boolean; failForce?: boolean } = {}) {}
+
   stop(force = false): void {
     this.stopCalls.push(force);
+    if (!force && this.options.failGraceful) {
+      throw new Error('graceful stop failed');
+    }
+    if (force && this.options.failForce) {
+      throw new Error('force stop failed');
+    }
   }
 }
 

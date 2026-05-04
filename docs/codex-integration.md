@@ -19,6 +19,15 @@ bun run src/cli.ts config codex
 
 The command updates `~/.codex/config.toml`, preserves unrelated settings, and creates a `.agent-loom-backup-*` backup before changing an existing file.
 
+Optional flags are available for non-default installs:
+
+```bash
+bun run src/cli.ts config codex \
+  --config /path/to/config.toml \
+  --base-url http://127.0.0.1:8000/openai/v1 \
+  --env-key AGENT_LOOM_API_KEY
+```
+
 It writes the equivalent provider/profile:
 
 ```toml

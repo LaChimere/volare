@@ -17,6 +17,7 @@ If `AGENT_LOOM_API_KEY` is not set, the server generates an ephemeral token and 
 | Variable | Default | Notes |
 |---|---|---|
 | `AGENT_LOOM_API_KEY` | generated | Must be at least 16 non-whitespace characters when provided. |
+| `AGENT_LOOM_HOME` | `~/.agent-loom` | Daemon-only root for the PID file, log file, and default daemon state database. |
 | `AGENT_LOOM_HOST` | `127.0.0.1` | Local bind host. |
 | `AGENT_LOOM_PORT` | `8000` | Valid range: `1..65535`. |
 | `AGENT_LOOM_STATE_DB_PATH` | `.agent-loom/state.sqlite` | Daemon mode defaults to `~/.agent-loom/state.sqlite` unless already set. |

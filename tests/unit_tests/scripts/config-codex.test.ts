@@ -43,6 +43,7 @@ describe('config-codex script', () => {
         '[model_providers.agent-loom]',
         'name = "Old Agent Loom"',
         'base_url = "http://127.0.0.1:1/openai/v1"',
+        'requires_openai_auth = false',
         '',
         '[profiles.agent-loom]',
         'model_provider = "old"',
@@ -59,6 +60,20 @@ describe('config-codex script', () => {
     expect(config).not.toContain('Old Agent Loom');
     expect(config).toContain('base_url = "http://127.0.0.1:8765/openai/v1"');
     expect(config).toContain('env_key = "CUSTOM_AGENT_LOOM_API_KEY"');
+    expect(config).toContain('requires_openai_auth = true');
+    expect(config).not.toContain('requires_openai_auth = false');
+  });
+
+  test('rejects invalid Codex provider settings', () => {
+    expect(() => buildCodexConfig('', { baseUrl: 'not a url' })).toThrow(
+      'Agent Loom Codex base URL must be a valid URL',
+    );
+    expect(() => buildCodexConfig('', { baseUrl: 'ftp://example.test/openai/v1' })).toThrow(
+      'Agent Loom Codex base URL must use http or https',
+    );
+    expect(() => buildCodexConfig('', { envKey: 'BAD-KEY' })).toThrow(
+      'Agent Loom Codex env key must be a valid environment variable name',
+    );
   });
 
   test('writes config and backs up an existing file only when changed', async () => {

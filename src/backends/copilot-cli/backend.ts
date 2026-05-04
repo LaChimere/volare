@@ -320,35 +320,69 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
     const abort = () => this.#kill(tracked, 'SIGTERM');
     options.signal?.addEventListener('abort', abort, { once: true });
 
-    const stderrPromise = new Response(proc.stderr).text();
+    const stderrPromise = new Response(proc.stderr)
+      .text()
+      .catch((cause) => `stderr read failed: ${errorMessage(cause)}`);
 
     try {
       const reader = proc.stdout.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let streamError: unknown;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split(/\r?\n/);
-        buffer = lines.pop() ?? '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() ?? '';
 
-        for (const line of lines) {
-          const text = extractTextFromCopilotOutput(line);
-          if (text.length > 0) {
-            yield text;
+          for (const line of lines) {
+            const text = extractTextFromCopilotOutput(line);
+            if (text.length > 0) {
+              yield text;
+            }
           }
         }
+
+        buffer += decoder.decode();
+        const remainingText = extractTextFromCopilotOutput(buffer);
+        if (remainingText.length > 0) {
+          yield remainingText;
+        }
+      } catch (error) {
+        streamError = error;
+      } finally {
+        reader.releaseLock();
       }
 
-      buffer += decoder.decode();
-      const remainingText = extractTextFromCopilotOutput(buffer);
-      if (remainingText.length > 0) {
-        yield remainingText;
+      if (streamError) {
+        const killErrors: unknown[] = [];
+        try {
+          this.#kill(tracked, 'SIGTERM');
+        } catch (error) {
+          killErrors.push(error);
+        }
+        if (!(await waitForAllExits([tracked], 250))) {
+          try {
+            this.#kill(tracked, 'SIGKILL');
+          } catch (error) {
+            killErrors.push(error);
+          }
+        }
+        const [exitResult, stderrResult] = await Promise.allSettled([proc.exited, stderrPromise]);
+        throw streamFailureError(streamError, {
+          ...(exitResult.status === 'fulfilled' ? { exitCode: exitResult.value } : {}),
+          stderr:
+            stderrResult.status === 'fulfilled'
+              ? stderrResult.value
+              : `stderr unavailable: ${errorMessage(stderrResult.reason)}`,
+          ...(killErrors.length > 0 ? { killErrors } : {}),
+        });
       }
 
       const [exitCode, stderr] = await Promise.all([proc.exited, stderrPromise]);
@@ -447,6 +481,22 @@ function permissionArgs(mode: CopilotCliPermissionMode): string[] {
     case 'full':
       return ['--allow-all'];
   }
+}
+
+function streamFailureError(
+  error: unknown,
+  context: { exitCode?: number; stderr: string; killErrors?: unknown[] },
+): AgentLoomError {
+  if (error instanceof AgentLoomError) {
+    return new AgentLoomError(error.code, error.message, { cause: { error, ...context } });
+  }
+  return new AgentLoomError('backend_stream_failed', 'Copilot CLI output stream failed', {
+    cause: { error, ...context },
+  });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function waitForAllExits(processes: TrackedProcess[], timeoutMs: number): Promise<boolean> {

@@ -110,6 +110,45 @@ describe('OpenAIResponsesAdapter', () => {
     ).rejects.toMatchObject({ code: 'invalid_request' });
   });
 
+  test('rejects invalid Responses request boundary shapes', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+    const context = { workspaceId: 'workspace_1', requestId: 'request_1' };
+    const request = (body: unknown) => ({
+      transport: 'http' as const,
+      method: 'POST',
+      path: '/openai/v1/responses',
+      body,
+    });
+
+    await expect(
+      adapter.parseRequest(request({ model: '', input: 'hello' }), context),
+    ).rejects.toMatchObject({
+      code: 'invalid_request',
+      message: 'Responses request requires a model',
+    });
+    await expect(
+      adapter.parseRequest(request({ model: 'copilot-agent', input: null }), context),
+    ).rejects.toMatchObject({
+      code: 'invalid_request',
+      message: 'Responses request requires text input',
+    });
+    await expect(
+      adapter.parseRequest(request({ model: 'copilot-agent', input: 123 }), context),
+    ).rejects.toMatchObject({
+      code: 'invalid_request',
+      message: 'Responses request requires text input',
+    });
+    await expect(
+      adapter.parseRequest(
+        request({ model: 'copilot-agent', input: 'hello', tools: { type: 'function' } }),
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: 'invalid_request',
+      message: 'Responses request tools must be an array',
+    });
+  });
+
   test('extracts full-history Responses input into latest message and conversation history', async () => {
     const adapter = new OpenAIResponsesAdapter();
 
@@ -354,6 +393,8 @@ describe('OpenAIResponsesAdapter', () => {
           externalResponseId: 'resp_usage',
           previousResponseId: null,
           requestInput: { message: 'ignored because backend usage wins' },
+          model: 'copilot-agent',
+          createdAt: new Date('2026-05-02T00:00:00.000Z'),
         },
       ),
     );
@@ -362,6 +403,8 @@ describe('OpenAIResponsesAdapter', () => {
       type: 'response.completed',
       response: {
         id: 'resp_usage',
+        model: 'copilot-agent',
+        created_at: 1_777_680_000,
         usage: {
           input_tokens: 12,
           output_tokens: 4,

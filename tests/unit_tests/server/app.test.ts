@@ -133,6 +133,32 @@ describe('server app', () => {
     expect(response.status).toBe(401);
   });
 
+  test('rejects malformed, wrong-scheme, and wrong-token bearer auth', async () => {
+    const app = createApp({ config });
+
+    const [malformed, wrongScheme, wrongToken] = await Promise.all([
+      app.fetch(
+        new Request('http://127.0.0.1:8000/openai/v1/models', {
+          headers: { authorization: 'Bearer' },
+        }),
+      ),
+      app.fetch(
+        new Request('http://127.0.0.1:8000/openai/v1/models', {
+          headers: { authorization: `Basic ${config.apiKey}` },
+        }),
+      ),
+      app.fetch(
+        new Request('http://127.0.0.1:8000/openai/v1/models', {
+          headers: { authorization: 'Bearer 0123456789abcdeg' },
+        }),
+      ),
+    ]);
+
+    expect(malformed.status).toBe(401);
+    expect(wrongScheme.status).toBe(401);
+    expect(wrongToken.status).toBe(401);
+  });
+
   test('rejects unexpected Origin headers with CORS disabled by default', async () => {
     const app = createApp({ config });
 
@@ -233,8 +259,11 @@ describe('server app', () => {
           visibility: 'list',
           supported_in_api: true,
           supported_reasoning_levels: [],
-          truncation_policy: { mode: 'bytes' },
+          truncation_policy: { mode: 'bytes', limit: 100_000 },
           input_modalities: ['text'],
+          experimental_supported_tools: [],
+          supports_parallel_tool_calls: false,
+          context_window: 128_000,
         },
       ],
     });
@@ -575,6 +604,35 @@ describe('server app', () => {
         (event: { canonicalJson?: { type?: string } }) => event.canonicalJson?.type,
       ),
     ).toEqual(['turn.created', 'text.delta', 'turn.succeeded']);
+  });
+
+  test('serves stored durable responses from journal replay after manager restart', async () => {
+    const stateStore = createStateStore();
+    const eventJournal = new SQLiteEventJournal(stateStore.database);
+    const app = createDurableApp(stateStore, { eventJournal });
+
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'journal replay',
+        }),
+      }),
+    );
+    const streamText = await createResponse.text();
+    const responseId = /"id":"(resp_[^"]+)"/.exec(streamText)?.[1];
+    expect(responseId).toBeDefined();
+
+    const restartedApp = createDurableApp(stateStore, { eventJournal });
+    const storedResponse = await restartedApp.fetch(request(`/openai/v1/responses/${responseId}`));
+
+    expect(storedResponse.status).toBe(200);
+    await expect(storedResponse.json()).resolves.toMatchObject({
+      id: responseId,
+      status: 'completed',
+      output: [{ content: [{ text: 'journal replay' }] }],
+    });
   });
 
   test('fails missing durable parents explicitly', async () => {

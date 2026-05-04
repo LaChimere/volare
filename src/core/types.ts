@@ -288,6 +288,8 @@ export interface IResponseContext {
   externalResponseId?: string;
   previousResponseId?: string | null;
   requestInput?: IAgentInput;
+  model?: string;
+  createdAt?: Date;
 }
 
 export interface IAgentRequestInput {

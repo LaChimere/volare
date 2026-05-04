@@ -176,6 +176,8 @@ export function createApp(dependencies: IAppDependencies): {
                 externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
                 previousResponseId: input.clientRef?.parentExternalId ?? null,
                 requestInput: input.input,
+                model: resolved.turn.model,
+                createdAt: resolved.turn.createdAt,
               },
             ),
             async () => {
@@ -222,6 +224,10 @@ export function createApp(dependencies: IAppDependencies): {
               encodeOpenAIError(new AgentLoomError('not_found', 'Response not found')),
             );
           }
+          let events = sessionManager.getEvents(turn.id);
+          if (events.length === 0 && dependencies.eventJournal) {
+            events = await collectAgentEvents(dependencies.eventJournal.replay(turn.id));
+          }
           return logHttpResponse(
             logger,
             logFields,
@@ -229,7 +235,7 @@ export function createApp(dependencies: IAppDependencies): {
             Response.json(
               adapter.encodeStoredResponse(
                 clientRef ? { ...turn, id: clientRef.externalId } : turn,
-                sessionManager.getEvents(turn.id),
+                events,
                 { previousResponseId: clientRef?.parentExternalId ?? null },
               ),
             ),
@@ -322,6 +328,14 @@ async function* journalCanonicalEvents(
   }
 }
 
+async function collectAgentEvents(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
+  const collected: AgentEvent[] = [];
+  for await (const event of events) {
+    collected.push(event);
+  }
+  return collected;
+}
+
 async function* logAgentEventStream(
   events: AsyncIterable<AgentEvent>,
   logger: ILogger,
@@ -400,8 +414,26 @@ function asyncIterableToStream(
       controller.enqueue(next.value);
     },
     async cancel() {
-      await onCancel?.();
-      await iterator.return?.();
+      let cancelError: unknown;
+      try {
+        await onCancel?.();
+      } catch (error) {
+        cancelError = error;
+      }
+      try {
+        await iterator.return?.();
+      } catch (returnError) {
+        if (cancelError) {
+          throw new AggregateError(
+            [cancelError, returnError],
+            'Stream cancellation cleanup failed',
+          );
+        }
+        throw returnError;
+      }
+      if (cancelError) {
+        throw cancelError;
+      }
     },
   });
 }

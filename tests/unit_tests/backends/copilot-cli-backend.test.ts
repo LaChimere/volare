@@ -348,6 +348,35 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
     }
   });
 
+  test('terminates the Copilot process when output parsing fails', async () => {
+    const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const bin = await installFakeCopilot(
+      'malformed-output',
+      `#!/bin/sh
+printf '{"delta":\\n'
+trap 'printf terminated > "$PWD/terminated.txt"; exit 0' TERM
+while true; do sleep 1; done
+`,
+    );
+    try {
+      const runner = new BunCopilotPromptRunner(undefined, bin);
+      await expect(
+        (async () => {
+          for await (const _chunk of runner.run('hello', {
+            backendSessionId: 'backend_session_1',
+            cwd: workspace,
+          })) {
+            // Consume until the malformed JSON line fails.
+          }
+        })(),
+      ).rejects.toThrow('Copilot CLI emitted malformed JSON output');
+      await expect(runner.cancel('backend_session_1')).resolves.toEqual({ status: 'not_found' });
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(path.dirname(bin), { recursive: true, force: true });
+    }
+  });
+
   test('cancels a tracked Copilot process with SIGTERM', async () => {
     const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
     const bin = await installFakeCopilot(

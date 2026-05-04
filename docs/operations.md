@@ -50,7 +50,7 @@ Runtime logs are structured JSON lines. Important event names include:
 | `workspace.resolved`, `workspace.selected` | Workspace selection and projectless status. |
 | `turn.started`, `turn.stream.started`, `turn.stream.terminal` | Session manager turn lifecycle. |
 | `backend.turn.started`, `backend.turn.completed`, `backend.turn.failed` | Copilot CLI backend lifecycle. |
-| `responses.stream.started`, `responses.stream.completed`, `responses.stream.cancelled` | SSE lifecycle. |
+| `responses.stream.started`, `responses.stream.completed`, `responses.stream.cancelled`, `responses.stream.failed`, `responses.stream.interrupted` | SSE lifecycle. |
 | `journal.redaction_failed` | Redaction failed before event persistence. |
 
 Logs can contain old non-JSON lines from earlier crashes or stack traces. Use line-by-line JSON parsing when analyzing mixed logs.

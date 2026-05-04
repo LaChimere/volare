@@ -53,8 +53,8 @@ export function buildCodexConfig(
   existing: string,
   options: { baseUrl?: string; envKey?: string } = {},
 ): string {
-  const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
-  const envKey = options.envKey ?? DEFAULT_ENV_KEY;
+  const baseUrl = validateBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
+  const envKey = validateEnvKey(options.envKey ?? DEFAULT_ENV_KEY);
   const withoutManagedSections = removeSection(
     removeSection(existing, `[model_providers.${DEFAULT_PROFILE}]`),
     `[profiles.${DEFAULT_PROFILE}]`,
@@ -131,7 +131,35 @@ function trimTrailingWhitespace(content: string): string {
 }
 
 function escapeTomlString(value: string): string {
+  if (
+    [...value].some((char) => {
+      const code = char.charCodeAt(0);
+      return code <= 0x1f || code === 0x7f;
+    })
+  ) {
+    throw new Error('TOML string values must not contain control characters');
+  }
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function validateBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (cause) {
+    throw new Error('Agent Loom Codex base URL must be a valid URL', { cause });
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Agent Loom Codex base URL must use http or https');
+  }
+  return value;
+}
+
+function validateEnvKey(value: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw new Error('Agent Loom Codex env key must be a valid environment variable name');
+  }
+  return value;
 }
 
 function escapeRegExp(value: string): string {
