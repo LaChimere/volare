@@ -127,6 +127,57 @@ describe('Codex CLI provider integration', () => {
     });
   });
 
+  test('serves OpenAI v1 compatibility aliases', async () => {
+    const server = startServer(createInMemoryApp());
+
+    const models = await fetch(`${server.baseUrl}/v1/models`, {
+      headers: authHeaders(),
+    });
+    const created = await postJson(server.baseUrl, '/v1/responses', {
+      model: 'copilot-agent',
+      input: 'compatibility request',
+      stream: true,
+    });
+    const createdEvents = parseSseEvents(await created.text());
+    const responseId = responseIdFromEvents(createdEvents);
+    const stored = await fetch(`${server.baseUrl}/v1/responses/${responseId}`, {
+      headers: authHeaders(),
+    });
+
+    expect(models.status).toBe(200);
+    expect(created.status).toBe(200);
+    expect(stored.status).toBe(200);
+    await expect(stored.json()).resolves.toMatchObject({
+      id: responseId,
+      status: 'completed',
+      output: [{ content: [{ text: 'compatibility request' }] }],
+    });
+
+    const cancelBackend = new BlockingBackend();
+    const cancelServer = startServer(
+      createInMemoryApp({ backend: cancelBackend, disconnectGraceMs: 0 }),
+    );
+    const inProgress = await postJson(cancelServer.baseUrl, '/v1/responses', {
+      model: 'copilot-agent',
+      input: 'cancel compatibility request',
+      stream: true,
+    });
+    const reader = inProgress.body?.getReader();
+    const firstChunk = await reader?.read();
+    const cancelId = responseIdFromEvents(parseSseEvents(decode(firstChunk?.value)));
+    const cancelled = await fetch(`${cancelServer.baseUrl}/v1/responses/${cancelId}/cancel`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+
+    expect(cancelled.status).toBe(200);
+    await expect(cancelled.json()).resolves.toMatchObject({
+      id: cancelId,
+      status: 'incomplete',
+    });
+    await reader?.cancel();
+  });
+
   test('routes projectless and Codex workspace requests through workspace hints', async () => {
     const resolver = new CapturingWorkspaceResolver();
     const server = startServer(createInMemoryApp({ workspaceResolver: resolver }));

@@ -28,6 +28,8 @@ POST /openai/v1/responses/:id/cancel
 GET  /debug/turns/:id/events
 ```
 
+The OpenAI Responses routes also accept `/v1/*` aliases for clients that use the standard OpenAI base path.
+
 Out of scope for the current architecture:
 
 - `/chat/completions`.
@@ -53,7 +55,7 @@ Out of scope for the current architecture:
 
 ## Request flow
 
-1. A client sends `POST /openai/v1/responses` with bearer auth.
+1. A client sends `POST /openai/v1/responses` or `POST /v1/responses` with bearer auth.
 2. `createApp()` parses JSON and asks the adapter for workspace hints.
 3. `WorkspaceResolver` chooses a workspace:
    - explicit `metadata.workspace_root` uses the requested root after allowlist checks;
