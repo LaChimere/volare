@@ -254,12 +254,20 @@ describe('server app', () => {
       models: [
         {
           slug: 'gpt-5.5',
+          model: 'gpt-5.5',
           display_name: 'GPT-5.5',
           shell_type: 'shell_command',
           visibility: 'list',
           supported_in_api: true,
           default_reasoning_level: 'high',
-          supported_reasoning_levels: ['low', 'medium', 'high'],
+          supported_reasoning_levels: ['low', 'medium', 'high', 'xhigh'],
+          defaultReasoningEffort: 'high',
+          supportedReasoningEfforts: [
+            { reasoningEffort: 'low', description: 'low effort' },
+            { reasoningEffort: 'medium', description: 'medium effort' },
+            { reasoningEffort: 'high', description: 'high effort' },
+            { reasoningEffort: 'xhigh', description: 'extra high effort' },
+          ],
           truncation_policy: { mode: 'bytes', limit: 100_000 },
           input_modalities: ['text'],
           experimental_supported_tools: [],
@@ -319,7 +327,8 @@ describe('server app', () => {
   });
 
   test('streams a text response and serves a stored response snapshot', async () => {
-    const app = createInMemoryApp();
+    const logger = new CapturingLogger();
+    const app = createInMemoryApp({ logger });
 
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
@@ -327,6 +336,7 @@ describe('server app', () => {
         body: JSON.stringify({
           model: 'copilot-agent',
           input: 'hello',
+          reasoning: { effort: 'xhigh' },
         }),
       }),
     );
@@ -335,6 +345,17 @@ describe('server app', () => {
     const streamText = await createResponse.text();
     expect(streamText).toContain('response.output_text.delta');
     expect(streamText).toContain('hello');
+    expect(logger.entries).toContainEqual(
+      expect.objectContaining({
+        level: 'info',
+        message: 'responses stream started',
+        fields: expect.objectContaining({
+          event: 'responses.stream.started',
+          model: 'copilot-agent',
+          reasoningEffort: 'xhigh',
+        }),
+      }),
+    );
     const responseId = /"id":"(resp_[^"]+)"/.exec(streamText)?.[1];
     expect(responseId).toBeDefined();
 

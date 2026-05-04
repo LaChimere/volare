@@ -118,9 +118,17 @@ describe('Codex CLI provider integration', () => {
       models: [
         {
           slug: 'gpt-5.5',
+          model: 'gpt-5.5',
           supported_in_api: true,
           default_reasoning_level: 'high',
-          supported_reasoning_levels: ['low', 'medium', 'high'],
+          supported_reasoning_levels: ['low', 'medium', 'high', 'xhigh'],
+          defaultReasoningEffort: 'high',
+          supportedReasoningEfforts: [
+            { reasoningEffort: 'low', description: 'low effort' },
+            { reasoningEffort: 'medium', description: 'medium effort' },
+            { reasoningEffort: 'high', description: 'high effort' },
+            { reasoningEffort: 'xhigh', description: 'extra high effort' },
+          ],
           support_verbosity: false,
           input_modalities: ['text'],
         },

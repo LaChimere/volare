@@ -2,11 +2,43 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
-import { OpenAIResponsesAdapter } from '../../../src/northbound/openai-responses/adapter';
+import {
+  createCodexModelsResponse,
+  OpenAIResponsesAdapter,
+} from '../../../src/northbound/openai-responses/adapter';
 import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
 
 describe('OpenAIResponsesAdapter', () => {
+  test('advertises Desktop-compatible GPT-5.5 reasoning controls', () => {
+    const response = createCodexModelsResponse() as {
+      models: Array<{
+        slug: string;
+        model?: string;
+        default_reasoning_level?: string;
+        supported_reasoning_levels?: string[];
+        defaultReasoningEffort?: string;
+        supportedReasoningEfforts?: Array<{ reasoningEffort: string; description: string }>;
+      }>;
+    };
+
+    expect(response.models).toContainEqual(
+      expect.objectContaining({
+        slug: 'gpt-5.5',
+        model: 'gpt-5.5',
+        default_reasoning_level: 'high',
+        supported_reasoning_levels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high',
+        supportedReasoningEfforts: [
+          { reasoningEffort: 'low', description: 'low effort' },
+          { reasoningEffort: 'medium', description: 'medium effort' },
+          { reasoningEffort: 'high', description: 'high effort' },
+          { reasoningEffort: 'xhigh', description: 'extra high effort' },
+        ],
+      }),
+    );
+  });
+
   test('extracts workspace hints from request metadata', async () => {
     const adapter = new OpenAIResponsesAdapter();
 

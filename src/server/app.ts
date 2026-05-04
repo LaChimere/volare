@@ -147,6 +147,7 @@ export function createApp(dependencies: IAppDependencies): {
             workspaceId: persistedWorkspace.id,
             requestId,
           });
+          const reasoningEffort = reasoningEffortFromRequestBody(northboundRequest.body);
           if (!sessionManager) {
             throw new VolareError('internal_error', 'Session manager is not configured');
           }
@@ -161,7 +162,14 @@ export function createApp(dependencies: IAppDependencies): {
             turnId: resolved.turn.id,
             responseId: resolved.externalResponseId ?? resolved.turn.id,
           });
-          streamLogger.info({ event: 'responses.stream.started' }, 'responses stream started');
+          streamLogger.info(
+            {
+              event: 'responses.stream.started',
+              model: input.model,
+              ...(reasoningEffort ? { reasoningEffort } : {}),
+            },
+            'responses stream started',
+          );
           const streamAbort = new AbortController();
           const stream = asyncIterableToStream(
             adapter.encodeStream(
@@ -324,6 +332,30 @@ async function parseJsonBody(request: Request): Promise<unknown> {
   } catch (cause) {
     throw new VolareError('invalid_request', 'Malformed JSON body', { cause });
   }
+}
+
+function reasoningEffortFromRequestBody(body: unknown): string | undefined {
+  if (!isRecord(body)) {
+    return undefined;
+  }
+  const reasoning = body['reasoning'];
+  if (isRecord(reasoning)) {
+    const effort = reasoning['effort'];
+    if (typeof effort === 'string') {
+      return effort;
+    }
+  }
+  for (const key of ['reasoning_effort', 'model_reasoning_effort']) {
+    const effort = body[key];
+    if (typeof effort === 'string') {
+      return effort;
+    }
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 async function* journalCanonicalEvents(
