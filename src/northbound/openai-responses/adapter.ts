@@ -635,10 +635,20 @@ function collectTextParts(value: unknown, parts: string[]): void {
 
 function safeAbsolutePath(value: unknown): string | undefined {
   const candidate = typeof value === 'string' ? value.trim() : '';
-  if (!candidate || candidate.includes('\0')) {
+  if (!candidate || hasControlCharacter(candidate)) {
     return undefined;
   }
   return path.isAbsolute(candidate) ? candidate : undefined;
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 31 || code === 127) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function parseJsonRecord(value: string): Record<string, unknown> | undefined {
