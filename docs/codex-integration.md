@@ -52,7 +52,7 @@ Codex CLI and Desktop share this config. The top-level `profile`, `model_provide
 
 ## Model catalog
 
-`GET /openai/v1/models` returns a Codex-compatible model catalog entry for `gpt-5.5` (`GPT-5.5` in Codex/Desktop), including fields such as `slug`, `display_name`, `shell_type`, `visibility`, API support metadata, truncation policy, modalities, and context window metadata. The same route is also available as `GET /v1/models` for clients that use the standard OpenAI base path.
+`GET /openai/v1/models` returns a Codex-compatible model catalog entry for `gpt-5.5` (`GPT-5.5` in Codex/Desktop), including fields such as `slug`, `display_name`, `shell_type`, `visibility`, API support metadata, reasoning levels, truncation policy, modalities, and context window metadata. The same route is also available as `GET /v1/models` for clients that use the standard OpenAI base path. GPT-5.5 defaults to high reasoning and advertises low, medium, and high as selectable reasoning levels.
 
 ## Supported Responses behavior
 
@@ -67,7 +67,7 @@ Volare currently supports the text bridge subset needed by Codex CLI/Desktop:
 - Request `metadata` and Codex `client_metadata` echoing on encoded Responses snapshots for client correlation.
 - Non-empty `tools`, `tool_choice`, and `parallel_tool_calls` request fields as client capability metadata.
 - Explicit rejection of `stream: false`; Volare streams every response.
-- Compatibility acceptance for unsupported Codex controls such as `reasoning` and `text` so ordinary Codex CLI/Desktop requests are not blocked. Volare does not advertise reasoning or verbosity controls, so these fields are currently ignored.
+- Compatibility acceptance for unsupported Codex controls such as `reasoning` and `text` so ordinary Codex CLI/Desktop requests are not blocked. Volare advertises GPT-5.5 reasoning levels for Codex UI compatibility, but currently treats those request fields as client-side selection metadata for the text bridge.
 - Terminal `response.completed`, `response.failed`, and `response.incomplete` events.
 - Standard `usage` fields with best-effort estimated token counts.
 
