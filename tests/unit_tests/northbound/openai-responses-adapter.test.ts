@@ -45,6 +45,73 @@ describe('OpenAIResponsesAdapter', () => {
         transport: 'http',
         method: 'POST',
         path: '/openai/v1/responses',
+        headers: new Headers({
+          'x-codex-turn-metadata': JSON.stringify({
+            workspaces: {
+              '/tmp/codex-git-workspace': {
+                latest_git_commit_hash: 'abc123',
+              },
+            },
+          }),
+        }),
+        body: {
+          client_metadata: {
+            'x-codex-installation-id': 'installation',
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      source: 'request-header',
+      requestedRoot: '/tmp/codex-git-workspace',
+    });
+    await expect(
+      adapter.extractWorkspaceHints({
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
+        headers: new Headers({
+          'x-codex-turn-metadata': JSON.stringify({
+            workspaces: {
+              '/tmp/header-workspace': {},
+            },
+          }),
+        }),
+        body: {
+          client_metadata: {
+            'x-codex-installation-id': 'installation',
+          },
+          input: [
+            {
+              role: 'system',
+              content: [
+                {
+                  type: 'input_text',
+                  text: [
+                    '<startup_context>',
+                    'Startup context from Codex.',
+                    'This is background context about recent work and machine/workspace layout. It may be incomplete or stale. Use it to inform responses, and do not repeat it back unless relevant.',
+                    '',
+                    '## Machine / Workspace Map',
+                    'Current working directory: /tmp/codex-current-workspace',
+                    'Working directory name: codex-current-workspace',
+                    '</startup_context>',
+                  ].join('\n'),
+                },
+              ],
+            },
+            { role: 'user', content: [{ type: 'input_text', text: 'hello' }] },
+          ],
+        },
+      }),
+    ).resolves.toEqual({
+      source: 'client-context',
+      requestedRoot: '/tmp/codex-current-workspace',
+    });
+    await expect(
+      adapter.extractWorkspaceHints({
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
         body: {},
       }),
     ).resolves.toEqual({ source: 'process-cwd' });

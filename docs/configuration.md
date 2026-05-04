@@ -22,7 +22,7 @@ If `VOLARE_API_KEY` is not set, the server generates an ephemeral token and prin
 | `VOLARE_PORT` | `8000` | Valid range: `1..65535`. |
 | `VOLARE_STATE_DB_PATH` | `.volare/state.sqlite` | Daemon mode defaults to `~/.volare/state.sqlite` unless already set. |
 | `VOLARE_WORKSPACE_ROOT` | unset | Default explicit workspace root when configured. |
-| `VOLARE_PROJECTLESS_WORKSPACE_ROOT` | `${TMPDIR:-/tmp}/volare-projectless-workspace` | Used when requests do not send `metadata.workspace_root`. |
+| `VOLARE_PROJECTLESS_WORKSPACE_ROOT` | `${TMPDIR:-/tmp}/volare-projectless-workspace` | Used when requests do not provide an explicit or Codex-derived workspace root. |
 | `VOLARE_ALLOWED_WORKSPACE_ROOTS` | unset | Colon-separated concrete roots allowed for explicit workspace requests. |
 | `VOLARE_CORS_MODE` | `disabled` | Only disabled mode is supported. |
 | `VOLARE_CORS_ALLOWED_ORIGINS` | unset | Wildcard origins are rejected. |
@@ -72,7 +72,7 @@ Set `VOLARE_HOME` to move those daemon files. If `VOLARE_STATE_DB_PATH` is alrea
 
 Use projectless mode for ordinary chats and broad questions. It prevents Volare's repository from leaking into unrelated Codex/Desktop conversations.
 
-Use explicit workspace metadata only when a client needs the backend to operate on a specific project:
+Use explicit workspace metadata when a client needs the backend to operate on a specific project:
 
 ```json
 {
@@ -81,5 +81,7 @@ Use explicit workspace metadata only when a client needs the backend to operate 
   }
 }
 ```
+
+For Codex CLI requests, Volare also recognizes the Codex `x-codex-turn-metadata` workspace map and structured startup context as workspace hints when explicit metadata is absent. This keeps the backend working directory aligned with the project context Codex sends.
 
 When `VOLARE_ALLOWED_WORKSPACE_ROOTS` is configured, explicit roots must be inside one of those roots.

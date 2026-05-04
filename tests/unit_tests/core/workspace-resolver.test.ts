@@ -64,6 +64,23 @@ describe('WorkspaceResolver', () => {
     }
   });
 
+  test('permits explicit requested roots when no allowlist is configured', async () => {
+    const defaultRoot = await mkdtemp(path.join(tmpdir(), 'volare-default-'));
+    const requestedRoot = await mkdtemp(path.join(tmpdir(), 'volare-requested-'));
+    const resolver = new WorkspaceResolver();
+    try {
+      const workspace = await resolver.resolve(
+        { source: 'client-context', requestedRoot },
+        { defaultWorkspaceRoot: defaultRoot },
+      );
+
+      expect(workspace.rootPath).toBe(await realpath(requestedRoot));
+    } finally {
+      await rm(defaultRoot, { recursive: true, force: true });
+      await rm(requestedRoot, { recursive: true, force: true });
+    }
+  });
+
   test('rejects requested roots outside the allowlist', async () => {
     const allowed = await mkdtemp(path.join(tmpdir(), 'volare-allowed-'));
     const forbidden = await mkdtemp(path.join(tmpdir(), 'volare-forbidden-'));
