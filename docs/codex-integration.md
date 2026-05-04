@@ -67,7 +67,8 @@ Volare currently supports the text bridge subset needed by Codex CLI/Desktop:
 - Full-history `input[]` parsing into system instructions, conversation history, the latest user message, and image/file attachment summaries.
 - Request `metadata` and Codex `client_metadata` echoing on encoded Responses snapshots for client correlation.
 - Non-empty `tools`, `tool_choice`, and `parallel_tool_calls` request fields as client capability metadata.
-- Explicit rejection of `stream: false` and unsupported reasoning/text controls; Volare streams every response and does not advertise reasoning or verbosity controls.
+- Explicit rejection of `stream: false`; Volare streams every response.
+- Compatibility acceptance for unsupported Codex controls such as `reasoning` and `text` so ordinary Codex CLI/Desktop requests are not blocked. Volare does not advertise reasoning or verbosity controls, so these fields are currently ignored.
 - Terminal `response.completed`, `response.failed`, and `response.incomplete` events.
 - Standard `usage` fields with best-effort estimated token counts.
 

@@ -332,23 +332,28 @@ describe('OpenAIResponsesAdapter', () => {
       code: 'unsupported_parameter',
       message: 'Responses request stream=false is not supported; Volare streams every response',
     });
+  });
+
+  test('accepts unsupported Codex controls without failing ordinary requests', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+
     await expect(
       adapter.parseRequest(
-        request({ model: 'copilot-agent', input: 'hello', reasoning: { effort: 'medium' } }),
-        context,
+        {
+          transport: 'http',
+          method: 'POST',
+          path: '/openai/v1/responses',
+          body: {
+            model: 'copilot-agent',
+            input: 'hello',
+            reasoning: { effort: 'medium' },
+            text: { verbosity: 'high' },
+          },
+        },
+        { workspaceId: 'workspace_1', requestId: 'request_1' },
       ),
-    ).rejects.toMatchObject({
-      code: 'unsupported_parameter',
-      message: 'Responses request reasoning is not supported by Volare yet',
-    });
-    await expect(
-      adapter.parseRequest(
-        request({ model: 'copilot-agent', input: 'hello', text: { verbosity: 'high' } }),
-        context,
-      ),
-    ).rejects.toMatchObject({
-      code: 'unsupported_parameter',
-      message: 'Responses request text is not supported by Volare yet',
+    ).resolves.toMatchObject({
+      input: { message: 'hello' },
     });
   });
 

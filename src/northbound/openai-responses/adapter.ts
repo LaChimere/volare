@@ -50,9 +50,6 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
         'Responses request stream=false is not supported; Volare streams every response',
       );
     }
-    rejectUnsupportedParameter(request.body, 'reasoning');
-    rejectUnsupportedParameter(request.body, 'text');
-
     const tools = request.body['tools'];
     if (tools !== undefined && !Array.isArray(tools)) {
       throw new VolareError('invalid_request', 'Responses request tools must be an array');
@@ -531,15 +528,6 @@ function mergeMetadata(
     return { ...clientMetadata, ...metadata };
   }
   return metadata ?? clientMetadata;
-}
-
-function rejectUnsupportedParameter(body: Record<string, unknown>, key: string): void {
-  if (body[key] !== undefined) {
-    throw new VolareError(
-      'unsupported_parameter',
-      `Responses request ${key} is not supported by Volare yet`,
-    );
-  }
 }
 
 function roleFromInputItem(item: Record<string, unknown>): 'user' | 'assistant' | 'system' {
