@@ -1,8 +1,8 @@
 import { Database } from 'bun:sqlite';
-import { afterEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { configureCodex } from '../../scripts/config-codex';
 import { DurableSessionManager } from '../../src/core/durable-session-manager';
 import type {
@@ -23,58 +23,103 @@ import { migrate } from '../../src/state/migrations';
 import { SQLiteStateStore } from '../../src/state/sqlite-store';
 
 const apiKey = '0123456789abcdef';
-const servers: Array<ReturnType<typeof Bun.serve>> = [];
-
-afterEach(() => {
-  for (const server of servers.splice(0)) {
-    server.stop(true);
-  }
-});
 
 describe('Codex CLI end-to-end integration', () => {
   test('routes a temporary project through Volare without leaking unrelated project context', async () => {
     await assertCodexCliAvailable();
-    const root = await mkdtemp(join(tmpdir(), 'volare-codex-cli-e2e-'));
-    const projectPath = join(root, 'project');
-    const codexHome = join(root, 'codex-home');
-    const outputPath = join(root, 'last-message.txt');
+    const fixture = await createCodexE2EFixture();
     const backend = new ProjectStatusBackend();
+    const server = startE2EServer(fixture.projectRoot, backend);
 
     try {
-      await mkdir(projectPath, { recursive: true });
-      await mkdir(codexHome, { recursive: true });
-      const projectRoot = await realpath(projectPath);
-      await writeFile(
-        join(projectRoot, 'README.md'),
-        [
-          '# temporary-project',
-          '',
-          'This is a temporary workspace for Volare Codex CLI integration testing.',
-          '',
-          '## Status',
-          '',
-          '- No application source code has been added yet.',
-          '- No build system or test framework is configured.',
-        ].join('\n'),
-      );
-      await configureCodexForE2E(codexHome, startE2EServer(projectRoot, backend).baseUrl);
+      await configureCodexForE2E(fixture.codexHome, server.baseUrl);
 
       const result = await runCodexExec({
-        cwd: projectRoot,
-        codexHome,
-        outputPath,
+        cwd: fixture.projectRoot,
+        codexHome: fixture.codexHome,
+        outputPath: fixture.outputPath,
       });
 
       expect(result.exitCode, result.stderr).toBe(0);
       expect(backend.requests).toHaveLength(1);
-      expect(backend.workspaceRoots).toEqual([projectRoot]);
+      expect(backend.workspaceRoots).toEqual([fixture.projectRoot]);
       expectNoUnrelatedProjectContext(JSON.stringify(backend.requests[0]));
-      expectProjectOnlyStatus(await readFile(outputPath, 'utf8'));
+      expectProjectOnlyStatus(await readFile(fixture.outputPath, 'utf8'));
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await server.stop();
+      await fixture.dispose();
+    }
+  }, 60_000);
+
+  test('supports the standard OpenAI v1 base path through Codex CLI', async () => {
+    await assertCodexCliAvailable();
+    const fixture = await createCodexE2EFixture();
+    const backend = new ProjectStatusBackend();
+    const server = startE2EServer(fixture.projectRoot, backend);
+
+    try {
+      await configureCodexForE2E(fixture.codexHome, server.baseUrl, {
+        basePath: '/v1',
+      });
+
+      const result = await runCodexExec({
+        cwd: fixture.projectRoot,
+        codexHome: fixture.codexHome,
+        outputPath: fixture.outputPath,
+      });
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(backend.requests).toHaveLength(1);
+      expect(backend.workspaceRoots).toEqual([fixture.projectRoot]);
+      expectProjectOnlyStatus(await readFile(fixture.outputPath, 'utf8'));
+    } finally {
+      await server.stop();
+      await fixture.dispose();
+    }
+  }, 60_000);
+
+  test('rejects Codex CLI workspaces outside the Volare allowlist', async () => {
+    await assertCodexCliAvailable();
+    const fixture = await createCodexE2EFixture();
+    const allowedFixture = await createCodexE2EFixture('allowed-project');
+    const backend = new ProjectStatusBackend();
+    const server = startE2EServer(allowedFixture.projectRoot, backend);
+
+    try {
+      await configureCodexForE2E(fixture.codexHome, server.baseUrl);
+
+      const result = await runCodexExec({
+        cwd: fixture.projectRoot,
+        codexHome: fixture.codexHome,
+        outputPath: fixture.outputPath,
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      const output = `${result.stdout}\n${result.stderr}`;
+      expect(output).toContain('unexpected status 403 Forbidden');
+      expect(output).toContain('Workspace root is outside the allowed roots');
+      expect(backend.requests).toEqual([]);
+      expect(backend.workspaceRoots).toEqual([]);
+    } finally {
+      await server.stop();
+      await fixture.dispose();
+      await allowedFixture.dispose();
     }
   }, 60_000);
 });
+
+interface ICodexE2EFixture {
+  root: string;
+  projectRoot: string;
+  codexHome: string;
+  outputPath: string;
+  dispose(): Promise<void>;
+}
+
+interface ICodexE2EServer {
+  baseUrl: string;
+  stop(): Promise<void>;
+}
 
 async function assertCodexCliAvailable(): Promise<void> {
   let proc: ReturnType<typeof Bun.spawn>;
@@ -180,14 +225,46 @@ class ProjectStatusBackend implements IAgentBackend {
   async disposeSession(_session: IBackendSession): Promise<void> {}
 }
 
-function startE2EServer(projectRoot: string, backend: IAgentBackend): { baseUrl: string } {
+async function createCodexE2EFixture(projectDirName = 'project'): Promise<ICodexE2EFixture> {
+  const root = await mkdtemp(join(tmpdir(), 'volare-codex-cli-e2e-'));
+  const projectPath = join(root, projectDirName);
+  const codexHome = join(root, 'codex-home');
+  const outputPath = join(root, 'last-message.txt');
+  await mkdir(projectPath, { recursive: true });
+  await mkdir(codexHome, { recursive: true });
+  const projectRoot = await realpath(projectPath);
+  await writeFile(
+    join(projectRoot, 'README.md'),
+    [
+      '# temporary-project',
+      '',
+      'This is a temporary workspace for Volare Codex CLI integration testing.',
+      '',
+      '## Status',
+      '',
+      '- No application source code has been added yet.',
+      '- No build system or test framework is configured.',
+    ].join('\n'),
+  );
+  return {
+    root,
+    projectRoot,
+    codexHome,
+    outputPath,
+    async dispose(): Promise<void> {
+      await rm(root, { recursive: true, force: true });
+    },
+  };
+}
+
+function startE2EServer(projectRoot: string, backend: IAgentBackend): ICodexE2EServer {
   const database = new Database(':memory:');
   migrate(database);
   const stateStore = new SQLiteStateStore(database);
   const config = createServerRuntimeConfig({
     VOLARE_API_KEY: apiKey,
     VOLARE_ALLOWED_WORKSPACE_ROOTS: projectRoot,
-    VOLARE_PROJECTLESS_WORKSPACE_ROOT: join(tmpdir(), 'volare-codex-cli-e2e-projectless'),
+    VOLARE_PROJECTLESS_WORKSPACE_ROOT: join(dirname(projectRoot), 'projectless-workspace'),
   });
   const app = createApp({
     config,
@@ -199,15 +276,23 @@ function startE2EServer(projectRoot: string, backend: IAgentBackend): { baseUrl:
     port: 0,
     fetch: app.fetch,
   });
-  servers.push(server);
-  return { baseUrl: `http://${server.hostname}:${server.port}` };
+  return {
+    baseUrl: `http://${server.hostname}:${server.port}`,
+    async stop(): Promise<void> {
+      await server.stop(true);
+    },
+  };
 }
 
-async function configureCodexForE2E(codexHome: string, baseUrl: string): Promise<void> {
+async function configureCodexForE2E(
+  codexHome: string,
+  baseUrl: string,
+  options: { basePath?: '/openai/v1' | '/v1' } = {},
+): Promise<void> {
   const configPath = join(codexHome, 'config.toml');
   await configureCodex({
     configPath,
-    baseUrl: `${baseUrl}/openai/v1`,
+    baseUrl: `${baseUrl}${options.basePath ?? '/openai/v1'}`,
     envKey: 'VOLARE_API_KEY',
     backupSuffix: 'e2e',
   });
