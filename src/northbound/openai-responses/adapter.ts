@@ -35,6 +35,10 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
     if (requestedRoot) {
       return { source: 'client-metadata', requestedRoot };
     }
+    const environmentContextRoot = workspaceRootFromCodexEnvironmentContext(request.body);
+    if (environmentContextRoot) {
+      return { source: 'client-context', requestedRoot: environmentContextRoot };
+    }
     const clientContextRoot = workspaceRootFromCodexStartupContext(request.body);
     if (clientContextRoot) {
       return { source: 'client-context', requestedRoot: clientContextRoot };
@@ -547,6 +551,19 @@ function workspaceRootFromCodexTurnMetadata(request: INorthboundRequest): string
   return workspaceRoots.length === 1 ? workspaceRoots[0] : undefined;
 }
 
+function workspaceRootFromCodexEnvironmentContext(body: unknown): string | undefined {
+  if (!isCodexRequest(body)) {
+    return undefined;
+  }
+  for (const text of textPartsFromRequestBody(body)) {
+    const workspaceRoot = workspaceRootFromEnvironmentContextText(text);
+    if (workspaceRoot) {
+      return workspaceRoot;
+    }
+  }
+  return undefined;
+}
+
 function workspaceRootFromCodexStartupContext(body: unknown): string | undefined {
   if (!isCodexRequest(body)) {
     return undefined;
@@ -563,6 +580,19 @@ function workspaceRootFromCodexStartupContext(body: unknown): string | undefined
 function isCodexRequest(body: unknown): boolean {
   const metadata = metadataFromRequestBody(body);
   return Boolean(metadata?.['x-codex-installation-id']);
+}
+
+function workspaceRootFromEnvironmentContextText(text: string): string | undefined {
+  const match = text.match(/<environment_context>\s*([\s\S]*?)\s*<\/environment_context>/);
+  const context = match?.[1];
+  if (!context) {
+    return undefined;
+  }
+  const localEnvironmentMatch = context.match(
+    /<environment\s+id="local">\s*[\s\S]*?<cwd>\s*([^<]+?)\s*<\/cwd>[\s\S]*?<\/environment>/,
+  );
+  const cwdMatch = localEnvironmentMatch ?? context.match(/<cwd>\s*([^<]+?)\s*<\/cwd>/);
+  return safeAbsolutePath(cwdMatch?.[1]);
 }
 
 function workspaceRootFromStartupContextText(text: string): string | undefined {
