@@ -1,10 +1,10 @@
 # Architecture
 
-Agent Loom runs a local agent-runtime bridge and translates client requests into protocol-neutral execution. The production runtime currently exposes an OpenAI Responses-compatible HTTP adapter and uses Copilot CLI as the backend.
+Volare runs a local agent-runtime bridge and translates client requests into protocol-neutral execution. The production runtime currently exposes an OpenAI Responses-compatible HTTP adapter and uses Copilot CLI as the backend.
 
 ## Design stance
 
-Agent Loom is an agent bridge, not a plain model provider. The backend is treated as a stateful coding-agent runtime with workspace context, durable threads, cancellation, approvals, tool-capable execution, and replayable event history.
+Volare is an agent bridge, not a plain model provider. The backend is treated as a stateful coding-agent runtime with workspace context, durable threads, cancellation, approvals, tool-capable execution, and replayable event history.
 
 Codex CLI/Desktop over OpenAI Responses is the first northbound client, but it is not the core abstraction. Core runtime types stay protocol-neutral; protocol-specific wire shapes live in adapters.
 
@@ -13,7 +13,7 @@ The current design favors:
 - **Stateful continuity**: external response IDs map to canonical threads, turns, and backend sessions.
 - **Event journaling**: canonical events are persisted so failures and completed turns can be debugged or replayed.
 - **Security by default**: local bind, bearer auth, disabled CORS by default, workspace boundaries, and redacted diagnostics.
-- **Honest compatibility**: Agent Loom accepts Codex tool metadata, but it does not pretend to support a client-side tool-call lifecycle until a bridge-owned tool broker exists.
+- **Honest compatibility**: Volare accepts Codex tool metadata, but it does not pretend to support a client-side tool-call lifecycle until a bridge-owned tool broker exists.
 - **Narrow protocol breadth**: OpenAI Responses is the MVP surface; additional client protocols should wait until the core agent lifecycle needs them.
 
 ## Scope boundaries
@@ -73,20 +73,20 @@ The backend is also protocol-neutral from the session manager's perspective. It 
 
 ## Workspace isolation
 
-Agent Loom defaults to projectless workspace isolation. Requests without `metadata.workspace_root` run from `${TMPDIR:-/tmp}/al-projectless-workspace` by default, which prevents generic Codex/Desktop chats from inheriting the Agent Loom repository context.
+Volare defaults to projectless workspace isolation. Requests without `metadata.workspace_root` run from `${TMPDIR:-/tmp}/volare-projectless-workspace` by default, which prevents generic Codex/Desktop chats from inheriting the Volare repository context.
 
-If a client explicitly sends `metadata.workspace_root`, Agent Loom treats that as a requested workspace and validates it against configured allowlist roots when present.
+If a client explicitly sends `metadata.workspace_root`, Volare treats that as a requested workspace and validates it against configured allowlist roots when present.
 
 ## Context provenance
 
-Copilot backend prompts start with an `Agent Loom bridge context` section. It tells the backend whether the client explicitly requested a workspace and whether the backend cwd is a neutral projectless workspace. This helps the model distinguish backend filesystem context from client-provided conversation or Desktop/Codex context.
+Copilot backend prompts start with an `Volare bridge context` section. It tells the backend whether the client explicitly requested a workspace and whether the backend cwd is a neutral projectless workspace. This helps the model distinguish backend filesystem context from client-provided conversation or Desktop/Codex context.
 
 ## Durable state and replay
 
 SQLite stores workspaces, threads, turns, backend sessions, client response references, approvals, and journal events. Startup recovery interrupts non-terminal turns and abandons non-terminal backend sessions so restarts do not leave ambiguous active state.
 
-The debug journal stores canonical events and supports replay through `GET /debug/turns/:id/events`. Redaction is fail-closed: if redaction fails, Agent Loom records a security marker when possible and preserves the original failure.
+The debug journal stores canonical events and supports replay through `GET /debug/turns/:id/events`. Redaction is fail-closed: if redaction fails, Volare records a security marker when possible and preserves the original failure.
 
 ## Usage accounting
 
-Codex/Desktop expect standard `usage` fields. Copilot CLI does not currently expose authoritative token accounting through this bridge, so Agent Loom emits conservative estimates based on the prompt text sent to the backend and the assistant text returned to the client. The wire output remains standard OpenAI-style `input_tokens`, `output_tokens`, `total_tokens`, and token detail fields.
+Codex/Desktop expect standard `usage` fields. Copilot CLI does not currently expose authoritative token accounting through this bridge, so Volare emits conservative estimates based on the prompt text sent to the backend and the assistant text returned to the client. The wire output remains standard OpenAI-style `input_tokens`, `output_tokens`, `total_tokens`, and token detail fields.

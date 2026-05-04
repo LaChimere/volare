@@ -5,7 +5,7 @@ import { DefaultApprovalPolicy } from '../approvals/policy';
 import { ApprovalProvider } from '../approvals/provider';
 import { CopilotCliBackend } from '../backends/copilot-cli/backend';
 import { DurableSessionManager } from '../core/durable-session-manager';
-import { toAgentLoomError } from '../core/errors';
+import { toVolareError } from '../core/errors';
 import { SQLiteEventJournal } from '../events/sqlite-event-journal';
 import { createLogger } from '../logging/logger';
 import { createApp } from '../server/app';
@@ -19,19 +19,19 @@ import { ShutdownController } from '../server/shutdown';
 import { migrate } from '../state/migrations';
 import { SQLiteStateStore } from '../state/sqlite-store';
 
-export interface IAgentLoomRuntimeOptions {
+export interface IVolareRuntimeOptions {
   env?: Partial<IServerRuntimeEnv>;
 }
 
-export interface IAgentLoomRuntime {
+export interface IVolareRuntime {
   config: IServerRuntimeConfig;
   server: ReturnType<typeof Bun.serve>;
   shutdown: ShutdownController;
 }
 
-export async function startAgentLoomRuntime(
-  options: IAgentLoomRuntimeOptions = {},
-): Promise<IAgentLoomRuntime> {
+export async function startVolareRuntime(
+  options: IVolareRuntimeOptions = {},
+): Promise<IVolareRuntime> {
   const config = createServerRuntimeConfig({ ...readServerRuntimeEnv(), ...options.env });
   const logger = createLogger({ level: config.logLevel });
   const runtimeLogger = logger.child({ component: 'runtime' });
@@ -57,7 +57,7 @@ export async function startAgentLoomRuntime(
 
   if (config.generatedApiKey) {
     runtimeLogger.warn({ event: 'runtime.api_key.generated' }, 'ephemeral API key generated');
-    console.error(`Agent Loom API token: ${config.apiKey}`);
+    console.error(`Volare API token: ${config.apiKey}`);
   }
 
   runtimeLogger.info(
@@ -70,7 +70,7 @@ export async function startAgentLoomRuntime(
       copilotPermissionMode: config.copilotPermissionMode,
       logLevel: config.logLevel,
     },
-    'Agent Loom starting',
+    'Volare starting',
   );
   const server = Bun.serve({
     hostname: config.host,
@@ -81,30 +81,27 @@ export async function startAgentLoomRuntime(
   const shutdown = new ShutdownController({ server, stateStore });
   runtimeLogger.info(
     { event: 'runtime.listening', host: config.host, port: config.port },
-    'Agent Loom listening',
+    'Volare listening',
   );
   return { config, server, shutdown };
 }
 
-export function installRuntimeSignalHandlers(runtime: IAgentLoomRuntime): void {
+export function installRuntimeSignalHandlers(runtime: IVolareRuntime): void {
   const runtimeLogger = createLogger({ level: runtime.config.logLevel }).child({
     component: 'runtime',
   });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, async () => {
       try {
-        runtimeLogger.info(
-          { event: 'runtime.shutdown.started', signal },
-          'Agent Loom shutting down',
-        );
+        runtimeLogger.info({ event: 'runtime.shutdown.started', signal }, 'Volare shutting down');
         await runtime.shutdown.shutdown();
         runtimeLogger.info(
           { event: 'runtime.shutdown.completed', signal },
-          'Agent Loom shutdown complete',
+          'Volare shutdown complete',
         );
         process.exit(0);
       } catch (error) {
-        const agentError = toAgentLoomError(error);
+        const agentError = toVolareError(error);
         runtimeLogger.error(
           {
             event: 'runtime.shutdown.failed',
@@ -112,7 +109,7 @@ export function installRuntimeSignalHandlers(runtime: IAgentLoomRuntime): void {
             errorCode: agentError.code,
             error: agentError,
           },
-          'Agent Loom shutdown failed',
+          'Volare shutdown failed',
         );
         process.exit(1);
       }

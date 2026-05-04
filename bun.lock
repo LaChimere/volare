@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "agent-loom",
+      "name": "volare",
       "dependencies": {
         "pino": "^10.3.1",
       },

@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-import { AgentLoomError, toAgentLoomError } from '../core/errors';
+import { toVolareError, VolareError } from '../core/errors';
 import { createId } from '../core/ids';
 import type { AgentEvent, IEventJournal, IJournalEvent, ThreadId, TurnId } from '../core/types';
 import { type ILogger, NoopLogger } from '../logging/logger';
@@ -52,7 +52,7 @@ export class SQLiteEventJournal implements IEventJournal {
         try {
           insertSecurityRedactionFailure(this.database, event.turnId, now);
         } catch (markerError) {
-          const markerAgentError = toAgentLoomError(markerError);
+          const markerAgentError = toVolareError(markerError);
           this.#logger.error(
             {
               event: 'journal.redaction_marker_failed',
@@ -140,7 +140,7 @@ export class SQLiteEventJournal implements IEventJournal {
         { event: 'journal.replay.expired', turnId },
         'journal replay failed because retention expired',
       );
-      throw new AgentLoomError('journal_expired', 'Journal retention expired for this turn');
+      throw new VolareError('journal_expired', 'Journal retention expired for this turn');
     }
     for (const [index, event] of events.entries()) {
       if (event.seq !== index) {
@@ -154,7 +154,7 @@ export class SQLiteEventJournal implements IEventJournal {
           },
           'journal replay sequence gap',
         );
-        throw new AgentLoomError('journal_corrupted', 'Journal sequence gap detected', {
+        throw new VolareError('journal_corrupted', 'Journal sequence gap detected', {
           cause: { expectedSeq: index, actualSeq: event.seq },
         });
       }
@@ -241,7 +241,7 @@ function journalEventFromRow(row: JournalEventRow): IJournalEvent {
 
 function decodeCanonicalEvent(event: IJournalEvent): AgentEvent {
   if (!event.canonicalJson || typeof event.canonicalJson !== 'object') {
-    throw new AgentLoomError('journal_corrupted', 'Canonical event could not be decoded', {
+    throw new VolareError('journal_corrupted', 'Canonical event could not be decoded', {
       cause: { eventId: event.id },
     });
   }
@@ -261,7 +261,7 @@ function parseEventJson(value: string, column: string): unknown {
   try {
     return JSON.parse(value);
   } catch (cause) {
-    throw new AgentLoomError('journal_corrupted', `${column} could not be decoded`, { cause });
+    throw new VolareError('journal_corrupted', `${column} could not be decoded`, { cause });
   }
 }
 

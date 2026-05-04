@@ -43,7 +43,7 @@ export function createEstimatedUsageFromTokens(
     outputTokens,
     totalTokens: inputTokens + outputTokens,
     estimated: true,
-    source: 'agent-loom-heuristic',
+    source: 'volare-heuristic',
   };
 }
 

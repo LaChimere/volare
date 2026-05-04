@@ -1,4 +1,4 @@
-import { installRuntimeSignalHandlers, startAgentLoomRuntime } from './runtime/server';
+import { installRuntimeSignalHandlers, startVolareRuntime } from './runtime/server';
 
-const runtime = await startAgentLoomRuntime();
+const runtime = await startVolareRuntime();
 installRuntimeSignalHandlers(runtime);

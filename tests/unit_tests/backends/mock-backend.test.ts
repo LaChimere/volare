@@ -29,7 +29,7 @@ describe('MockBackend', () => {
     const backend = new MockBackend();
     const workspace: IWorkspace = {
       id: 'workspace_1',
-      rootPath: '/tmp/agent-loom-test',
+      rootPath: '/tmp/volare-test',
     };
     const session = await backend.createSession(workspace, {
       bridgeSessionId: 'bridge_session_1',
@@ -65,7 +65,7 @@ describe('MockBackend', () => {
     const backend = new MockBackend();
     const workspace: IWorkspace = {
       id: 'workspace_1',
-      rootPath: '/tmp/agent-loom-test',
+      rootPath: '/tmp/volare-test',
     };
     const session = await backend.createSession(workspace, {
       bridgeSessionId: 'bridge_session_1',

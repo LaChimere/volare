@@ -2,7 +2,7 @@ import { mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { type ILogger, NoopLogger } from '../logging/logger';
-import { AgentLoomError } from './errors';
+import { VolareError } from './errors';
 import type { IServerConfig, IWorkspace, IWorkspaceHints, IWorkspaceResolver } from './types';
 
 export interface IWorkspaceResolverOptions {
@@ -43,10 +43,7 @@ export class WorkspaceResolver implements IWorkspaceResolver {
         },
         'workspace root is outside allowed roots',
       );
-      throw new AgentLoomError(
-        'workspace_forbidden',
-        'Workspace root is outside the allowed roots',
-      );
+      throw new VolareError('workspace_forbidden', 'Workspace root is outside the allowed roots');
     }
 
     this.#logger.info(
@@ -73,7 +70,7 @@ export class WorkspaceResolver implements IWorkspaceResolver {
       }
       return await realpath(resolved);
     } catch (cause) {
-      throw new AgentLoomError(
+      throw new VolareError(
         'workspace_canonicalization_failed',
         'Workspace root could not be resolved',
         {

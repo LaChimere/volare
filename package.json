@@ -1,6 +1,6 @@
 {
-  "name": "@lachimere/agent-loom",
-  "version": "0.1.0",
+  "name": "@lachimere/volare",
+  "version": "0.2.0",
   "description": "Local agent-runtime bridge backed by Copilot CLI, currently exposing an OpenAI Responses-compatible API.",
   "module": "src/index.ts",
   "type": "module",
@@ -8,11 +8,11 @@
   "packageManager": "bun@1.3.13",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/LaChimere/agent-loom.git"
+    "url": "git+https://github.com/LaChimere/volare.git"
   },
-  "homepage": "https://github.com/LaChimere/agent-loom#readme",
+  "homepage": "https://github.com/LaChimere/volare#readme",
   "bugs": {
-    "url": "https://github.com/LaChimere/agent-loom/issues"
+    "url": "https://github.com/LaChimere/volare/issues"
   },
   "keywords": [
     "agent",
@@ -29,7 +29,7 @@
     "access": "public"
   },
   "bin": {
-    "agent-loom": "src/cli.ts"
+    "volare": "src/cli.ts"
   },
   "files": [
     "src",
@@ -47,7 +47,7 @@
     "check": "biome check . && tsc --noEmit",
     "fix": "biome check --write .",
     "config:codex": "bun run scripts/config-codex.ts",
-    "package": "bun build --compile src/cli.ts --outfile dist/agent-loom",
+    "package": "bun build --compile src/cli.ts --outfile dist/volare",
     "hooks:install": "lefthook install",
     "hooks:run": "lefthook run pre-commit --force",
     "ci": "biome ci . && tsc --noEmit && bun run test:unit && bun run test:integration",

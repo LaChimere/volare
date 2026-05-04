@@ -7,14 +7,14 @@ import { dirname, join } from 'node:path';
 import { configureCodex, type ICodexConfigOptions } from '../scripts/config-codex';
 import { isCopilotCliPermissionMode } from './backends/copilot-cli/backend';
 import {
-  type IAgentLoomRuntime,
-  type IAgentLoomRuntimeOptions,
+  type IVolareRuntime,
+  type IVolareRuntimeOptions,
   installRuntimeSignalHandlers,
-  startAgentLoomRuntime,
+  startVolareRuntime,
 } from './runtime/server';
 import type { IServerRuntimeEnv } from './server/config';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 export type ICliCommand =
   | { type: 'help' }
@@ -45,8 +45,8 @@ export interface ICliDependencies {
     changed: boolean;
     backupPath?: string;
   }>;
-  startRuntime: (options?: IAgentLoomRuntimeOptions) => Promise<IAgentLoomRuntime>;
-  installSignalHandlers: (runtime: IAgentLoomRuntime) => void;
+  startRuntime: (options?: IVolareRuntimeOptions) => Promise<IVolareRuntime>;
+  installSignalHandlers: (runtime: IVolareRuntime) => void;
   startDaemon: (command: Extract<ICliCommand, { type: 'start' }>) => Promise<IDaemonStartResult>;
   stopDaemon: () => Promise<IDaemonStopResult>;
   getDaemonStatus: () => Promise<IDaemonStatusResult>;
@@ -105,7 +105,7 @@ export async function runCli(
           const result = await dependencies.startDaemon(command);
           await writeLine(
             io.stdout,
-            `Agent Loom daemon started (pid ${result.pid}). Logs: ${result.logPath}`,
+            `Volare daemon started (pid ${result.pid}). Logs: ${result.logPath}`,
           );
           return 0;
         }
@@ -114,14 +114,14 @@ export async function runCli(
       case 'config-codex': {
         const result = await dependencies.configureCodex(command.options);
         if (result.changed) {
-          await writeLine(io.stdout, `Configured Codex for Agent Loom: ${result.configPath}`);
+          await writeLine(io.stdout, `Configured Codex for Volare: ${result.configPath}`);
           if (result.backupPath) {
             await writeLine(io.stdout, `Backup written: ${result.backupPath}`);
           }
         } else {
           await writeLine(
             io.stdout,
-            `Codex is already configured for Agent Loom: ${result.configPath}`,
+            `Codex is already configured for Volare: ${result.configPath}`,
           );
         }
         return 0;
@@ -129,9 +129,9 @@ export async function runCli(
       case 'status': {
         const status = await dependencies.getDaemonStatus();
         if (status.running) {
-          await writeLine(io.stdout, `Agent Loom daemon is running (pid ${status.pid}).`);
+          await writeLine(io.stdout, `Volare daemon is running (pid ${status.pid}).`);
         } else {
-          await writeLine(io.stdout, 'Agent Loom daemon is not running.');
+          await writeLine(io.stdout, 'Volare daemon is not running.');
         }
         await writeLine(io.stdout, `PID file: ${status.pidPath}`);
         await writeLine(io.stdout, `Logs: ${status.logPath}`);
@@ -140,10 +140,10 @@ export async function runCli(
       case 'stop': {
         const result = await dependencies.stopDaemon();
         if (result.stopped) {
-          await writeLine(io.stdout, `Agent Loom daemon stopped (pid ${result.pid}).`);
+          await writeLine(io.stdout, `Volare daemon stopped (pid ${result.pid}).`);
           return 0;
         }
-        await writeLine(io.stdout, 'Agent Loom daemon is not running.');
+        await writeLine(io.stdout, 'Volare daemon is not running.');
         return 1;
       }
       case 'logs': {
@@ -206,42 +206,42 @@ function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
     }
     if (arg === '--host' || arg.startsWith('--host=')) {
       const parsed = readFlagValue(args, index, '--host');
-      env.AGENT_LOOM_HOST = parsed.value;
+      env.VOLARE_HOST = parsed.value;
       daemonArgs.push('--host', parsed.value);
       index = parsed.index;
       continue;
     }
     if (arg === '--port' || arg.startsWith('--port=')) {
       const parsed = readFlagValue(args, index, '--port');
-      env.AGENT_LOOM_PORT = parsed.value;
+      env.VOLARE_PORT = parsed.value;
       daemonArgs.push('--port', parsed.value);
       index = parsed.index;
       continue;
     }
     if (arg === '--state-db' || arg.startsWith('--state-db=')) {
       const parsed = readFlagValue(args, index, '--state-db');
-      env.AGENT_LOOM_STATE_DB_PATH = parsed.value;
+      env.VOLARE_STATE_DB_PATH = parsed.value;
       daemonArgs.push('--state-db', parsed.value);
       index = parsed.index;
       continue;
     }
     if (arg === '--workspace-root' || arg.startsWith('--workspace-root=')) {
       const parsed = readFlagValue(args, index, '--workspace-root');
-      env.AGENT_LOOM_WORKSPACE_ROOT = parsed.value;
+      env.VOLARE_WORKSPACE_ROOT = parsed.value;
       daemonArgs.push('--workspace-root', parsed.value);
       index = parsed.index;
       continue;
     }
     if (arg === '--projectless-workspace-root' || arg.startsWith('--projectless-workspace-root=')) {
       const parsed = readFlagValue(args, index, '--projectless-workspace-root');
-      env.AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT = parsed.value;
+      env.VOLARE_PROJECTLESS_WORKSPACE_ROOT = parsed.value;
       daemonArgs.push('--projectless-workspace-root', parsed.value);
       index = parsed.index;
       continue;
     }
     if (arg === '--log-level' || arg.startsWith('--log-level=')) {
       const parsed = readFlagValue(args, index, '--log-level');
-      env.AGENT_LOOM_LOG_LEVEL = parsed.value;
+      env.VOLARE_LOG_LEVEL = parsed.value;
       daemonArgs.push('--log-level', parsed.value);
       index = parsed.index;
       continue;
@@ -253,7 +253,7 @@ function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
           '--copilot-permission-mode must be one of restricted, web, or full',
         );
       }
-      env.AGENT_LOOM_COPILOT_PERMISSION_MODE = parsed.value;
+      env.VOLARE_COPILOT_PERMISSION_MODE = parsed.value;
       daemonArgs.push('--copilot-permission-mode', parsed.value);
       index = parsed.index;
       continue;
@@ -335,7 +335,7 @@ function assertNoArgs(args: string[], command: string): void {
 function defaultDependencies(): ICliDependencies {
   return {
     configureCodex,
-    startRuntime: startAgentLoomRuntime,
+    startRuntime: startVolareRuntime,
     installSignalHandlers: installRuntimeSignalHandlers,
     startDaemon,
     stopDaemon,
@@ -354,11 +354,11 @@ function defaultIo(): ICliIo {
 export function defaultDaemonPaths(
   env: Record<string, string | undefined> = Bun.env,
 ): IDaemonPaths {
-  const rootDir = env['AGENT_LOOM_HOME']?.trim() || join(homedir(), '.agent-loom');
+  const rootDir = env['VOLARE_HOME']?.trim() || join(homedir(), '.volare');
   return {
     rootDir,
-    logPath: join(rootDir, 'logs', 'agent-loom.log'),
-    pidPath: join(rootDir, 'agent-loom.pid'),
+    logPath: join(rootDir, 'logs', 'volare.log'),
+    pidPath: join(rootDir, 'volare.pid'),
     stateDatabasePath: join(rootDir, 'state.sqlite'),
   };
 }
@@ -373,10 +373,10 @@ async function startDaemon(
   const env = {
     ...Bun.env,
     ...command.env,
-    AGENT_LOOM_DAEMONIZED: '1',
-    AGENT_LOOM_STATE_DB_PATH:
-      command.env.AGENT_LOOM_STATE_DB_PATH ??
-      Bun.env['AGENT_LOOM_STATE_DB_PATH'] ??
+    VOLARE_DAEMONIZED: '1',
+    VOLARE_STATE_DB_PATH:
+      command.env.VOLARE_STATE_DB_PATH ??
+      Bun.env['VOLARE_STATE_DB_PATH'] ??
       paths.stateDatabasePath,
   };
   const stdout = openSync(paths.logPath, 'a');
@@ -455,7 +455,7 @@ async function waitForDaemonStart(
   env: Record<string, string | undefined>,
   logPath: string,
 ): Promise<void> {
-  const apiKey = env['AGENT_LOOM_API_KEY'];
+  const apiKey = env['VOLARE_API_KEY'];
   if (!apiKey) {
     await delay(750);
     if (!isProcessRunning(pid)) {
@@ -466,8 +466,8 @@ async function waitForDaemonStart(
     return;
   }
 
-  const host = env['AGENT_LOOM_HOST'] ?? '127.0.0.1';
-  const port = env['AGENT_LOOM_PORT'] ?? '8000';
+  const host = env['VOLARE_HOST'] ?? '127.0.0.1';
+  const port = env['VOLARE_PORT'] ?? '8000';
   const healthUrl = `http://${host}:${port}/healthz`;
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
@@ -586,35 +586,35 @@ function isSystemError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 function usage(): string {
-  return `Agent Loom ${VERSION}
+  return `Volare ${VERSION}
 
 Usage:
-  agent-loom start [options]
-  agent-loom start -d [options]
-  agent-loom config codex [options]
-  agent-loom status
-  agent-loom stop
-  agent-loom logs
+  volare start [options]
+  volare start -d [options]
+  volare config codex [options]
+  volare status
+  volare stop
+  volare logs
 
 Start options:
   -d, --daemon                         Start in the background
-      --host <host>                    Set AGENT_LOOM_HOST
-      --port <port>                    Set AGENT_LOOM_PORT
-      --state-db <path>                Set AGENT_LOOM_STATE_DB_PATH
-      --workspace-root <path>          Set AGENT_LOOM_WORKSPACE_ROOT
+      --host <host>                    Set VOLARE_HOST
+      --port <port>                    Set VOLARE_PORT
+      --state-db <path>                Set VOLARE_STATE_DB_PATH
+      --workspace-root <path>          Set VOLARE_WORKSPACE_ROOT
       --projectless-workspace-root <path>
-                                        Set AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT
-      --log-level <level>              Set AGENT_LOOM_LOG_LEVEL
-      --copilot-permission-mode <mode> Set AGENT_LOOM_COPILOT_PERMISSION_MODE
+                                        Set VOLARE_PROJECTLESS_WORKSPACE_ROOT
+      --log-level <level>              Set VOLARE_LOG_LEVEL
+      --copilot-permission-mode <mode> Set VOLARE_COPILOT_PERMISSION_MODE
                                         (restricted, web, or full)
 
 Config options:
       --config, --config-path <path>   Codex config path
-      --base-url <url>                 Agent Loom OpenAI Responses base URL
-      --env-key <name>                 Codex env_key for the Agent Loom API token
+      --base-url <url>                 Volare OpenAI Responses base URL
+      --env-key <name>                 Codex env_key for the Volare API token
 
-Set AGENT_LOOM_API_KEY in the environment for a stable API token. If it is omitted,
-Agent Loom generates an ephemeral startup token and prints it to stderr or the daemon log.`;
+Set VOLARE_API_KEY in the environment for a stable API token. If it is omitted,
+Volare generates an ephemeral startup token and prints it to stderr or the daemon log.`;
 }
 
 async function writeLine(writer: ICliWriter, text: string): Promise<void> {

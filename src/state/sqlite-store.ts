@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-import { AgentLoomError } from '../core/errors';
+import { VolareError } from '../core/errors';
 import { createId } from '../core/ids';
 import type {
   ApprovalDecision,
@@ -94,7 +94,7 @@ export class SQLiteStateStore implements IStateStore {
       if (raced) {
         return raced;
       }
-      throw new AgentLoomError('workspace_create_failed', 'Workspace could not be created', {
+      throw new VolareError('workspace_create_failed', 'Workspace could not be created', {
         cause,
       });
     }
@@ -274,7 +274,7 @@ export class SQLiteStateStore implements IStateStore {
         'initializing',
       );
     if (result.changes !== 1) {
-      throw new AgentLoomError(
+      throw new VolareError(
         'backend_session_activation_failed',
         'Backend session could not be activated',
       );
@@ -390,7 +390,7 @@ export class SQLiteStateStore implements IStateStore {
         )
         .get(input.approvalId);
       if (!approval) {
-        throw new AgentLoomError('approval_not_found', 'Approval was not found');
+        throw new VolareError('approval_not_found', 'Approval was not found');
       }
       if (approval.status !== 'pending') {
         return {
@@ -531,12 +531,12 @@ function approvalStatusForDecision(decision: ApprovalDecision): ApprovalStatus {
 
 function parseJson<T>(value: string | null): T {
   if (!value) {
-    throw new AgentLoomError('state_decode_failed', 'Persisted JSON value is missing');
+    throw new VolareError('state_decode_failed', 'Persisted JSON value is missing');
   }
   try {
     return JSON.parse(value) as T;
   } catch (cause) {
-    throw new AgentLoomError('state_decode_failed', 'Persisted JSON value is malformed', {
+    throw new VolareError('state_decode_failed', 'Persisted JSON value is malformed', {
       cause,
     });
   }

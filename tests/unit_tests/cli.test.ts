@@ -37,26 +37,26 @@ function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDepend
     },
     startDaemon: async () => ({
       pid: 1234,
-      logPath: '/tmp/agent-loom.log',
-      pidPath: '/tmp/agent-loom.pid',
+      logPath: '/tmp/volare.log',
+      pidPath: '/tmp/volare.pid',
     }),
-    stopDaemon: async () => ({ stopped: false, pidPath: '/tmp/agent-loom.pid' }),
+    stopDaemon: async () => ({ stopped: false, pidPath: '/tmp/volare.pid' }),
     getDaemonStatus: async () => ({
       running: false,
-      pidPath: '/tmp/agent-loom.pid',
-      logPath: '/tmp/agent-loom.log',
+      pidPath: '/tmp/volare.pid',
+      logPath: '/tmp/volare.log',
     }),
     getDaemonPaths: () => ({
-      rootDir: '/tmp/agent-loom',
-      logPath: '/tmp/agent-loom.log',
-      pidPath: '/tmp/agent-loom.pid',
+      rootDir: '/tmp/volare',
+      logPath: '/tmp/volare.log',
+      pidPath: '/tmp/volare.pid',
       stateDatabasePath: '/tmp/state.sqlite',
     }),
     ...overrides,
   };
 }
 
-describe('Agent Loom CLI', () => {
+describe('Volare CLI', () => {
   test('parses start options into runtime environment overrides', () => {
     expect(
       parseCli([
@@ -78,13 +78,13 @@ describe('Agent Loom CLI', () => {
       type: 'start',
       daemon: true,
       env: {
-        AGENT_LOOM_HOST: '127.0.0.1',
-        AGENT_LOOM_PORT: '8765',
-        AGENT_LOOM_STATE_DB_PATH: '/tmp/state.sqlite',
-        AGENT_LOOM_WORKSPACE_ROOT: '/tmp/workspace',
-        AGENT_LOOM_PROJECTLESS_WORKSPACE_ROOT: '/tmp/projectless',
-        AGENT_LOOM_LOG_LEVEL: 'debug',
-        AGENT_LOOM_COPILOT_PERMISSION_MODE: 'full',
+        VOLARE_HOST: '127.0.0.1',
+        VOLARE_PORT: '8765',
+        VOLARE_STATE_DB_PATH: '/tmp/state.sqlite',
+        VOLARE_WORKSPACE_ROOT: '/tmp/workspace',
+        VOLARE_PROJECTLESS_WORKSPACE_ROOT: '/tmp/projectless',
+        VOLARE_LOG_LEVEL: 'debug',
+        VOLARE_COPILOT_PERMISSION_MODE: 'full',
       },
       daemonArgs: [
         'start',
@@ -118,7 +118,7 @@ describe('Agent Loom CLI', () => {
         '--base-url',
         'http://127.0.0.1:8765/openai/v1',
         '--env-key',
-        'CUSTOM_AGENT_LOOM_API_KEY',
+        'CUSTOM_VOLARE_API_KEY',
       ],
       testDependencies({
         configureCodex: async (options) => {
@@ -134,10 +134,10 @@ describe('Agent Loom CLI', () => {
       {
         configPath: '/tmp/codex.toml',
         baseUrl: 'http://127.0.0.1:8765/openai/v1',
-        envKey: 'CUSTOM_AGENT_LOOM_API_KEY',
+        envKey: 'CUSTOM_VOLARE_API_KEY',
       },
     ]);
-    expect(stdout.text()).toContain('Configured Codex for Agent Loom: /tmp/codex.toml');
+    expect(stdout.text()).toContain('Configured Codex for Volare: /tmp/codex.toml');
     expect(stdout.text()).toContain('Backup written: /tmp/backup');
   });
 
@@ -151,8 +151,8 @@ describe('Agent Loom CLI', () => {
           calls.push(command);
           return {
             pid: 4242,
-            logPath: '/tmp/agent-loom.log',
-            pidPath: '/tmp/agent-loom.pid',
+            logPath: '/tmp/volare.log',
+            pidPath: '/tmp/volare.pid',
           };
         },
       }),
@@ -164,10 +164,10 @@ describe('Agent Loom CLI', () => {
     expect(calls[0]).toMatchObject({
       type: 'start',
       daemon: true,
-      env: { AGENT_LOOM_PORT: '8765', AGENT_LOOM_COPILOT_PERMISSION_MODE: 'web' },
+      env: { VOLARE_PORT: '8765', VOLARE_COPILOT_PERMISSION_MODE: 'web' },
       daemonArgs: ['start', '--port', '8765', '--copilot-permission-mode', 'web'],
     });
-    expect(stdout.text()).toContain('Agent Loom daemon started (pid 4242)');
+    expect(stdout.text()).toContain('Volare daemon started (pid 4242)');
   });
 
   test('rejects invalid Copilot permission modes before daemon startup', async () => {
@@ -180,8 +180,8 @@ describe('Agent Loom CLI', () => {
           calls.push(command);
           return {
             pid: 4242,
-            logPath: '/tmp/agent-loom.log',
-            pidPath: '/tmp/agent-loom.pid',
+            logPath: '/tmp/volare.log',
+            pidPath: '/tmp/volare.pid',
           };
         },
       }),
@@ -205,8 +205,8 @@ describe('Agent Loom CLI', () => {
           calls.push(command);
           return {
             pid: 4242,
-            logPath: '/tmp/agent-loom.log',
-            pidPath: '/tmp/agent-loom.pid',
+            logPath: '/tmp/volare.log',
+            pidPath: '/tmp/volare.pid',
           };
         },
       }),
@@ -238,25 +238,25 @@ describe('Agent Loom CLI', () => {
         getDaemonStatus: async () => ({
           running: true,
           pid: 4242,
-          pidPath: '/tmp/agent-loom.pid',
-          logPath: '/tmp/agent-loom.log',
+          pidPath: '/tmp/volare.pid',
+          logPath: '/tmp/volare.log',
         }),
       }),
       io,
     );
 
     expect(exitCode).toBe(0);
-    expect(stdout.text()).toContain('Agent Loom daemon is running (pid 4242).');
-    expect(stdout.text()).toContain('PID file: /tmp/agent-loom.pid');
-    expect(stdout.text()).toContain('Logs: /tmp/agent-loom.log');
+    expect(stdout.text()).toContain('Volare daemon is running (pid 4242).');
+    expect(stdout.text()).toContain('PID file: /tmp/volare.pid');
+    expect(stdout.text()).toContain('Logs: /tmp/volare.log');
   });
 
-  test('derives stable daemon paths from AGENT_LOOM_HOME', () => {
-    expect(defaultDaemonPaths({ AGENT_LOOM_HOME: '/tmp/agent-loom-home' })).toEqual({
-      rootDir: '/tmp/agent-loom-home',
-      logPath: '/tmp/agent-loom-home/logs/agent-loom.log',
-      pidPath: '/tmp/agent-loom-home/agent-loom.pid',
-      stateDatabasePath: '/tmp/agent-loom-home/state.sqlite',
+  test('derives stable daemon paths from VOLARE_HOME', () => {
+    expect(defaultDaemonPaths({ VOLARE_HOME: '/tmp/volare-home' })).toEqual({
+      rootDir: '/tmp/volare-home',
+      logPath: '/tmp/volare-home/logs/volare.log',
+      pidPath: '/tmp/volare-home/volare.pid',
+      stateDatabasePath: '/tmp/volare-home/state.sqlite',
     });
   });
 });

@@ -1,4 +1,4 @@
-import { AgentLoomError } from '../core/errors';
+import { VolareError } from '../core/errors';
 
 export interface IRedactionResult {
   value: unknown;
@@ -9,7 +9,7 @@ export interface IRedactor {
   redact(value: unknown): IRedactionResult;
 }
 
-export class RedactionFailedError extends AgentLoomError {
+export class RedactionFailedError extends VolareError {
   constructor(stage: string, cause: unknown) {
     super('redaction_failed', 'Redaction failed before journal persistence', {
       cause: { stage, cause },

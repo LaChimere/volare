@@ -1,7 +1,7 @@
 import { realpath } from 'node:fs/promises';
 
 import { type ILogger, NoopLogger } from '../logging/logger';
-import { AgentLoomError, toAgentLoomError } from './errors';
+import { toVolareError, VolareError } from './errors';
 import type {
   AgentEvent,
   ApprovalDecision,
@@ -58,7 +58,7 @@ export class DurableSessionManager implements ISessionManager {
       ? await this.#requireThread(input.threadId)
       : await this.#store.createThread({ workspaceId: context.workspaceId });
     if (thread.workspaceId !== context.workspaceId) {
-      throw new AgentLoomError('workspace_mismatch', 'Thread belongs to a different workspace');
+      throw new VolareError('workspace_mismatch', 'Thread belongs to a different workspace');
     }
 
     const session = input.threadId
@@ -171,7 +171,7 @@ export class DurableSessionManager implements ISessionManager {
         forceAfterTimeout: true,
       });
     } catch (error) {
-      const agentError = toAgentLoomError(error);
+      const agentError = toVolareError(error);
       this.#appendEvent(turn.id, { type: 'turn.failed', turnId: turn.id, error });
       this.#logger.error(
         {
@@ -308,7 +308,7 @@ export class DurableSessionManager implements ISessionManager {
         yield this.#record(resolved.turn.id, event);
       }
     } catch (error) {
-      const agentError = toAgentLoomError(error);
+      const agentError = toVolareError(error);
       sawTerminal = true;
       yield this.#record(resolved.turn.id, {
         type: 'turn.failed',
@@ -382,7 +382,7 @@ export class DurableSessionManager implements ISessionManager {
   async #requireThread(threadId: string): Promise<IThread> {
     const thread = await this.#store.getThread(threadId);
     if (!thread) {
-      throw new AgentLoomError('thread_not_found', 'Thread was not found');
+      throw new VolareError('thread_not_found', 'Thread was not found');
     }
     return thread;
   }
@@ -414,7 +414,7 @@ export class DurableSessionManager implements ISessionManager {
       );
       return (await this.#store.getBackendSession(reserved.bridgeSessionId)) ?? created;
     } catch (error) {
-      const agentError = toAgentLoomError(error);
+      const agentError = toVolareError(error);
       this.#logger.error(
         {
           event: 'backend.session.create_failed',
@@ -433,7 +433,7 @@ export class DurableSessionManager implements ISessionManager {
           'lost',
         );
       } catch (cleanupError) {
-        const cleanupAgentError = toAgentLoomError(cleanupError);
+        const cleanupAgentError = toVolareError(cleanupError);
         this.#logger.error(
           {
             event: 'backend.session.create_cleanup_failed',
@@ -453,7 +453,7 @@ export class DurableSessionManager implements ISessionManager {
   async #resumeSessionForThread(threadId: string, workspaceId: string): Promise<IBackendSession> {
     const session = await this.#store.getBackendSessionByThread(threadId);
     if (!session) {
-      throw new AgentLoomError('session_lost', 'No active backend session exists for this thread');
+      throw new VolareError('session_lost', 'No active backend session exists for this thread');
     }
     this.#assertSessionScope(session, { workspaceId, threadId });
     await this.#assertWorkspaceUnchanged(workspaceId);
@@ -476,7 +476,7 @@ export class DurableSessionManager implements ISessionManager {
     request: { workspaceId: string; threadId: string },
   ): void {
     if (session.workspaceId !== request.workspaceId || session.threadId !== request.threadId) {
-      throw new AgentLoomError(
+      throw new VolareError(
         'backend_session_mismatch',
         'Backend session does not match request scope',
       );
@@ -488,13 +488,13 @@ export class DurableSessionManager implements ISessionManager {
     try {
       const canonicalRoot = await realpath(workspace.rootPath);
       if (canonicalRoot !== workspace.rootPath) {
-        throw new AgentLoomError('workspace_changed', 'Workspace root changed before resume');
+        throw new VolareError('workspace_changed', 'Workspace root changed before resume');
       }
     } catch (cause) {
-      if (cause instanceof AgentLoomError) {
+      if (cause instanceof VolareError) {
         throw cause;
       }
-      throw new AgentLoomError('workspace_changed', 'Workspace root changed before resume', {
+      throw new VolareError('workspace_changed', 'Workspace root changed before resume', {
         cause,
       });
     }
@@ -503,7 +503,7 @@ export class DurableSessionManager implements ISessionManager {
   async #requireWorkspace(workspaceId: string) {
     const workspace = await this.#store.getWorkspace(workspaceId);
     if (!workspace) {
-      throw new AgentLoomError('workspace_changed', 'Workspace is no longer available');
+      throw new VolareError('workspace_changed', 'Workspace is no longer available');
     }
     return workspace;
   }
@@ -514,7 +514,7 @@ export class DurableSessionManager implements ISessionManager {
     signal?: AbortSignal,
   ): Promise<ApprovalDecision> {
     if (!this.#approvalProvider) {
-      throw new AgentLoomError('approval_provider_missing', 'No approval provider is configured');
+      throw new VolareError('approval_provider_missing', 'No approval provider is configured');
     }
     const workspace = await this.#requireWorkspace(resolved.request.workspaceId);
     const evaluation = await this.#approvalProvider.evaluate(event.request, {
@@ -562,10 +562,7 @@ export class DurableSessionManager implements ISessionManager {
         return { type: 'deny', scope: 'once', reason: evaluation.reason };
       case 'ask':
         if (!this.#approvalProvider) {
-          throw new AgentLoomError(
-            'approval_provider_missing',
-            'No approval provider is configured',
-          );
+          throw new VolareError('approval_provider_missing', 'No approval provider is configured');
         }
         return await this.#approvalProvider.awaitDecision(evaluation.approvalId, signal);
     }
@@ -578,7 +575,7 @@ export class DurableSessionManager implements ISessionManager {
   ): Promise<void> {
     const capabilities = this.#backend.capabilities();
     if (!capabilities.externalApprovalDecisions || !this.#backend.submitApprovalDecision) {
-      throw new AgentLoomError(
+      throw new VolareError(
         'approval_delivery_unsupported',
         'Backend does not support external approval decision delivery',
       );
@@ -608,12 +605,12 @@ export class DurableSessionManager implements ISessionManager {
     try {
       await this.#store.updateTurnStatus(turnId, 'any-non-terminal', 'failed', Date.now());
     } catch (cleanupError) {
-      const cleanupAgentError = toAgentLoomError(cleanupError);
+      const cleanupAgentError = toVolareError(cleanupError);
       this.#logger.error(
         {
           event: cleanupEvent,
           turnId,
-          originalErrorCode: toAgentLoomError(originalError).code,
+          originalErrorCode: toVolareError(originalError).code,
           errorCode: cleanupAgentError.code,
           error: cleanupAgentError,
         },

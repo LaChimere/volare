@@ -1,4 +1,4 @@
-import { AgentLoomError } from './errors';
+import { VolareError } from './errors';
 import { createId } from './ids';
 import type {
   AgentEvent,
@@ -26,7 +26,7 @@ export class InMemorySessionManager implements ISessionManager {
 
   async startTurn(input: IAgentRequestInput, context: IRequestContext): Promise<IResolvedTurn> {
     if (input.threadId || input.parentTurnId || input.clientRef?.parentExternalId) {
-      throw new AgentLoomError(
+      throw new VolareError(
         'unsupported_parameter',
         'previous_response_id is not supported until durable multi-turn state lands',
       );
