@@ -119,7 +119,8 @@ describe('Codex CLI provider integration', () => {
         {
           slug: 'gpt-5.5',
           supported_in_api: true,
-          supported_reasoning_levels: [],
+          default_reasoning_level: 'high',
+          supported_reasoning_levels: ['low', 'medium', 'high'],
           support_verbosity: false,
           input_modalities: ['text'],
         },

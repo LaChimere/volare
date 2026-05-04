@@ -61,7 +61,7 @@ function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDepend
       daemonRunning: false,
       codexConfig: { configPath: '/tmp/config.toml', changed: true },
     }),
-    updatePackage: async () => ({ latestVersion: '0.3.3' }),
+    updatePackage: async () => ({ latestVersion: '0.3.4' }),
     ...overrides,
   };
 }
@@ -86,7 +86,7 @@ describe('Volare CLI', () => {
       testDependencies({
         updatePackage: async () => {
           calls += 1;
-          return { latestVersion: '0.3.3' };
+          return { latestVersion: '0.3.4' };
         },
       }),
       io,
@@ -97,7 +97,7 @@ describe('Volare CLI', () => {
     expect(stdout.text()).toContain(
       "Refreshing Bun's global package cache and resolving @lachimere/volare@latest",
     );
-    expect(stdout.text()).toContain('Volare update complete. Latest version: 0.3.3');
+    expect(stdout.text()).toContain('Volare update complete. Latest version: 0.3.4');
     expect(stdout.text()).toContain('@lachimere/volare@latest');
   });
 

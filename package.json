@@ -1,6 +1,6 @@
 {
   "name": "@lachimere/volare",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Local agent-runtime bridge backed by Copilot CLI, currently exposing an OpenAI Responses-compatible API.",
   "module": "src/index.ts",
   "type": "module",
