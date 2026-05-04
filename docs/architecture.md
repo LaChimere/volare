@@ -1,6 +1,6 @@
 # Architecture
 
-Agent Loom runs a local OpenAI Responses-compatible HTTP server and translates requests into a protocol-neutral agent runtime. The production runtime currently uses Copilot CLI as the backend.
+Agent Loom runs a local agent-runtime bridge and translates client requests into protocol-neutral execution. The production runtime currently exposes an OpenAI Responses-compatible HTTP adapter and uses Copilot CLI as the backend.
 
 ## Design stance
 

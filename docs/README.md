@@ -1,6 +1,6 @@
 # Agent Loom documentation
 
-Agent Loom is a local, Bun-native bridge from OpenAI Responses-compatible clients to a Copilot CLI-backed agent runtime.
+Agent Loom is a local, Bun-native bridge to a Copilot CLI-backed agent runtime. It currently supports OpenAI Responses-compatible clients through its first northbound adapter.
 
 Use these docs by role:
 

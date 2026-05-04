@@ -1,6 +1,6 @@
 # Agent Loom agent guide
 
-This repository is a Bun/TypeScript project for a local OpenAI Responses-compatible bridge backed by Copilot CLI. Prefer small, protocol-safe changes and keep the runtime easy to inspect locally.
+This repository is a Bun/TypeScript project for a local agent-runtime bridge backed by Copilot CLI. It currently exposes an OpenAI Responses-compatible adapter, but the core runtime should remain protocol-neutral. Prefer small, protocol-safe changes and keep the runtime easy to inspect locally.
 
 ## Tooling
 

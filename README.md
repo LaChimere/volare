@@ -1,6 +1,6 @@
 # Agent Loom
 
-Agent Loom is a local bridge that exposes an OpenAI Responses-compatible API backed by a local Copilot CLI agent runtime. It is designed for Codex CLI/Desktop dogfooding, durable local state, projectless chats, structured diagnostics, and Bun-native operation.
+Agent Loom is a local agent-runtime bridge backed by Copilot CLI. It currently exposes an OpenAI Responses-compatible API for Codex CLI/Desktop dogfooding, while keeping the core runtime protocol-neutral for durable local state, projectless chats, structured diagnostics, and Bun-native operation.
 
 ## Quick start
 
