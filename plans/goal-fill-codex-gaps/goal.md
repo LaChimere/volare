@@ -3,11 +3,11 @@
 objective: "我觉得我们接下来的目标是 fill gaps，你可以调研下上面这些 gaps 哪些是需要我们 fill 的，按优先级排序，然后从高到低 support。我们还是面向接口，但不引入 over-design。你需要多 review 和 refine。usage 这块暂时不用做。 另外，你可以看一下我们的 bunx @lachimere/volare xxx 这样的 cli 能力是否有需要 improve 的，也可以打磨下。"
 status: active
 slug: "goal-fill-codex-gaps"
-turns_used: 2
+turns_used: 3
 turn_budget: null
 docs_update_approved: true
 created_at: "2026-05-04T17:43:23+08:00"
-updated_at: "2026-05-04T18:08:00+08:00"
+updated_at: "2026-05-04T18:16:00+08:00"
 
 ## Acceptance criteria
 
@@ -57,3 +57,4 @@ updated_at: "2026-05-04T18:08:00+08:00"
 - None.
 
 - Turn 2: Implemented first interface-safe gap slice: Responses attachment extraction, metadata echo on Responses snapshots, explicit stream=false rejection, backend attachment prompt summaries, CLI daemon API-key warning, and clearer invalid command/permission-mode errors. Independent code review found and the implementation fixed attachment leakage from historical messages into the latest turn. Validation passed with targeted tests, `bun run check`, `bun run test`, and `bun run package`.
+- Turn 3: Added Codex `client_metadata` compatibility and explicit rejection for unsupported reasoning/text controls, with tests and documentation.
