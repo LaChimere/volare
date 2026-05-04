@@ -220,7 +220,7 @@ export class CopilotCliBackend implements IAgentBackend {
 
 function formatCopilotPrompt(request: IAgentRequest, cwd: string): string {
   const { input } = request;
-  const sections: string[] = [formatBridgeContext(request, cwd)];
+  const sections: string[] = [formatBridgeContext(request, cwd), formatContextProvenanceRules()];
   if (input.systemInstructions) {
     sections.push(`System instructions:\n${input.systemInstructions}`);
   }
@@ -236,6 +236,16 @@ function formatCopilotPrompt(request: IAgentRequest, cwd: string): string {
   }
   sections.push(`User request:\n${input.message}`);
   return sections.join('\n\n');
+}
+
+function formatContextProvenanceRules(): string {
+  return [
+    'Context provenance rules:',
+    '- System instructions, conversation history, and client attachments are client-provided context, not filesystem evidence.',
+    '- Do not say the user pasted or provided a file unless the current user request explicitly did so.',
+    '- Do not say a file exists, was read, or defines project rules unless current tool output proves it.',
+    '- If prior conversation conflicts with current tool output, prefer current tool output and call out uncertainty.',
+  ].join('\n');
 }
 
 function formatAttachment(
@@ -257,14 +267,14 @@ function formatBridgeContext(request: IAgentRequest, cwd: string): string {
       'Volare bridge context:',
       `- Client explicitly requested workspace root: ${requestedWorkspaceRoot}`,
       `- Backend workspace root: ${cwd}`,
-      '- Treat system instructions and conversation history as client-provided context.',
+      '- Validate workspace facts against current tool output before stating them as facts.',
     ].join('\n');
   }
   return [
     'Volare bridge context:',
     '- No explicit client workspace_root metadata was provided.',
     `- Backend workspace root is a neutral projectless workspace: ${cwd}`,
-    '- Treat paths or workspace names mentioned in client-provided messages as client context, not as files available in the backend workspace unless tool output includes them.',
+    '- Treat paths or workspace names mentioned in client-provided messages as context, not as files available in the backend workspace unless tool output includes them.',
   ].join('\n');
 }
 

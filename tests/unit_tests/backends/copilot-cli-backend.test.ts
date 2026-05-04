@@ -143,6 +143,16 @@ describe('CopilotCliBackend', () => {
       expect(runner.lastPrompt).toContain(
         `Backend workspace root is a neutral projectless workspace: ${workspace.rootPath}`,
       );
+      expect(runner.lastPrompt).toContain('Context provenance rules:');
+      expect(runner.lastPrompt).toContain(
+        'System instructions, conversation history, and client attachments are client-provided context, not filesystem evidence.',
+      );
+      expect(runner.lastPrompt).toContain(
+        'Do not say the user pasted or provided a file unless the current user request explicitly did so.',
+      );
+      expect(runner.lastPrompt).toContain(
+        'Do not say a file exists, was read, or defines project rules unless current tool output proves it.',
+      );
       expect(runner.lastPrompt).toContain('System instructions:\nBe concise.');
       expect(runner.lastPrompt).toContain(
         'Conversation so far:\nuser: First request\n\nassistant: First answer',
@@ -231,6 +241,9 @@ describe('CopilotCliBackend', () => {
         'Client explicitly requested workspace root: /tmp/client-workspace',
       );
       expect(runner.lastPrompt).toContain(`Backend workspace root: ${workspace.rootPath}`);
+      expect(runner.lastPrompt).toContain(
+        'Validate workspace facts against current tool output before stating them as facts.',
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
