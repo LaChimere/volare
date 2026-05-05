@@ -32,6 +32,7 @@ It writes the equivalent provider/profile:
 profile = "volare"
 model_provider = "volare"
 model = "gpt-5.5"
+model_reasoning_effort = "high"
 
 [model_providers.volare]
 name = "Volare"
@@ -44,9 +45,10 @@ supports_websockets = false
 [profiles.volare]
 model_provider = "volare"
 model = "gpt-5.5"
+model_reasoning_effort = "high"
 ```
 
-Codex CLI and Desktop share this config. The top-level `profile`, `model_provider`, and `model` entries keep commands such as `codex exec resume --last` on Volare even when a subcommand does not accept `--profile`.
+Codex CLI and Desktop share this config. The top-level `profile`, `model_provider`, `model`, and `model_reasoning_effort` entries keep commands such as `codex exec resume --last` on Volare with the expected default model and reasoning effort even when a subcommand does not accept `--profile`.
 
 `requires_openai_auth = true` keeps Codex/Desktop aware of the signed-in ChatGPT account while `env_key = "VOLARE_API_KEY"` still authenticates requests to the local Volare server. This lets Desktop expose ChatGPT-backed plugin browsing and installation while using Volare as the active model provider.
 

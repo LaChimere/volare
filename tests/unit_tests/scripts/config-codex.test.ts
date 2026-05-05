@@ -24,6 +24,7 @@ describe('config-codex script', () => {
     expect(config).toContain('profile = "volare"');
     expect(config).toContain('model_provider = "volare"');
     expect(config).toContain('model = "gpt-5.5"');
+    expect(config).toContain('model_reasoning_effort = "high"');
     expect(config).toContain('[model_providers.other]');
     expect(config).toContain('[profiles.other]');
     expect(config).toContain('[model_providers.volare]');
@@ -39,6 +40,7 @@ describe('config-codex script', () => {
         'profile = "old"',
         'model_provider = "old"',
         'model = "old"',
+        'model_reasoning_effort = "medium"',
         '',
         '[model_providers.volare]',
         'name = "Old Volare"',
@@ -48,6 +50,7 @@ describe('config-codex script', () => {
         '[profiles.volare]',
         'model_provider = "old"',
         'model = "old"',
+        'model_reasoning_effort = "medium"',
       ].join('\n'),
       {
         baseUrl: 'http://127.0.0.1:8765/openai/v1',
@@ -62,6 +65,8 @@ describe('config-codex script', () => {
     expect(config).toContain('env_key = "CUSTOM_VOLARE_API_KEY"');
     expect(config).toContain('requires_openai_auth = true');
     expect(config).not.toContain('requires_openai_auth = false');
+    expect(config).not.toContain('model_reasoning_effort = "medium"');
+    expect(config.match(/model_reasoning_effort = "high"/g)).toHaveLength(2);
   });
 
   test('rejects invalid Codex provider settings', () => {
