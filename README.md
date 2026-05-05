@@ -65,6 +65,7 @@ bunx @lachimere/volare logs          # print daemon log path
 bunx @lachimere/volare update        # refresh Bun's global cache to npm latest
 bunx @lachimere/volare config codex          # configure or repair Codex CLI/Desktop
 bunx @lachimere/volare config codex doctor   # diagnose Volare-owned Codex config drift
+bunx @lachimere/volare config codex repair   # rewrite only Volare-owned Codex config
 ```
 
 ## Current compatibility scope
