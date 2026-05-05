@@ -152,6 +152,14 @@ export function inspectCodexConfigText(
   }
 
   const desired = buildCodexConfig(existing, options);
+  if (!isValidToml(desired)) {
+    issues.push({
+      code: 'codex-config-invalid-toml',
+      severity: 'error',
+      message:
+        'Codex config would remain invalid after Volare repair; fix non-Volare TOML syntax or duplicate sections.',
+    });
+  }
 
   if (!managedBlockResult.removed) {
     issues.push({
@@ -425,6 +433,15 @@ function validateGeneratedToml(content: string): void {
     Bun.TOML.parse(content);
   } catch (cause) {
     throw new Error('Generated Codex config must be valid TOML', { cause });
+  }
+}
+
+function isValidToml(content: string): boolean {
+  try {
+    Bun.TOML.parse(content);
+    return true;
+  } catch {
+    return false;
   }
 }
 
