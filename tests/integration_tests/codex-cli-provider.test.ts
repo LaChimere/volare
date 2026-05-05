@@ -82,11 +82,12 @@ describe('Codex CLI provider integration', () => {
       expect(result).toMatchObject({
         configPath,
         changed: true,
-        backupPath: `${configPath}.volare-backup-it`,
+        backupPath: join(root, 'backups', 'volare', 'config-it.toml'),
       });
-      await expect(readFile(`${configPath}.volare-backup-it`, 'utf8')).resolves.toContain(
-        '[model_providers.other]',
-      );
+      await expect(
+        readFile(join(root, 'backups', 'volare', 'config-it.toml'), 'utf8'),
+      ).resolves.toContain('[model_providers.other]');
+      await expect(readFile(configPath, 'utf8')).resolves.toContain('# >>> volare managed');
       await expect(readFile(configPath, 'utf8')).resolves.toContain(
         '[model_providers.volare]\nname = "Volare"\nbase_url = "http://127.0.0.1:8765/openai/v1"\nwire_api = "responses"\nenv_key = "VOLARE_API_KEY"\nrequires_openai_auth = true',
       );

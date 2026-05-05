@@ -6,8 +6,11 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   configureCodex,
+  type ICodexConfigInspection,
   type ICodexConfigOptions,
   type ICodexConfigResult,
+  type ICodexReasoningEffort,
+  inspectCodexConfig,
 } from '../scripts/config-codex';
 import { isCopilotCliPermissionMode } from './backends/copilot-cli/backend';
 import {
@@ -41,6 +44,7 @@ export type ICliCommand =
       daemonArgs: string[];
     }
   | { type: 'config-codex'; options: ICodexConfigOptions }
+  | { type: 'config-codex-doctor'; options: ICodexConfigOptions }
   | { type: 'status' }
   | { type: 'stop' }
   | { type: 'logs' };
@@ -60,6 +64,7 @@ export interface ICliDependencies {
     changed: boolean;
     backupPath?: string;
   }>;
+  inspectCodexConfig: (options?: ICodexConfigOptions) => Promise<ICodexConfigInspection>;
   startRuntime: (options?: IVolareRuntimeOptions) => Promise<IVolareRuntime>;
   installSignalHandlers: (runtime: IVolareRuntime) => void;
   startDaemon: (command: Extract<ICliCommand, { type: 'start' }>) => Promise<IDaemonStartResult>;
@@ -78,6 +83,7 @@ export interface ISetupOptions {
   macosEnvironment: boolean;
   codexConfigPath?: string;
   baseUrl?: string;
+  reasoningEffort?: ICodexReasoningEffort;
 }
 
 export interface ISetupResult {
@@ -228,6 +234,22 @@ export async function runCli(
         }
         return 0;
       }
+      case 'config-codex-doctor': {
+        const result = await dependencies.inspectCodexConfig(command.options);
+        if (result.healthy) {
+          await writeLine(io.stdout, `Codex config is healthy for Volare: ${result.configPath}`);
+          return 0;
+        }
+        await writeLine(io.stdout, `Codex config needs Volare repair: ${result.configPath}`);
+        for (const issue of result.issues) {
+          await writeLine(io.stdout, `- [${issue.severity}] ${issue.code}: ${issue.message}`);
+        }
+        await writeLine(
+          io.stdout,
+          'Next: run "volare config codex repair" to rewrite Volare-owned config.',
+        );
+        return 1;
+      }
       case 'status': {
         const status = await dependencies.getDaemonStatus();
         if (status.running) {
@@ -341,6 +363,12 @@ function parseSetup(args: string[]): ISetupOptions {
       index = parsed.index;
       continue;
     }
+    if (arg === '--reasoning-effort' || arg.startsWith('--reasoning-effort=')) {
+      const parsed = readFlagValue(args, index, '--reasoning-effort');
+      options.reasoningEffort = parseReasoningEffort(parsed.value, '--reasoning-effort');
+      index = parsed.index;
+      continue;
+    }
     throw new CliUsageError(`Unknown setup option: ${arg}`);
   }
 
@@ -421,20 +449,24 @@ function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
   return { type: 'start', daemon, env, daemonArgs };
 }
 
-function parseConfig(args: string[]): Extract<ICliCommand, { type: 'config-codex' }> {
+function parseConfig(
+  args: string[],
+): Extract<ICliCommand, { type: 'config-codex' | 'config-codex-doctor' }> {
   const [target, ...rest] = args;
   if (target !== 'codex') {
     throw new CliUsageError('Expected config target: codex');
   }
+  const action = rest[0] === 'doctor' || rest[0] === 'repair' ? rest[0] : undefined;
+  const optionArgs = action ? rest.slice(1) : rest;
   const options: ICodexConfigOptions = {};
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
+  for (let index = 0; index < optionArgs.length; index += 1) {
+    const arg = optionArgs[index];
     if (!arg) {
       continue;
     }
     if (arg === '--config' || arg === '--config-path' || arg.startsWith('--config=')) {
       const parsed = readFlagValue(
-        rest,
+        optionArgs,
         index,
         arg === '--config-path' ? '--config-path' : '--config',
       );
@@ -443,18 +475,27 @@ function parseConfig(args: string[]): Extract<ICliCommand, { type: 'config-codex
       continue;
     }
     if (arg === '--base-url' || arg.startsWith('--base-url=')) {
-      const parsed = readFlagValue(rest, index, '--base-url');
+      const parsed = readFlagValue(optionArgs, index, '--base-url');
       options.baseUrl = parsed.value;
       index = parsed.index;
       continue;
     }
     if (arg === '--env-key' || arg.startsWith('--env-key=')) {
-      const parsed = readFlagValue(rest, index, '--env-key');
+      const parsed = readFlagValue(optionArgs, index, '--env-key');
       options.envKey = parsed.value;
       index = parsed.index;
       continue;
     }
+    if (arg === '--reasoning-effort' || arg.startsWith('--reasoning-effort=')) {
+      const parsed = readFlagValue(optionArgs, index, '--reasoning-effort');
+      options.reasoningEffort = parseReasoningEffort(parsed.value, '--reasoning-effort');
+      index = parsed.index;
+      continue;
+    }
     throw new CliUsageError(`Unknown config codex option: ${arg}`);
+  }
+  if (action === 'doctor') {
+    return { type: 'config-codex-doctor', options };
   }
   return { type: 'config-codex', options };
 }
@@ -489,9 +530,17 @@ function assertNoArgs(args: string[], command: string): void {
   }
 }
 
+function parseReasoningEffort(value: string, flag: string): ICodexReasoningEffort {
+  if (value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') {
+    return value;
+  }
+  throw new CliUsageError(`${flag} must be one of: low, medium, high, xhigh`);
+}
+
 function defaultDependencies(): ICliDependencies {
   return {
     configureCodex,
+    inspectCodexConfig,
     startRuntime: startVolareRuntime,
     installSignalHandlers: installRuntimeSignalHandlers,
     startDaemon,
@@ -566,6 +615,9 @@ function codexOptionsFromSetup(options: ISetupOptions): ICodexConfigOptions {
   }
   if (options.baseUrl) {
     codexOptions.baseUrl = options.baseUrl;
+  }
+  if (options.reasoningEffort) {
+    codexOptions.reasoningEffort = options.reasoningEffort;
   }
   return codexOptions;
 }
@@ -968,6 +1020,8 @@ Usage:
   volare start [options]
   volare start -d [options]
   volare config codex [options]
+  volare config codex doctor [options]
+  volare config codex repair [options]
   volare status
   volare stop
   volare logs
@@ -979,6 +1033,7 @@ Setup options:
       --no-macos-env                   Do not update the macOS GUI environment
       --config, --config-path <path>   Codex config path
       --base-url <url>                 Volare OpenAI Responses base URL
+      --reasoning-effort <effort>      Codex reasoning effort (low, medium, high, xhigh)
 
 Start options:
   -d, --daemon                         Start in the background
@@ -996,6 +1051,7 @@ Config options:
       --config, --config-path <path>   Codex config path
       --base-url <url>                 Volare OpenAI Responses base URL
       --env-key <name>                 Codex env_key for the Volare API token
+      --reasoning-effort <effort>      Codex reasoning effort (low, medium, high, xhigh)
 
 Update:
   volare update clears Bun's global package cache, resolves ${PACKAGE_NAME}@latest,
