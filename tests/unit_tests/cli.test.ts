@@ -30,6 +30,11 @@ function memoryIo(): { io: ICliIo; stdout: MemoryWriter; stderr: MemoryWriter } 
 function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDependencies {
   return {
     configureCodex: async () => ({ configPath: '/tmp/config.toml', changed: false }),
+    inspectCodexConfig: async () => ({
+      configPath: '/tmp/config.toml',
+      healthy: true,
+      issues: [],
+    }),
     startRuntime: async () => {
       throw new Error('unexpected runtime start');
     },
@@ -166,12 +171,21 @@ describe('Volare CLI', () => {
   });
 
   test('parses setup options', () => {
-    expect(parseCli(['setup', '--force-token', '--no-codex', '--no-macos-env'])).toEqual({
+    expect(
+      parseCli([
+        'setup',
+        '--force-token',
+        '--no-codex',
+        '--no-macos-env',
+        '--reasoning-effort=xhigh',
+      ]),
+    ).toEqual({
       type: 'setup',
       options: {
         forceToken: true,
         configureCodex: false,
         macosEnvironment: false,
+        reasoningEffort: 'xhigh',
       },
     });
   });
@@ -238,6 +252,8 @@ describe('Volare CLI', () => {
         'http://127.0.0.1:8765/openai/v1',
         '--env-key',
         'CUSTOM_VOLARE_API_KEY',
+        '--reasoning-effort',
+        'xhigh',
       ],
       testDependencies({
         configureCodex: async (options) => {
@@ -254,10 +270,61 @@ describe('Volare CLI', () => {
         configPath: '/tmp/codex.toml',
         baseUrl: 'http://127.0.0.1:8765/openai/v1',
         envKey: 'CUSTOM_VOLARE_API_KEY',
+        reasoningEffort: 'xhigh',
       },
     ]);
     expect(stdout.text()).toContain('Configured Codex for Volare: /tmp/codex.toml');
     expect(stdout.text()).toContain('Backup written: /tmp/backup');
+  });
+
+  test('runs config codex repair as an explicit configure alias', async () => {
+    const { io, stdout } = memoryIo();
+    const calls: unknown[] = [];
+    const exitCode = await runCli(
+      ['config', 'codex', 'repair', '--config', '/tmp/codex.toml'],
+      testDependencies({
+        configureCodex: async (options) => {
+          calls.push(options);
+          return { configPath: '/tmp/codex.toml', changed: false };
+        },
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([{ configPath: '/tmp/codex.toml' }]);
+    expect(stdout.text()).toContain('Codex is already configured for Volare: /tmp/codex.toml');
+  });
+
+  test('runs config codex doctor without printing secret-like values', async () => {
+    const { io, stdout } = memoryIo();
+    const calls: unknown[] = [];
+    const exitCode = await runCli(
+      ['config', 'codex', 'doctor', '--config', '/tmp/codex.toml'],
+      testDependencies({
+        inspectCodexConfig: async (options) => {
+          calls.push(options);
+          return {
+            configPath: '/tmp/codex.toml',
+            healthy: false,
+            issues: [
+              {
+                code: 'managed-block-missing',
+                severity: 'warning',
+                message: 'Volare config is not in a bounded managed block.',
+              },
+            ],
+          };
+        },
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(calls).toEqual([{ configPath: '/tmp/codex.toml' }]);
+    expect(stdout.text()).toContain('Codex config needs Volare repair: /tmp/codex.toml');
+    expect(stdout.text()).toContain('managed-block-missing');
+    expect(stdout.text()).not.toContain('replace-with-at-least-16-characters');
   });
 
   test('runs daemon start without starting the foreground runtime', async () => {
@@ -378,6 +445,20 @@ describe('Volare CLI', () => {
       await runCli(['config', 'codex', '--base-url'], testDependencies(), missingValue.io),
     ).toBe(2);
     expect(missingValue.stderr.text()).toContain('Missing value for --base-url');
+  });
+
+  test('rejects invalid reasoning effort options', async () => {
+    const setup = memoryIo();
+    const config = memoryIo();
+
+    expect(await runCli(['setup', '--reasoning-effort', 'max'], testDependencies(), setup.io)).toBe(
+      2,
+    );
+    expect(setup.stderr.text()).toContain('--reasoning-effort must be one of');
+    expect(
+      await runCli(['config', 'codex', '--reasoning-effort=max'], testDependencies(), config.io),
+    ).toBe(2);
+    expect(config.stderr.text()).toContain('--reasoning-effort must be one of');
   });
 
   test('reports daemon status and log paths', async () => {
