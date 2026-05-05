@@ -122,6 +122,16 @@ bunx @lachimere/volare update
 
 The command clears Bun's global install/bunx cache and resolves `@lachimere/volare@latest`, so unrelated cached `bunx` tools may be reinstalled later. If a release was published moments ago and the registry has not propagated yet, wait briefly and run the update command again.
 
+### Codex config appears stale or inconsistent
+
+Check the Volare-owned Codex provider/profile block without printing tokens or the full config:
+
+```bash
+bunx @lachimere/volare config codex doctor
+```
+
+If doctor reports drift, run `bunx @lachimere/volare config codex repair` to rewrite only Volare-owned Codex config. Repair preserves unrelated Codex settings and writes backups under `backups/volare/` next to the selected Codex config file.
+
 ### Context appears to mention an unexpected Codex/Desktop path
 
 Volare may still be in projectless mode. Check logs for `projectless: true` and inspect the persisted workspace root. Codex/Desktop can include its own UI or temporary workspace context in request text; Volare labels this as client-provided context in backend prompts.

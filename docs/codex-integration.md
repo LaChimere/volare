@@ -67,7 +67,7 @@ bunx @lachimere/volare config codex doctor
 bunx @lachimere/volare config codex repair
 ```
 
-Doctor output reports issue codes and non-secret messages only; it does not print tokens, environment values, or the full config file. Repair keeps the latest Volare backups in `backups/volare/` next to the selected config file, so the default path is `~/.codex/backups/volare/config-<timestamp>.toml`.
+Doctor output reports issue codes and non-secret messages only; it does not print tokens, environment values, or the full config file. It also reports cases that repair cannot safely rewrite, such as an unclosed Volare managed block or unrelated TOML syntax/duplicate-section errors that would still be invalid after Volare repair. Repair keeps the latest Volare backups in `backups/volare/` next to the selected config file, so the default path is `~/.codex/backups/volare/config-<timestamp>.toml`.
 
 ## Model catalog
 
