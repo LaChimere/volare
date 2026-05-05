@@ -166,6 +166,22 @@ describe('config-codex script', () => {
     }
   });
 
+  test('doctor reports invalid TOML that Volare repair cannot fix', () => {
+    const inspection = inspectCodexConfigText(
+      [
+        '[model_providers.other]',
+        'name = "Other"',
+        '',
+        '[model_providers.other]',
+        'name = "Duplicate"',
+      ].join('\n'),
+    );
+
+    expect(inspection.healthy).toBe(false);
+    expect(inspection.issues.map((issue) => issue.code)).toContain('codex-config-invalid-toml');
+    expect(JSON.stringify(inspection)).not.toContain('Duplicate');
+  });
+
   test('rejects invalid Codex provider settings', () => {
     expect(() => buildCodexConfig('', { baseUrl: 'not a url' })).toThrow(
       'Volare Codex base URL must be a valid URL',
