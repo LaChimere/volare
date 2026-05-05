@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 
 const DEFAULT_PROFILE = 'volare';
 const DEFAULT_MODEL = 'gpt-5.5';
+const DEFAULT_REASONING_EFFORT = 'high';
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8000/openai/v1';
 const DEFAULT_ENV_KEY = 'VOLARE_API_KEY';
 
@@ -63,6 +64,7 @@ export function buildCodexConfig(
     ['profile', DEFAULT_PROFILE],
     ['model_provider', DEFAULT_PROFILE],
     ['model', DEFAULT_MODEL],
+    ['model_reasoning_effort', DEFAULT_REASONING_EFFORT],
   ]);
   return `${trimTrailingWhitespace(withDefaults)}
 
@@ -77,6 +79,7 @@ supports_websockets = false
 [profiles.${DEFAULT_PROFILE}]
 model_provider = "${DEFAULT_PROFILE}"
 model = "${DEFAULT_MODEL}"
+model_reasoning_effort = "${DEFAULT_REASONING_EFFORT}"
 `;
 }
 

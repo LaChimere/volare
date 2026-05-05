@@ -11,7 +11,7 @@ bunx @lachimere/volare setup
 bunx @lachimere/volare start -d
 ```
 
-The setup command generates or reuses `VOLARE_API_KEY`, saves it under `~/.volare/env`, configures Codex, and updates the macOS GUI environment for Codex Desktop. Restart Codex Desktop after setup. The server listens on `http://127.0.0.1:8000/openai/v1` by default, also accepts OpenAI-compatible `/v1` aliases, and requires bearer auth for every endpoint. Daemon helpers:
+The setup command generates or reuses `VOLARE_API_KEY`, saves it under `~/.volare/env`, configures Codex for `gpt-5.5` with high reasoning, and updates the macOS GUI environment for Codex Desktop. Restart Codex Desktop after setup. The server listens on `http://127.0.0.1:8000/openai/v1` by default, also accepts OpenAI-compatible `/v1` aliases, and requires bearer auth for every endpoint. Daemon helpers:
 
 ```bash
 bunx @lachimere/volare status
