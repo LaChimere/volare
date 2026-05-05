@@ -29,7 +29,7 @@ import {
 import { generateVolareApiKey, isValidVolareApiKey, VOLARE_API_KEY_ENV } from './server/api-key';
 import type { IServerRuntimeEnv } from './server/config';
 
-const VERSION = '0.3.4';
+const VERSION = '0.3.5';
 const PACKAGE_NAME = '@lachimere/volare';
 
 export type ICliCommand =
