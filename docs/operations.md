@@ -48,14 +48,22 @@ Runtime logs are structured JSON lines. Important event names include:
 |---|---|
 | `runtime.starting`, `runtime.listening` | Server startup. |
 | `runtime.api_key.generated` | Server generated an ephemeral token. |
-| `http.request.completed` | Request completed with status and duration. |
+| `http.request.completed` | Request completed with status and duration. For `POST /responses`, `durationMs` measures request receipt to SSE `Response` creation and includes phase fields such as `bodyParseMs`, `workspaceResolveMs`, `adapterParseMs`, and `sessionStartMs`; other routes keep normal request-completion semantics. |
 | `workspace.resolved`, `workspace.selected` | Workspace selection and projectless status. |
 | `turn.started`, `turn.stream.started`, `turn.stream.terminal` | Session manager turn lifecycle. |
 | `backend.turn.started`, `backend.turn.completed`, `backend.turn.failed` | Copilot CLI backend lifecycle. |
-| `responses.stream.started`, `responses.stream.completed`, `responses.stream.cancelled`, `responses.stream.failed`, `responses.stream.interrupted` | SSE lifecycle. Stream start logs include safe model and reasoning-effort metadata when the client sends it. |
+| `responses.stream.started`, `responses.stream.completed`, `responses.stream.failed`, `responses.stream.interrupted` | SSE lifecycle. Stream start logs include safe model and reasoning-effort metadata when the client sends it. |
 | `journal.redaction_failed` | Redaction failed before event persistence. |
 
 Logs can contain old non-JSON lines from earlier crashes or stack traces. Use line-by-line JSON parsing when analyzing mixed logs.
+
+For streamed `POST /responses`, the SSE lifecycle summary distinguishes transport outcome from agent response outcome:
+
+- `responses.stream.completed` means the stream reached `[DONE]`. Its `responseOutcome` is `succeeded`, `failed`, `incomplete`, or `unknown`; normal encoded `response.failed` frames are still completed streams with `responseOutcome: "failed"`.
+- `responses.stream.interrupted` replaces the legacy `responses.stream.cancelled` event. Client disconnects use `interruptionReason: "client_disconnect"` and an `interruptionPhase` such as `pre_first_sse_frame`, `pre_terminal`, or `post_terminal`; do not count old `responses.stream.cancelled` and new interrupted events together.
+- `responses.stream.failed` is reserved for stream machinery failures, encoder/iterator errors, or an iterator ending without a terminal SSE frame. It logs a safe `errorCode`, not serialized error causes.
+
+SSE timing fields are emitted only when observable. `streamStartGapMs` measures SSE `Response` construction to first stream pull, `firstAssistantSseFrameMs` measures first stream pull to the first assistant content-bearing SSE frame, and `sseActiveMs` measures first SSE frame to `[DONE]` or terminal stream error. If no assistant content frame is emitted before terminal or interruption, `firstAssistantSseFrameMs` is omitted rather than logged as `0`. `model` and `reasoningEffort` are client-requested correlation metadata only; they do not prove the actual Copilot CLI backend model or effort.
 
 ## Debug journal
 

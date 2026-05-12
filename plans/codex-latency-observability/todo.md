@@ -12,7 +12,7 @@ Execution note: do not create commits until checks for the current slice pass an
 - [x] `responses-duration-semantics`: Document and test the `POST /responses`-only meaning of `http.request.completed.durationMs` as request received to SSE `Response` creation.
 - [x] `sse-lifecycle-observer`: Add local adapter/server stream lifecycle observer hooks for SSE frame count, first pull, first assistant frame, terminal frame, `[DONE]` observation, event-specific stream fields, `sseActiveMs` semantics, and the finalized interruption reason/phase taxonomy.
 - [x] `sse-finalizer-classification`: Replace canonical-event wrapper lifecycle logging with `StreamLifecycleContext` plus an idempotent stream finalizer that follows the precedence rules in `design.md`; cancellation handlers only record state, while final classification happens in the finalizer.
-- [ ] `sse-tests-docs`: Add server/SSE lifecycle tests and update operations docs/integration tests for PR 1 event semantics, including `responses.stream.cancelled` migration, `responseOutcome: unknown`, and omitted first-assistant timing fields.
+- [x] `sse-tests-docs`: Add server/SSE lifecycle tests and update operations docs/integration tests for PR 1 event semantics, including `responses.stream.cancelled` migration, `responseOutcome: unknown`, and omitted first-assistant timing fields.
 - [ ] `core-turn-summary-metrics`: Add manager-side state/turn summary timing fields where cheap and protocol-neutral; keep `sessionStartMs` and `stateStartMs` relationship clear and non-additive.
 - [ ] `backend-turn-summary-metrics`: Add Copilot backend summary fields for prompt assembly, first output where observable, assistant delta cadence, coarse size buckets, and failure classes; keep SSE, canonical event, and backend delta counting layers separate, track delta cadence with O(1) state only, add no per-delta info logs, and omit unavailable timing fields instead of writing `0`.
 - [ ] `journal-slow-warning`: Decide whether a capped `journal.append.slow` warning is useful; implement it only if it can stay at most once per turn, otherwise record the deferral.
@@ -39,6 +39,7 @@ Execution note: do not create commits until checks for the current slice pass an
 
 - `server-request-phase-metrics`, `responses-duration-semantics`: added `POST /responses` phase fields and request-ready `durationMs` coverage in `src/server/app.ts` and `tests/unit_tests/server/app.test.ts`. Validation: `bun test tests/unit_tests/server/app.test.ts --pass-with-no-tests`; `bun run check && bun run test`.
 - `sse-lifecycle-observer`, `sse-finalizer-classification`: added adapter stream frame observation and server-side stream finalization in `src/northbound/openai-responses/adapter.ts` and `src/server/app.ts`, with unit coverage for successful, encoded-failed, and disconnected streams. Validation: `bun test tests/unit_tests/server/app.test.ts tests/unit_tests/northbound/openai-responses-adapter.test.ts --pass-with-no-tests`; `bun run check && bun run test`.
+- `sse-tests-docs`: extended server unit coverage for stream machinery failure and post-terminal disconnect classification; updated `docs/operations.md` with PR 1 event semantics and the `responses.stream.cancelled` migration. Validation: `bun test tests/unit_tests/server/app.test.ts --pass-with-no-tests`; `bun run check && bun run test`.
 
 ## Notes
 
