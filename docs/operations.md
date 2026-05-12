@@ -50,8 +50,8 @@ Runtime logs are structured JSON lines. Important event names include:
 | `runtime.api_key.generated` | Server generated an ephemeral token. |
 | `http.request.completed` | Request completed with status and duration. For `POST /responses`, `durationMs` measures request receipt to SSE `Response` creation and includes phase fields such as `bodyParseMs`, `workspaceResolveMs`, `adapterParseMs`, and `sessionStartMs`; other routes keep normal request-completion semantics. |
 | `workspace.resolved`, `workspace.selected` | Workspace selection and projectless status. |
-| `turn.started`, `turn.stream.started`, `turn.stream.terminal` | Session manager turn lifecycle. |
-| `backend.turn.started`, `backend.turn.completed`, `backend.turn.failed` | Copilot CLI backend lifecycle. |
+| `turn.started`, `turn.stream.started`, `turn.stream.terminal`, `turn.stream.interrupted`, `turn.stream.failed` | Session manager turn lifecycle. |
+| `backend.turn.started`, `backend.turn.completed`, `backend.turn.failed` | Copilot CLI backend lifecycle and summary metrics. |
 | `responses.stream.started`, `responses.stream.completed`, `responses.stream.failed`, `responses.stream.interrupted` | SSE lifecycle. Stream start logs include safe model and reasoning-effort metadata when the client sends it. |
 | `journal.redaction_failed` | Redaction failed before event persistence. |
 
@@ -64,6 +64,16 @@ For streamed `POST /responses`, the SSE lifecycle summary distinguishes transpor
 - `responses.stream.failed` is reserved for stream machinery failures, encoder/iterator errors, or an iterator ending without a terminal SSE frame. It logs a safe `errorCode`, not serialized error causes.
 
 SSE timing fields are emitted only when observable. `streamStartGapMs` measures SSE `Response` construction to first stream pull, `firstAssistantSseFrameMs` measures first stream pull to the first assistant content-bearing SSE frame, and `sseActiveMs` measures first SSE frame to `[DONE]` or terminal stream error. If no assistant content frame is emitted before terminal or interruption, `firstAssistantSseFrameMs` is omitted rather than logged as `0`. `model` and `reasoningEffort` are client-requested correlation metadata only; they do not prove the actual Copilot CLI backend model or effort.
+
+Core and backend summaries use separate counters:
+
+- `turn.started` includes `stateStartMs` and cheap subphase fields such as `threadResolveMs`, `backendSessionResolveMs`, and `turnPersistMs`. On `POST /responses`, `http.request.completed.sessionStartMs` is the server-observed call into this startup path; do not add it to `stateStartMs` as an independent phase.
+- `turn.stream.started` includes `activeTurnCount`. Terminal, interrupted, and failed stream logs include `canonicalEventCount`, which counts canonical `AgentEvent` records and is separate from SSE `sseFrameCount`.
+- `backend.turn.completed` and `backend.turn.failed` include `promptAssembleMs`, `deltaCount`, coarse `promptSizeBucket` and `historyMessagesBucket`, and assistant delta timing fields when observed. `durationMs` keeps the backend runner duration after prompt assembly; it does not include `promptAssembleMs`.
+- `firstAssistantDeltaMs` and `maxObservedInterDeltaGapMs` are pull-path observations from backend text deltas. They can include downstream backpressure, journaling, SSE encoding, or client pull delays, so treat them as local correlation fields rather than model-only latency. Cancelled backend failures omit non-comparable `maxObservedInterDeltaGapMs` because cancellation and backpressure can dominate the observed gap.
+- `backend.turn.failed.failureClass` uses low-cardinality classes such as `process_exit`, `stream_read_failure`, `cancelled`, `backend_ended_without_terminal`, and `unknown`. These logs use safe `errorCode`/`failureClass` fields and do not serialize raw causes, CLI stderr, prompts, or history.
+
+`firstStdoutMs` is not emitted yet. Capturing it accurately belongs inside the raw stdout runner, while the current backend boundary only observes parsed assistant deltas; adding it would require a broader runner API change. `journal.append.slow` is also deferred for now: the journal has per-append timing but no bounded per-turn slow-append aggregator or threshold configuration, and adding state only for this warning would be more design than the current log-first slice needs.
 
 ## Debug journal
 
