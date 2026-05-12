@@ -18,7 +18,7 @@ Execution note: do not create commits until checks for the current slice pass an
 - [x] `journal-slow-warning`: Decide whether a capped `journal.append.slow` warning is useful; implement it only if it can stay at most once per turn, otherwise record the deferral.
 - [x] `core-backend-tests-docs`: Add tests and docs for core/backend summary metrics, safe failure-field sanitization, cancellation cadence non-comparability, and correlation between stream disconnects and backend cancellation summaries.
 - [x] `latency-playbook`: Add the slow Codex turn investigation playbook and final metric catalog to operations docs, including safe local log parsing examples, repeated `responseOutcome: unknown` guidance, and no double-counting of correlated stream/backend cancellation summaries.
-- [ ] `metrics-followup-decision`: Document whether `/metrics` aggregates and analyzer tooling remain deferred or need a separately approved follow-up, using the concrete revisit criteria from `design.md`.
+- [x] `metrics-followup-decision`: Document whether `/metrics` aggregates and analyzer tooling remain deferred or need a separately approved follow-up, using the concrete revisit criteria from `design.md`.
 
 ## Dependencies
 
@@ -44,6 +44,7 @@ Execution note: do not create commits until checks for the current slice pass an
 - `backend-turn-summary-metrics`: added Copilot backend prompt assembly timing, pull-path assistant delta cadence, coarse prompt/history buckets, safe failure classes, and no-output/cancel/process/stream failure coverage. `firstStdoutMs` remains deferred because collecting raw stdout timing would require a broader runner API change. Validation: `bun test tests/unit_tests/backends/copilot-cli-backend.test.ts --pass-with-no-tests`; `bun run typecheck`; `bun run check && bun run test`.
 - `journal-slow-warning`, `core-backend-tests-docs`: documented core/backend metric semantics, safe failure fields, pull-path cadence caveats, correlated cancellation summaries, `firstStdoutMs` deferral, and `journal.append.slow` deferral in `docs/operations.md`. `journal.append.slow` remains deferred because adding a bounded once-per-turn warning would require new per-turn journal aggregation or threshold configuration beyond this log-first slice. Validation: `bun run check && bun run test`.
 - `latency-playbook`: added a safe local log parsing workflow, final event/field interpretation guidance, root-cause buckets, `responseOutcome: unknown` guidance, correlated cancellation handling, and unobservable Copilot CLI gaps to `docs/operations.md`. Validation: `bun run check && bun run test`.
+- `metrics-followup-decision`: documented that latency `/metrics` aggregates and a public analyzer command remain deferred until a separately approved follow-up meets concrete revisit criteria. Validation: `bun run check && bun run test`.
 
 ## Notes
 

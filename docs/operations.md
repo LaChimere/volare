@@ -162,6 +162,8 @@ A single client disconnect can produce both `responses.stream.interrupted` and a
 
 Some latency remains unobservable without upstream Copilot CLI support. In particular, `firstStdoutMs` is not available yet, and pull-path backend delta timings are not pure model timings.
 
+Detailed per-turn diagnostics remain log-first. `/metrics` continues to expose readiness, uptime, and request count only; latency aggregates and a public analyzer command are deferred until a separate follow-up is approved. Revisit that decision if a second consumer needs machine-readable aggregate latency data, log-volume overhead becomes unacceptable in normal use, instrumentation emits more than a small bounded number of lines per turn at p99, or operators need live readiness/latency status that cannot use local log files.
+
 ## Debug journal
 
 Fetch canonical/debug events for a turn:
