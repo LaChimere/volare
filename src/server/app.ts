@@ -447,6 +447,7 @@ class StreamLifecycleContext implements IOpenAIResponsesStreamObserver {
   #doneAt: number | undefined;
   #frameCount = 0;
   #cancelled: { reason: StreamInterruptionReason; phase: StreamInterruptionPhase } | undefined;
+  #cleanupErrorCode: string | undefined;
   #finalized = false;
 
   constructor(logger: ILogger) {
@@ -493,7 +494,13 @@ class StreamLifecycleContext implements IOpenAIResponsesStreamObserver {
   }
 
   finalizeError(error: unknown): void {
-    this.#finalizeFailed(toVolareError(error).code);
+    const errorCode = toVolareError(error).code;
+    if (this.#cancelled) {
+      this.#cleanupErrorCode = errorCode;
+      this.#finalizeInterrupted();
+      return;
+    }
+    this.#finalizeFailed(errorCode);
   }
 
   #finalizeCompleted(): void {
@@ -524,6 +531,7 @@ class StreamLifecycleContext implements IOpenAIResponsesStreamObserver {
         interruptionReason: cancelled?.reason ?? 'unknown',
         interruptionPhase: cancelled?.phase ?? 'unknown',
         ...this.#baseFields(),
+        ...(this.#cleanupErrorCode ? { cleanupErrorCode: this.#cleanupErrorCode } : {}),
       },
       'responses stream interrupted',
     );

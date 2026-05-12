@@ -8,6 +8,7 @@ import { InMemorySessionManager } from '../../../src/core/in-memory-session-mana
 import type {
   IAgentRequest,
   IBackendSession,
+  ICancelResult,
   IEventJournal,
   IWorkspace,
   IWorkspaceResolver,
@@ -96,6 +97,12 @@ class ThrowingEventJournal implements IEventJournal {
 
   async pruneTerminalTurnEvents() {
     return { prunedTurnCount: 0 };
+  }
+}
+
+class CancelCleanupFailingSessionManager extends InMemorySessionManager {
+  override async cancelTurn(_turnId: string): Promise<ICancelResult> {
+    throw new Error('cancel cleanup failed');
   }
 }
 
@@ -665,6 +672,51 @@ describe('server app', () => {
         }),
       }),
     );
+  });
+
+  test('keeps client disconnect classification when cancellation cleanup fails', async () => {
+    const logger = new CapturingLogger();
+    const workspace: IWorkspace = {
+      id: 'workspace_test',
+      rootPath: process.cwd(),
+    };
+    const app = createInMemoryApp({
+      disconnectGraceMs: 0,
+      logger,
+      sessionManager: new CancelCleanupFailingSessionManager({
+        backend: new MockBackend(),
+        workspace,
+      }),
+    });
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'hello',
+        }),
+      }),
+    );
+    const reader = createResponse.body?.getReader();
+
+    await expect(reader?.cancel()).rejects.toThrow('cancel cleanup failed');
+
+    expect(logger.entries).toContainEqual(
+      expect.objectContaining({
+        level: 'warn',
+        message: 'responses stream interrupted',
+        fields: expect.objectContaining({
+          event: 'responses.stream.interrupted',
+          interruptionReason: 'client_disconnect',
+          interruptionPhase: 'pre_terminal',
+          cleanupErrorCode: 'internal_error',
+        }),
+      }),
+    );
+    expect(
+      logger.entries.some((entry) => entry.fields['event'] === 'responses.stream.failed'),
+    ).toBe(false);
+    expect(JSON.stringify(logger.entries)).not.toContain('cancel cleanup failed');
   });
 
   test('classifies disconnect after a terminal SSE frame as post-terminal', async () => {
