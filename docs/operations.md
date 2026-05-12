@@ -75,6 +75,93 @@ Core and backend summaries use separate counters:
 
 `firstStdoutMs` is not emitted yet. Capturing it accurately belongs inside the raw stdout runner, while the current backend boundary only observes parsed assistant deltas; adding it would require a broader runner API change. `journal.append.slow` is also deferred for now: the journal has per-append timing but no bounded per-turn slow-append aggregator or threshold configuration, and adding state only for this warning would be more design than the current log-first slice needs.
 
+## Diagnosing slow Codex turns
+
+Start from a `requestId`, `turnId`, or `responseId` in the logs. Keep analysis local and only print low-cardinality fields; do not dump request bodies, prompts, history, tool payloads, stderr, or raw error causes.
+
+To inspect one turn safely from JSON logs:
+
+```bash
+TURN_ID=resp_...
+jq -c --arg turnId "$TURN_ID" '
+  select(.turnId == $turnId or .responseId == $turnId) |
+  {
+    event,
+    requestId,
+    workspaceId,
+    threadId,
+    turnId,
+    responseId,
+    status,
+    durationMs,
+    bodyParseMs,
+    workspaceHintMs,
+    workspaceResolveMs,
+    adapterParseMs,
+    sessionStartMs,
+    stateStartMs,
+    threadResolveMs,
+    backendSessionResolveMs,
+    turnPersistMs,
+    activeTurnCount,
+    canonicalEventCount,
+    streamStartGapMs,
+    firstAssistantSseFrameMs,
+    sseActiveMs,
+    sseFrameCount,
+    responseOutcome,
+    interruptionReason,
+    interruptionPhase,
+    promptAssembleMs,
+    firstAssistantDeltaMs,
+    maxObservedInterDeltaGapMs,
+    deltaCount,
+    promptSizeBucket,
+    historyMessagesBucket,
+    failureClass,
+    errorCode,
+    cleanupErrorCode
+  }' ~/.volare/logs/volare.log
+```
+
+If you only have a `requestId`, first find the associated IDs without printing content:
+
+```bash
+REQUEST_ID=...
+jq -c --arg requestId "$REQUEST_ID" '
+  select(.requestId == $requestId) |
+  {event, requestId, threadId, turnId, responseId, status, durationMs}
+' ~/.volare/logs/volare.log
+```
+
+Use the summary fields to classify the likely bottleneck:
+
+| Bucket | Signals |
+|---|---|
+| Server/request setup | High `http.request.completed.durationMs` before streaming, especially `bodyParseMs`, `workspaceHintMs`, `workspaceResolveMs`, or `adapterParseMs`. |
+| Workspace/session/state overhead | High `sessionStartMs` and matching `turn.started.stateStartMs` or subphases such as `threadResolveMs`, `backendSessionResolveMs`, or `turnPersistMs`. Treat `sessionStartMs` as the server-observed wrapper around state startup, not an extra additive phase. |
+| Runtime/client first-pull delay | High `streamStartGapMs`, which means the SSE `Response` was constructed but the stream was not pulled promptly. |
+| First assistant SSE delay | High `firstAssistantSseFrameMs`, after accounting for request setup and `streamStartGapMs`. This is encoded SSE timing, not socket flush timing. |
+| Prompt assembly or large history | High `promptAssembleMs`, `promptSizeBucket`, or `historyMessagesBucket`. Buckets are coarse correlation signals, not content metrics. |
+| First backend delta delay | High `firstAssistantDeltaMs`. This is observed on the pull path and can include backpressure or downstream work. |
+| Long backend/model/tool execution | High backend `durationMs`, high `sseActiveMs`, high `deltaCount`, or high `maxObservedInterDeltaGapMs` on non-cancelled turns. |
+| Client disconnect/reconnect | `responses.stream.interrupted` with `interruptionReason: "client_disconnect"` and a phase such as `pre_terminal` or `post_terminal`. |
+| Known backend failure | `backend.turn.failed.failureClass` such as `process_exit`, `stream_read_failure`, or `cancelled`, plus safe `errorCode`. |
+
+For a successful streamed turn with all northbound timings present, approximate request receipt to first assistant SSE frame as:
+
+```text
+http.request.completed.durationMs + streamStartGapMs + firstAssistantSseFrameMs
+```
+
+Keep the layers separate: `sseFrameCount` counts encoded SSE frames, `canonicalEventCount` counts protocol-neutral `AgentEvent`s, and `deltaCount` counts backend assistant text deltas.
+
+Normal encoded agent failures are not transport failures: a `response.failed` frame should produce `responses.stream.completed` with `responseOutcome: "failed"`. Repeated `responseOutcome: "unknown"` on current logs should be treated as an instrumentation gap unless the lines came from an older Volare version before stream outcomes were recorded.
+
+A single client disconnect can produce both `responses.stream.interrupted` and a correlated `backend.turn.failed` with `failureClass: "cancelled"` for the same turn. Count that as one interrupted turn across two layers, not as two independent failures.
+
+Some latency remains unobservable without upstream Copilot CLI support. In particular, `firstStdoutMs` is not available yet, and pull-path backend delta timings are not pure model timings.
+
 ## Debug journal
 
 Fetch canonical/debug events for a turn:
