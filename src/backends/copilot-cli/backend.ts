@@ -26,6 +26,13 @@ type TrackedProcess = {
   identity: IProcessIdentity;
 };
 
+type BackendFailureClass =
+  | 'process_exit'
+  | 'stream_read_failure'
+  | 'cancelled'
+  | 'backend_ended_without_terminal'
+  | 'unknown';
+
 export interface ICopilotPromptRunner {
   run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string>;
   cancel?(backendSessionId: string, options?: ICancelOptions): Promise<ICancelResult>;
@@ -135,9 +142,17 @@ export class CopilotCliBackend implements IAgentBackend {
       throw new VolareError('backend_session_not_found', 'Backend session workspace was not found');
     }
 
-    let text = '';
+    const promptAssembleStartedAt = performance.now();
     const promptText = formatCopilotPrompt(request, cwd);
-    const startedAt = Date.now();
+    const promptAssembleMs = elapsedMs(promptAssembleStartedAt);
+    const promptSizeBucket = characterBucket(promptText.length);
+    const historyMessagesBucket = countBucket(request.input.conversationHistory?.length ?? 0);
+    const startedAt = performance.now();
+    let text = '';
+    let deltaCount = 0;
+    let firstAssistantDeltaMs: number | undefined;
+    let lastDeltaAt: number | undefined;
+    let maxObservedInterDeltaGapMs: number | undefined;
     const logger = this.#logger.child({
       backendSessionId: session.backendSessionId,
       workspaceId: request.workspaceId,
@@ -151,6 +166,18 @@ export class CopilotCliBackend implements IAgentBackend {
         cwd,
         ...(signal ? { signal } : {}),
       })) {
+        const deltaAt = performance.now();
+        if (deltaCount === 0) {
+          firstAssistantDeltaMs = elapsedBetweenMs(startedAt, deltaAt);
+        } else if (lastDeltaAt !== undefined) {
+          const interDeltaGapMs = elapsedBetweenMs(lastDeltaAt, deltaAt);
+          maxObservedInterDeltaGapMs =
+            maxObservedInterDeltaGapMs === undefined
+              ? interDeltaGapMs
+              : Math.max(maxObservedInterDeltaGapMs, interDeltaGapMs);
+        }
+        lastDeltaAt = deltaAt;
+        deltaCount += 1;
         text += delta;
         yield {
           type: 'text.delta',
@@ -160,12 +187,22 @@ export class CopilotCliBackend implements IAgentBackend {
       }
     } catch (error) {
       const agentError = toVolareError(error);
+      const failureClass = classifyBackendFailure(error, agentError, signal);
       logger.error(
         {
           event: 'backend.turn.failed',
-          durationMs: Date.now() - startedAt,
+          durationMs: elapsedMs(startedAt),
+          outputChars: text.length,
+          promptAssembleMs,
+          deltaCount,
+          ...(firstAssistantDeltaMs !== undefined ? { firstAssistantDeltaMs } : {}),
+          ...(maxObservedInterDeltaGapMs !== undefined && failureClass !== 'cancelled'
+            ? { maxObservedInterDeltaGapMs }
+            : {}),
+          promptSizeBucket,
+          historyMessagesBucket,
+          failureClass,
           errorCode: agentError.code,
-          error: agentError,
         },
         'backend turn failed',
       );
@@ -175,8 +212,14 @@ export class CopilotCliBackend implements IAgentBackend {
     logger.info(
       {
         event: 'backend.turn.completed',
-        durationMs: Date.now() - startedAt,
+        durationMs: elapsedMs(startedAt),
         outputChars: text.length,
+        promptAssembleMs,
+        deltaCount,
+        ...(firstAssistantDeltaMs !== undefined ? { firstAssistantDeltaMs } : {}),
+        ...(maxObservedInterDeltaGapMs !== undefined ? { maxObservedInterDeltaGapMs } : {}),
+        promptSizeBucket,
+        historyMessagesBucket,
       },
       'backend turn completed',
     );
@@ -519,6 +562,72 @@ function streamFailureError(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function classifyBackendFailure(
+  error: unknown,
+  agentError: VolareError,
+  signal: AbortSignal | undefined,
+): BackendFailureClass {
+  if (signal?.aborted) {
+    return 'cancelled';
+  }
+  if (agentError.code === 'backend_process_failed') {
+    return 'process_exit';
+  }
+  if (agentError.code === 'backend_stream_failed' || agentError.code === 'backend_output_invalid') {
+    return 'stream_read_failure';
+  }
+  if (agentError.code === 'backend_ended_without_terminal') {
+    return 'backend_ended_without_terminal';
+  }
+  if (error instanceof VolareError && error.code === 'backend_cancelled') {
+    return 'cancelled';
+  }
+  return 'unknown';
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
+}
+
+function elapsedBetweenMs(startedAt: number, endedAt: number): number {
+  return Math.round(endedAt - startedAt);
+}
+
+function countBucket(count: number): string {
+  if (count === 0) {
+    return '0';
+  }
+  if (count <= 5) {
+    return '1-5';
+  }
+  if (count <= 20) {
+    return '6-20';
+  }
+  if (count <= 50) {
+    return '21-50';
+  }
+  return '51+';
+}
+
+function characterBucket(count: number): string {
+  if (count === 0) {
+    return '0';
+  }
+  if (count <= 256) {
+    return '1-256';
+  }
+  if (count <= 1024) {
+    return '257-1024';
+  }
+  if (count <= 4096) {
+    return '1025-4096';
+  }
+  if (count <= 16_384) {
+    return '4097-16384';
+  }
+  return '16385+';
 }
 
 async function waitForAllExits(processes: TrackedProcess[], timeoutMs: number): Promise<boolean> {
