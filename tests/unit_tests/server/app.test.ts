@@ -356,6 +356,26 @@ describe('server app', () => {
         }),
       }),
     );
+    const requestLog = logger.entries.find(
+      (entry) =>
+        entry.fields['event'] === 'http.request.completed' &&
+        entry.fields['method'] === 'POST' &&
+        entry.fields['path'] === '/openai/v1/responses',
+    );
+    expect(requestLog).toBeDefined();
+    expect(requestLog?.fields).toMatchObject({
+      status: 200,
+    });
+    for (const field of [
+      'bodyParseMs',
+      'workspaceHintMs',
+      'workspaceResolveMs',
+      'adapterParseMs',
+      'sessionStartMs',
+      'durationMs',
+    ]) {
+      expect(typeof requestLog?.fields[field]).toBe('number');
+    }
     const responseId = /"id":"(resp_[^"]+)"/.exec(streamText)?.[1];
     expect(responseId).toBeDefined();
 
