@@ -33,6 +33,7 @@ export class DurableSessionManager implements ISessionManager {
   readonly #approvalProvider: IApprovalProvider | undefined;
   readonly #cancelTimeoutMs: number;
   readonly #events = new Map<string, AgentEvent[]>();
+  #activeTurnCount = 0;
 
   constructor(options: {
     store: IStateStore;
@@ -54,17 +55,23 @@ export class DurableSessionManager implements ISessionManager {
   readonly #logger: ILogger;
 
   async startTurn(input: IAgentRequestInput, context: IRequestContext): Promise<IResolvedTurn> {
+    const startedAt = performance.now();
+    let phaseStartedAt = performance.now();
     const thread = input.threadId
       ? await this.#requireThread(input.threadId)
       : await this.#store.createThread({ workspaceId: context.workspaceId });
+    const threadResolveMs = elapsedMs(phaseStartedAt);
     if (thread.workspaceId !== context.workspaceId) {
       throw new VolareError('workspace_mismatch', 'Thread belongs to a different workspace');
     }
 
+    phaseStartedAt = performance.now();
     const session = input.threadId
       ? await this.#resumeSessionForThread(input.threadId, context.workspaceId)
       : await this.#createSessionForThread(thread);
+    const backendSessionResolveMs = elapsedMs(phaseStartedAt);
 
+    phaseStartedAt = performance.now();
     const turnInput = {
       threadId: thread.id,
       bridgeSessionId: session.bridgeSessionId,
@@ -86,6 +93,7 @@ export class DurableSessionManager implements ISessionManager {
           : {}),
       });
     }
+    const turnPersistMs = elapsedMs(phaseStartedAt);
     this.#events.set(turn.id, []);
     this.#logger.info(
       {
@@ -96,6 +104,10 @@ export class DurableSessionManager implements ISessionManager {
         turnId: turn.id,
         bridgeSessionId: session.bridgeSessionId,
         reusedThread: input.threadId !== undefined,
+        stateStartMs: elapsedMs(startedAt),
+        threadResolveMs,
+        backendSessionResolveMs,
+        turnPersistMs,
       },
       'turn started',
     );
@@ -232,127 +244,148 @@ export class DurableSessionManager implements ISessionManager {
   async *streamTurn(resolved: IResolvedTurn, signal?: AbortSignal): AsyncIterable<AgentEvent> {
     this.#assertSessionScope(resolved.session, resolved.request);
     await this.#store.updateTurnStatus(resolved.turn.id, 'queued', 'running');
-    const startedAt = Date.now();
-    this.#logger.info(
-      {
-        event: 'turn.stream.started',
-        workspaceId: resolved.request.workspaceId,
-        threadId: resolved.thread.id,
-        turnId: resolved.turn.id,
-        bridgeSessionId: resolved.session.bridgeSessionId,
-      },
-      'turn stream started',
-    );
-    yield this.#record(resolved.turn.id, {
-      type: 'turn.created',
-      turnId: resolved.turn.id,
-      ...(resolved.request.metadata ? { requestMetadata: resolved.request.metadata } : {}),
-    });
-
-    let sawTerminal = false;
-    let approvalTimeoutDeadline: number | null = null;
-    const backendEvents = this.#backend.send(resolved.session, resolved.request, signal);
-    const backendIterator = backendEvents[Symbol.asyncIterator]();
+    const startedAt = performance.now();
+    this.#activeTurnCount += 1;
+    let canonicalEventCount = 0;
+    const record = (event: AgentEvent): AgentEvent => {
+      canonicalEventCount += 1;
+      return this.#record(resolved.turn.id, event);
+    };
     try {
-      while (true) {
-        const next = approvalTimeoutDeadline
-          ? await nextWithDeadline(backendIterator, approvalTimeoutDeadline)
-          : await backendIterator.next();
-        if (next === 'timeout') {
-          sawTerminal = true;
-          void backendIterator.return?.();
-          this.#logger.warn(
-            {
-              event: 'turn.stream.approval_timeout',
-              turnId: resolved.turn.id,
-              durationMs: Date.now() - startedAt,
-            },
-            'turn stream interrupted after approval timeout',
-          );
-          yield await this.#forceInterruptAfterApprovalTimeout(resolved);
-          return;
-        }
-        if (next.done) {
-          break;
-        }
-        const event = next.value;
-        if (event.type === 'permission.required' && this.#approvalProvider) {
-          yield this.#record(resolved.turn.id, event);
-          const decision = await this.#resolveApprovalRequest(event, resolved, signal);
-          yield this.#record(resolved.turn.id, {
-            type: 'permission.resolved',
-            turnId: resolved.turn.id,
-            approvalId: event.approvalId,
-            decision: decision.type === 'allow' ? 'allow' : 'deny',
-          });
-          if (decision.type === 'timeout') {
-            approvalTimeoutDeadline = Date.now() + this.#cancelTimeoutMs;
-          }
-          continue;
-        }
-        if (TERMINAL_TURN_TYPES.has(event.type)) {
-          sawTerminal = true;
-          approvalTimeoutDeadline = null;
-          await this.#store.updateTurnStatus(
-            resolved.turn.id,
-            'any-non-terminal',
-            statusForTerminalEvent(event),
-            Date.now(),
-          );
-          this.#logger.info(
-            {
-              event: 'turn.stream.terminal',
-              turnId: resolved.turn.id,
-              terminalType: event.type,
-              durationMs: Date.now() - startedAt,
-            },
-            'turn stream terminal event',
-          );
-        }
-        yield this.#record(resolved.turn.id, event);
-      }
-    } catch (error) {
-      const agentError = toVolareError(error);
-      sawTerminal = true;
-      yield this.#record(resolved.turn.id, {
-        type: 'turn.failed',
-        turnId: resolved.turn.id,
-        error,
-      });
-      this.#logger.error(
+      this.#logger.info(
         {
-          event: 'turn.stream.failed',
+          event: 'turn.stream.started',
+          workspaceId: resolved.request.workspaceId,
+          threadId: resolved.thread.id,
           turnId: resolved.turn.id,
-          durationMs: Date.now() - startedAt,
-          errorCode: agentError.code,
-          error: agentError,
+          bridgeSessionId: resolved.session.bridgeSessionId,
+          activeTurnCount: this.#activeTurnCount,
         },
-        'turn stream failed',
+        'turn stream started',
       );
-      await this.#markTurnFailedAfterError(resolved.turn.id, error, 'turn.stream.cleanup_failed');
-    }
+      yield record({
+        type: 'turn.created',
+        turnId: resolved.turn.id,
+        ...(resolved.request.metadata ? { requestMetadata: resolved.request.metadata } : {}),
+      });
 
-    if (!sawTerminal) {
-      await this.#store.updateTurnStatus(
-        resolved.turn.id,
-        'any-non-terminal',
-        'interrupted',
-        Date.now(),
-      );
-      yield this.#record(resolved.turn.id, {
-        type: 'turn.interrupted',
-        turnId: resolved.turn.id,
-        reason: 'backend_ended_without_terminal_event',
-      });
-      this.#logger.warn(
-        {
-          event: 'turn.stream.interrupted',
+      let sawTerminal = false;
+      let approvalTimeoutDeadline: number | null = null;
+      const backendEvents = this.#backend.send(resolved.session, resolved.request, signal);
+      const backendIterator = backendEvents[Symbol.asyncIterator]();
+      try {
+        while (true) {
+          const next = approvalTimeoutDeadline
+            ? await nextWithDeadline(backendIterator, approvalTimeoutDeadline)
+            : await backendIterator.next();
+          if (next === 'timeout') {
+            sawTerminal = true;
+            void backendIterator.return?.();
+            this.#logger.warn(
+              {
+                event: 'turn.stream.approval_timeout',
+                turnId: resolved.turn.id,
+                durationMs: elapsedMs(startedAt),
+                activeTurnCount: this.#activeTurnCount,
+                canonicalEventCount,
+              },
+              'turn stream interrupted after approval timeout',
+            );
+            const interrupted = await this.#forceInterruptAfterApprovalTimeout(resolved);
+            canonicalEventCount += 1;
+            yield interrupted;
+            return;
+          }
+          if (next.done) {
+            break;
+          }
+          const event = next.value;
+          if (event.type === 'permission.required' && this.#approvalProvider) {
+            yield record(event);
+            const decision = await this.#resolveApprovalRequest(event, resolved, signal);
+            yield record({
+              type: 'permission.resolved',
+              turnId: resolved.turn.id,
+              approvalId: event.approvalId,
+              decision: decision.type === 'allow' ? 'allow' : 'deny',
+            });
+            if (decision.type === 'timeout') {
+              approvalTimeoutDeadline = Date.now() + this.#cancelTimeoutMs;
+            }
+            continue;
+          }
+          if (TERMINAL_TURN_TYPES.has(event.type)) {
+            sawTerminal = true;
+            approvalTimeoutDeadline = null;
+            await this.#store.updateTurnStatus(
+              resolved.turn.id,
+              'any-non-terminal',
+              statusForTerminalEvent(event),
+              Date.now(),
+            );
+            this.#logger.info(
+              {
+                event: 'turn.stream.terminal',
+                turnId: resolved.turn.id,
+                terminalType: event.type,
+                durationMs: elapsedMs(startedAt),
+                activeTurnCount: this.#activeTurnCount,
+                canonicalEventCount: canonicalEventCount + 1,
+              },
+              'turn stream terminal event',
+            );
+          }
+          yield record(event);
+        }
+      } catch (error) {
+        const agentError = toVolareError(error);
+        sawTerminal = true;
+        yield record({
+          type: 'turn.failed',
           turnId: resolved.turn.id,
-          durationMs: Date.now() - startedAt,
+          error,
+        });
+        this.#logger.error(
+          {
+            event: 'turn.stream.failed',
+            turnId: resolved.turn.id,
+            durationMs: elapsedMs(startedAt),
+            activeTurnCount: this.#activeTurnCount,
+            canonicalEventCount,
+            errorCode: agentError.code,
+          },
+          'turn stream failed',
+        );
+        await this.#markTurnFailedAfterError(resolved.turn.id, error, 'turn.stream.cleanup_failed');
+      }
+
+      if (!sawTerminal) {
+        await this.#store.updateTurnStatus(
+          resolved.turn.id,
+          'any-non-terminal',
+          'interrupted',
+          Date.now(),
+        );
+        const interrupted = record({
+          type: 'turn.interrupted',
+          turnId: resolved.turn.id,
           reason: 'backend_ended_without_terminal_event',
-        },
-        'turn stream interrupted',
-      );
+        });
+        this.#logger.warn(
+          {
+            event: 'turn.stream.interrupted',
+            turnId: resolved.turn.id,
+            durationMs: elapsedMs(startedAt),
+            activeTurnCount: this.#activeTurnCount,
+            canonicalEventCount,
+            reason: 'backend_ended_without_terminal_event',
+          },
+          'turn stream interrupted',
+        );
+        yield interrupted;
+      }
+    } finally {
+      this.#activeTurnCount = Math.max(0, this.#activeTurnCount - 1);
     }
   }
 
@@ -646,6 +679,10 @@ function isTerminalTurnStatus(status: ITurnRecord['status']): boolean {
     status === 'cancelled' ||
     status === 'interrupted'
   );
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
 }
 
 async function nextWithDeadline<T>(
