@@ -5,7 +5,12 @@ import { DefaultApprovalPolicy } from '../../../src/approvals/policy';
 import { ApprovalProvider } from '../../../src/approvals/provider';
 import { DurableSessionManager } from '../../../src/core/durable-session-manager';
 import { InMemorySessionManager } from '../../../src/core/in-memory-session-manager';
-import type { IWorkspace, IWorkspaceResolver } from '../../../src/core/types';
+import type {
+  IAgentRequest,
+  IBackendSession,
+  IWorkspace,
+  IWorkspaceResolver,
+} from '../../../src/core/types';
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
 import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
 import { createApp, type IAppDependencies } from '../../../src/server/app';
@@ -42,7 +47,10 @@ async function getProjectlessWorkspace(store: SQLiteStateStore) {
   });
 }
 
-function createInMemoryApp(overrides: Partial<IAppDependencies> = {}) {
+function createInMemoryApp(
+  overrides: Partial<IAppDependencies> = {},
+  backend: MockBackend = new MockBackend(),
+) {
   const workspace: IWorkspace = {
     id: 'workspace_test',
     rootPath: process.cwd(),
@@ -57,11 +65,17 @@ function createInMemoryApp(overrides: Partial<IAppDependencies> = {}) {
     config,
     workspaceResolver,
     sessionManager: new InMemorySessionManager({
-      backend: new MockBackend(),
+      backend,
       workspace,
     }),
     ...overrides,
   });
+}
+
+class FailingBackend extends MockBackend {
+  override async *send(_session: IBackendSession, request: IAgentRequest) {
+    yield { type: 'turn.failed' as const, turnId: request.turnId, error: 'backend boom' };
+  }
 }
 
 function createDurableApp(stateStore: SQLiteStateStore, overrides: Partial<IAppDependencies> = {}) {
@@ -356,6 +370,19 @@ describe('server app', () => {
         }),
       }),
     );
+    const streamCompletionLog = logger.entries.find(
+      (entry) => entry.fields['event'] === 'responses.stream.completed',
+    );
+    expect(streamCompletionLog?.fields).toMatchObject({
+      responseOutcome: 'succeeded',
+    });
+    for (const field of ['streamStartGapMs', 'firstAssistantSseFrameMs', 'sseActiveMs']) {
+      expect(typeof streamCompletionLog?.fields[field]).toBe('number');
+    }
+    expect(typeof streamCompletionLog?.fields['sseFrameCount']).toBe('number');
+    expect(
+      logger.entries.some((entry) => entry.fields['event'] === 'responses.stream.interrupted'),
+    ).toBe(false);
     const requestLog = logger.entries.find(
       (entry) =>
         entry.fields['event'] === 'http.request.completed' &&
@@ -387,6 +414,38 @@ describe('server app', () => {
       status: 'completed',
       output: [{ content: [{ text: 'hello' }] }],
     });
+  });
+
+  test('logs encoded response failures as completed stream outcomes', async () => {
+    const logger = new CapturingLogger();
+    const app = createInMemoryApp({ logger }, new FailingBackend());
+
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'fail please',
+        }),
+      }),
+    );
+
+    expect(createResponse.status).toBe(200);
+    const streamText = await createResponse.text();
+    expect(streamText).toContain('response.failed');
+    expect(logger.entries).toContainEqual(
+      expect.objectContaining({
+        level: 'info',
+        message: 'responses stream completed',
+        fields: expect.objectContaining({
+          event: 'responses.stream.completed',
+          responseOutcome: 'failed',
+        }),
+      }),
+    );
+    expect(
+      logger.entries.some((entry) => entry.fields['event'] === 'responses.stream.failed'),
+    ).toBe(false);
   });
 
   test('serves a non-terminal response snapshot without blocking', async () => {
@@ -496,7 +555,8 @@ describe('server app', () => {
   });
 
   test('cancels an in-progress response when the SSE stream disconnects', async () => {
-    const app = createInMemoryApp({ disconnectGraceMs: 10 });
+    const logger = new CapturingLogger();
+    const app = createInMemoryApp({ disconnectGraceMs: 10, logger });
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
         method: 'POST',
@@ -525,6 +585,20 @@ describe('server app', () => {
       id: responseId,
       status: 'incomplete',
     });
+    expect(
+      logger.entries.some((entry) => entry.fields['event'] === 'responses.stream.cancelled'),
+    ).toBe(false);
+    expect(logger.entries).toContainEqual(
+      expect.objectContaining({
+        level: 'warn',
+        message: 'responses stream interrupted',
+        fields: expect.objectContaining({
+          event: 'responses.stream.interrupted',
+          interruptionReason: 'client_disconnect',
+          interruptionPhase: 'pre_terminal',
+        }),
+      }),
+    );
   });
 
   test('fails previous_response_id explicitly until durable state lands', async () => {

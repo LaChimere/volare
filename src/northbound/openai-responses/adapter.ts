@@ -31,6 +31,19 @@ const CLIENT_CONTEXT_ONLY_TAGS = new Set([
   'system_reminder',
 ]);
 
+export type OpenAIResponseOutcome = 'succeeded' | 'failed' | 'incomplete';
+
+export interface IOpenAIResponsesStreamFrame {
+  type: string;
+  assistantContent?: boolean;
+  terminalOutcome?: OpenAIResponseOutcome;
+  done?: boolean;
+}
+
+export interface IOpenAIResponsesStreamObserver {
+  onFrame(frame: IOpenAIResponsesStreamFrame): void;
+}
+
 export class OpenAIResponsesAdapter implements INorthboundAdapter {
   readonly protocol = 'openai-responses-v1';
 
@@ -118,6 +131,7 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
   async *encodeStream(
     events: AsyncIterable<AgentEvent>,
     context: IResponseContext,
+    observer?: IOpenAIResponsesStreamObserver,
   ): AsyncIterable<Uint8Array> {
     const responseId = context.externalResponseId ?? context.turnId;
     const messageItemId = `msg_${responseId}`;
@@ -126,24 +140,30 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
     let textStarted = false;
     let text = '';
 
-    yield encodeSse({
-      type: 'response.created',
-      sequence_number: sequenceNumber++,
-      response: {
-        id: responseId,
-        object: 'response',
-        status: 'in_progress',
+    yield encodeObservedSse(
+      {
+        type: 'response.created',
+        sequence_number: sequenceNumber++,
+        response: {
+          id: responseId,
+          object: 'response',
+          status: 'in_progress',
+        },
       },
-    });
-    yield encodeSse({
-      type: 'response.in_progress',
-      sequence_number: sequenceNumber++,
-      response: {
-        id: responseId,
-        object: 'response',
-        status: 'in_progress',
+      observer,
+    );
+    yield encodeObservedSse(
+      {
+        type: 'response.in_progress',
+        sequence_number: sequenceNumber++,
+        response: {
+          id: responseId,
+          object: 'response',
+          status: 'in_progress',
+        },
       },
-    });
+      observer,
+    );
 
     for await (const event of events) {
       replayedEvents.push(event);
@@ -153,130 +173,158 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
         case 'text.delta':
           if (!textStarted) {
             textStarted = true;
-            yield encodeSse({
-              type: 'response.output_item.added',
-              sequence_number: sequenceNumber++,
-              output_index: 0,
-              item: {
-                id: messageItemId,
-                type: 'message',
-                status: 'in_progress',
-                role: 'assistant',
-                content: [],
+            yield encodeObservedSse(
+              {
+                type: 'response.output_item.added',
+                sequence_number: sequenceNumber++,
+                output_index: 0,
+                item: {
+                  id: messageItemId,
+                  type: 'message',
+                  status: 'in_progress',
+                  role: 'assistant',
+                  content: [],
+                },
               },
-            });
+              observer,
+            );
           }
           text += event.delta;
-          yield encodeSse({
-            type: 'response.output_text.delta',
-            sequence_number: sequenceNumber++,
-            item_id: messageItemId,
-            output_index: 0,
-            content_index: 0,
-            delta: event.delta,
-          });
+          yield encodeObservedSse(
+            {
+              type: 'response.output_text.delta',
+              sequence_number: sequenceNumber++,
+              item_id: messageItemId,
+              output_index: 0,
+              content_index: 0,
+              delta: event.delta,
+            },
+            observer,
+            { assistantContent: true },
+          );
           break;
         case 'turn.succeeded':
           if (textStarted) {
-            yield encodeSse({
-              type: 'response.output_item.done',
-              sequence_number: sequenceNumber++,
-              output_index: 0,
-              item: {
-                id: messageItemId,
-                type: 'message',
-                status: 'completed',
-                role: 'assistant',
-                content: [{ type: 'output_text', text }],
+            yield encodeObservedSse(
+              {
+                type: 'response.output_item.done',
+                sequence_number: sequenceNumber++,
+                output_index: 0,
+                item: {
+                  id: messageItemId,
+                  type: 'message',
+                  status: 'completed',
+                  role: 'assistant',
+                  content: [{ type: 'output_text', text }],
+                },
               },
-            });
+              observer,
+            );
           }
-          yield encodeSse({
-            type: 'response.completed',
-            sequence_number: sequenceNumber++,
-            response: this.encodeStoredResponse(
-              {
-                id: responseId,
-                threadId: context.threadId,
-                parentTurnId: context.parentTurnId ?? null,
-                bridgeSessionId: context.bridgeSessionId ?? '',
-                status: 'succeeded',
-                model: context.model ?? '',
-                createdAt: context.createdAt ?? new Date(),
-                completedAt: new Date(),
-              },
-              replayedEvents,
-              {
-                previousResponseId: context.previousResponseId ?? null,
-                ...(context.requestMetadata ? { metadata: context.requestMetadata } : {}),
-              },
-            ),
-          });
-          yield encoder.encode('data: [DONE]\n\n');
+          yield encodeObservedSse(
+            {
+              type: 'response.completed',
+              sequence_number: sequenceNumber++,
+              response: this.encodeStoredResponse(
+                {
+                  id: responseId,
+                  threadId: context.threadId,
+                  parentTurnId: context.parentTurnId ?? null,
+                  bridgeSessionId: context.bridgeSessionId ?? '',
+                  status: 'succeeded',
+                  model: context.model ?? '',
+                  createdAt: context.createdAt ?? new Date(),
+                  completedAt: new Date(),
+                },
+                replayedEvents,
+                {
+                  previousResponseId: context.previousResponseId ?? null,
+                  ...(context.requestMetadata ? { metadata: context.requestMetadata } : {}),
+                },
+              ),
+            },
+            observer,
+            { terminalOutcome: 'succeeded' },
+          );
+          yield encodeDone(observer);
           return;
         case 'turn.failed':
           if (textStarted) {
-            yield encodeSse({
-              type: 'response.output_item.done',
-              sequence_number: sequenceNumber++,
-              output_index: 0,
-              item: {
-                id: messageItemId,
-                type: 'message',
-                status: 'incomplete',
-                role: 'assistant',
-                content: [{ type: 'output_text', text }],
+            yield encodeObservedSse(
+              {
+                type: 'response.output_item.done',
+                sequence_number: sequenceNumber++,
+                output_index: 0,
+                item: {
+                  id: messageItemId,
+                  type: 'message',
+                  status: 'incomplete',
+                  role: 'assistant',
+                  content: [{ type: 'output_text', text }],
+                },
               },
-            });
+              observer,
+            );
           }
-          yield encodeSse({
-            type: 'response.failed',
-            sequence_number: sequenceNumber++,
-            response: {
-              id: responseId,
-              object: 'response',
-              status: 'failed',
-              error: toResponseError(event.error),
-              usage: usageForStream(event, context, text),
+          yield encodeObservedSse(
+            {
+              type: 'response.failed',
+              sequence_number: sequenceNumber++,
+              response: {
+                id: responseId,
+                object: 'response',
+                status: 'failed',
+                error: toResponseError(event.error),
+                usage: usageForStream(event, context, text),
+              },
             },
-          });
-          yield encoder.encode('data: [DONE]\n\n');
+            observer,
+            { terminalOutcome: 'failed' },
+          );
+          yield encodeDone(observer);
           return;
         case 'turn.cancelled':
         case 'turn.interrupted':
           if (textStarted) {
-            yield encodeSse({
-              type: 'response.output_item.done',
-              sequence_number: sequenceNumber++,
-              output_index: 0,
-              item: {
-                id: messageItemId,
-                type: 'message',
-                status: 'incomplete',
-                role: 'assistant',
-                content: [{ type: 'output_text', text }],
+            yield encodeObservedSse(
+              {
+                type: 'response.output_item.done',
+                sequence_number: sequenceNumber++,
+                output_index: 0,
+                item: {
+                  id: messageItemId,
+                  type: 'message',
+                  status: 'incomplete',
+                  role: 'assistant',
+                  content: [{ type: 'output_text', text }],
+                },
               },
-            });
+              observer,
+            );
           }
-          yield encodeSse({
-            type: 'response.incomplete',
-            sequence_number: sequenceNumber++,
-            response: {
-              id: responseId,
-              object: 'response',
-              status: 'incomplete',
-              incomplete_details: { reason: incompleteReason(event) },
-              usage: usageForStream(event, context, text),
+          yield encodeObservedSse(
+            {
+              type: 'response.incomplete',
+              sequence_number: sequenceNumber++,
+              response: {
+                id: responseId,
+                object: 'response',
+                status: 'incomplete',
+                incomplete_details: { reason: incompleteReason(event) },
+                usage: usageForStream(event, context, text),
+              },
             },
-          });
-          yield encoder.encode('data: [DONE]\n\n');
+            observer,
+            { terminalOutcome: 'incomplete' },
+          );
+          yield encodeDone(observer);
           return;
         default:
           break;
       }
     }
 
-    yield encoder.encode('data: [DONE]\n\n');
+    yield encodeDone(observer);
   }
 
   encodeStoredResponse(
@@ -379,6 +427,20 @@ export function encodeOpenAIError(error: unknown): Response {
   const agentError = toVolareError(error);
   const status = statusForErrorCode(agentError.code);
   return Response.json(new OpenAIResponsesAdapter().encodeError(agentError), { status });
+}
+
+function encodeObservedSse(
+  data: { type: string } & Record<string, unknown>,
+  observer: IOpenAIResponsesStreamObserver | undefined,
+  metadata: Omit<IOpenAIResponsesStreamFrame, 'type'> = {},
+): Uint8Array {
+  observer?.onFrame({ type: data.type, ...metadata });
+  return encodeSse(data);
+}
+
+function encodeDone(observer: IOpenAIResponsesStreamObserver | undefined): Uint8Array {
+  observer?.onFrame({ type: '[DONE]', done: true });
+  return encoder.encode('data: [DONE]\n\n');
 }
 
 function encodeSse(data: unknown): Uint8Array {
