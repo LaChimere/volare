@@ -8,6 +8,7 @@ import { InMemorySessionManager } from '../../../src/core/in-memory-session-mana
 import type {
   IAgentRequest,
   IBackendSession,
+  IEventJournal,
   IWorkspace,
   IWorkspaceResolver,
 } from '../../../src/core/types';
@@ -75,6 +76,26 @@ function createInMemoryApp(
 class FailingBackend extends MockBackend {
   override async *send(_session: IBackendSession, request: IAgentRequest) {
     yield { type: 'turn.failed' as const, turnId: request.turnId, error: 'backend boom' };
+  }
+}
+
+class ThrowingEventJournal implements IEventJournal {
+  async append() {
+    throw new Error('journal write failed');
+  }
+
+  async listByTurn() {
+    return [];
+  }
+
+  async listByThread() {
+    return [];
+  }
+
+  async *replay() {}
+
+  async pruneTerminalTurnEvents() {
+    return { prunedTurnCount: 0 };
   }
 }
 
@@ -448,6 +469,51 @@ describe('server app', () => {
     ).toBe(false);
   });
 
+  test('logs stream machinery failures without serialized error details', async () => {
+    const logger = new CapturingLogger();
+    const app = createInMemoryApp({ eventJournal: new ThrowingEventJournal(), logger });
+
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'hello',
+        }),
+      }),
+    );
+
+    expect(createResponse.status).toBe(200);
+    const reader = createResponse.body?.getReader();
+    expect(reader).toBeDefined();
+    const decoder = new TextDecoder();
+    let streamText = '';
+    let streamError: unknown;
+    try {
+      while (true) {
+        const chunk = await reader?.read();
+        if (chunk?.done) {
+          break;
+        }
+        streamText += decoder.decode(chunk?.value, { stream: true });
+      }
+    } catch (error) {
+      streamError = error;
+    }
+    expect(streamError).toBeDefined();
+    expect(streamText).not.toContain('journal write failed');
+    const streamFailureLog = logger.entries.find(
+      (entry) => entry.fields['event'] === 'responses.stream.failed',
+    );
+    expect(streamFailureLog).toBeDefined();
+    const streamFailureFields = streamFailureLog?.fields ?? {};
+    expect(typeof streamFailureFields['errorCode']).toBe('string');
+    expect(streamFailureFields['errorCode']).not.toBe('');
+    expect(typeof streamFailureFields['sseFrameCount']).toBe('number');
+    expect(streamFailureFields['error']).toBeUndefined();
+    expect(JSON.stringify(logger.entries)).not.toContain('journal write failed');
+  });
+
   test('serves a non-terminal response snapshot without blocking', async () => {
     const app = createInMemoryApp({ disconnectGraceMs: 0 });
 
@@ -599,6 +665,50 @@ describe('server app', () => {
         }),
       }),
     );
+  });
+
+  test('classifies disconnect after a terminal SSE frame as post-terminal', async () => {
+    const logger = new CapturingLogger();
+    const app = createInMemoryApp({ disconnectGraceMs: 0, logger });
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'hello',
+        }),
+      }),
+    );
+    const reader = createResponse.body?.getReader();
+    expect(reader).toBeDefined();
+    const decoder = new TextDecoder();
+    let streamText = '';
+    while (!streamText.includes('response.completed')) {
+      const chunk = await reader?.read();
+      if (chunk?.done) {
+        break;
+      }
+      streamText += decoder.decode(chunk?.value, { stream: true });
+    }
+    expect(streamText).toContain('response.completed');
+    expect(streamText).not.toContain('[DONE]');
+
+    await reader?.cancel();
+
+    expect(logger.entries).toContainEqual(
+      expect.objectContaining({
+        level: 'warn',
+        message: 'responses stream interrupted',
+        fields: expect.objectContaining({
+          event: 'responses.stream.interrupted',
+          interruptionReason: 'client_disconnect',
+          interruptionPhase: 'post_terminal',
+        }),
+      }),
+    );
+    expect(
+      logger.entries.some((entry) => entry.fields['event'] === 'responses.stream.completed'),
+    ).toBe(false);
   });
 
   test('fails previous_response_id explicitly until durable state lands', async () => {
