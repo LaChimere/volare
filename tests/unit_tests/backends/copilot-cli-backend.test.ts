@@ -10,7 +10,9 @@ import {
   type ICopilotPromptRunner,
   type ICopilotPromptRunOptions,
 } from '../../../src/backends/copilot-cli/backend';
+import { VolareError } from '../../../src/core/errors';
 import type { AgentEvent, IWorkspace } from '../../../src/core/types';
+import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
 
 class FakeCopilotPromptRunner implements ICopilotPromptRunner {
   lastOptions?: ICopilotPromptRunOptions;
@@ -18,10 +20,20 @@ class FakeCopilotPromptRunner implements ICopilotPromptRunner {
   readonly cancelled: Array<{ backendSessionId: string; forceAfterTimeout?: boolean }> = [];
   readonly disposed: string[] = [];
 
+  constructor(
+    readonly chunks?: string[],
+    readonly errorAfterChunks?: unknown,
+  ) {}
+
   async *run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string> {
     this.lastPrompt = prompt;
     this.lastOptions = options;
-    yield `copilot:${prompt}`;
+    for (const chunk of this.chunks ?? [`copilot:${prompt}`]) {
+      yield chunk;
+    }
+    if (this.errorAfterChunks) {
+      throw this.errorAfterChunks;
+    }
   }
 
   async cancel(backendSessionId: string, options = { timeoutMs: 0, forceAfterTimeout: false }) {
@@ -31,6 +43,49 @@ class FakeCopilotPromptRunner implements ICopilotPromptRunner {
 
   async dispose(backendSessionId: string) {
     this.disposed.push(backendSessionId);
+  }
+}
+
+class CapturingLogger implements ILogger {
+  constructor(
+    readonly entries: Array<{ level: string; fields: ILogFields; message?: string }> = [],
+    readonly bindings: ILogBindings = {},
+  ) {}
+
+  child(bindings: ILogBindings): ILogger {
+    return new CapturingLogger(this.entries, { ...this.bindings, ...bindings });
+  }
+
+  trace(fields: ILogFields, message?: string): void {
+    this.push('trace', fields, message);
+  }
+
+  debug(fields: ILogFields, message?: string): void {
+    this.push('debug', fields, message);
+  }
+
+  info(fields: ILogFields, message?: string): void {
+    this.push('info', fields, message);
+  }
+
+  warn(fields: ILogFields, message?: string): void {
+    this.push('warn', fields, message);
+  }
+
+  error(fields: ILogFields, message?: string): void {
+    this.push('error', fields, message);
+  }
+
+  fatal(fields: ILogFields, message?: string): void {
+    this.push('fatal', fields, message);
+  }
+
+  private push(level: string, fields: ILogFields, message?: string): void {
+    this.entries.push({
+      level,
+      fields: { ...this.bindings, ...fields },
+      ...(message === undefined ? {} : { message }),
+    });
   }
 }
 
@@ -100,6 +155,250 @@ describe('CopilotCliBackend', () => {
         backendSessionId: session.backendSessionId,
         cwd: workspace.rootPath,
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('logs backend completion summary metrics without exact prompt content', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const runner = new FakeCopilotPromptRunner(['hello', ' world']);
+    const logger = new CapturingLogger();
+    const backend = new CopilotCliBackend({ runner, logger });
+    const workspace: IWorkspace = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+
+      await collectEvents(
+        backend.send(session, {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          workspaceId: 'workspace_1',
+          input: {
+            message: 'hello',
+            conversationHistory: [{ role: 'user', content: 'earlier' }],
+          },
+          model: 'copilot-agent',
+        }),
+      );
+
+      const completed = logger.entries.find(
+        (entry) => entry.fields['event'] === 'backend.turn.completed',
+      );
+      expect(completed?.fields).toMatchObject({
+        component: 'backend',
+        backend: 'copilot-cli',
+        event: 'backend.turn.completed',
+        outputChars: 11,
+        deltaCount: 2,
+        historyMessagesBucket: '1-5',
+      });
+      for (const field of [
+        'durationMs',
+        'promptAssembleMs',
+        'firstAssistantDeltaMs',
+        'maxObservedInterDeltaGapMs',
+      ]) {
+        expect(typeof completed?.fields[field]).toBe('number');
+      }
+      expect(typeof completed?.fields['promptSizeBucket']).toBe('string');
+      expect(JSON.stringify(completed)).not.toContain('earlier');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('logs backend completion metrics when no assistant delta is emitted', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const logger = new CapturingLogger();
+    const backend = new CopilotCliBackend({
+      runner: new FakeCopilotPromptRunner([]),
+      logger,
+    });
+    const workspace: IWorkspace = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+
+      await collectEvents(
+        backend.send(session, {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          workspaceId: 'workspace_1',
+          input: { message: 'hello' },
+          model: 'copilot-agent',
+        }),
+      );
+
+      const completed = logger.entries.find(
+        (entry) => entry.fields['event'] === 'backend.turn.completed',
+      );
+      expect(completed?.fields).toMatchObject({
+        outputChars: 0,
+        deltaCount: 0,
+        historyMessagesBucket: '0',
+      });
+      expect(completed?.fields['firstAssistantDeltaMs']).toBeUndefined();
+      expect(completed?.fields['maxObservedInterDeltaGapMs']).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('logs backend failure summaries with safe failure classes', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const logger = new CapturingLogger();
+    const backend = new CopilotCliBackend({
+      runner: new FakeCopilotPromptRunner(
+        ['partial'],
+        new VolareError('backend_stream_failed', 'raw stream failure'),
+      ),
+      logger,
+    });
+    const workspace: IWorkspace = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+
+      await expect(
+        collectEvents(
+          backend.send(session, {
+            turnId: 'turn_1',
+            threadId: 'thread_1',
+            workspaceId: 'workspace_1',
+            input: { message: 'hello' },
+            model: 'copilot-agent',
+          }),
+        ),
+      ).rejects.toThrow('raw stream failure');
+
+      const failed = logger.entries.find(
+        (entry) => entry.fields['event'] === 'backend.turn.failed',
+      );
+      expect(failed?.fields).toMatchObject({
+        event: 'backend.turn.failed',
+        outputChars: 7,
+        deltaCount: 1,
+        failureClass: 'stream_read_failure',
+        errorCode: 'backend_stream_failed',
+      });
+      expect(failed?.fields['error']).toBeUndefined();
+      expect(JSON.stringify(logger.entries)).not.toContain('raw stream failure');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('classifies Copilot process exits separately from stream failures', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const logger = new CapturingLogger();
+    const backend = new CopilotCliBackend({
+      runner: new FakeCopilotPromptRunner(
+        [],
+        new VolareError('backend_process_failed', 'raw process failure'),
+      ),
+      logger,
+    });
+    const workspace: IWorkspace = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+
+      await expect(
+        collectEvents(
+          backend.send(session, {
+            turnId: 'turn_1',
+            threadId: 'thread_1',
+            workspaceId: 'workspace_1',
+            input: { message: 'hello' },
+            model: 'copilot-agent',
+          }),
+        ),
+      ).rejects.toThrow('raw process failure');
+
+      expect(logger.entries).toContainEqual(
+        expect.objectContaining({
+          level: 'error',
+          message: 'backend turn failed',
+          fields: expect.objectContaining({
+            event: 'backend.turn.failed',
+            failureClass: 'process_exit',
+            errorCode: 'backend_process_failed',
+          }),
+        }),
+      );
+      expect(JSON.stringify(logger.entries)).not.toContain('raw process failure');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('classifies backend failures after abort as cancelled', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const logger = new CapturingLogger();
+    const backend = new CopilotCliBackend({
+      runner: new FakeCopilotPromptRunner([], new Error('cancel raw detail')),
+      logger,
+    });
+    const workspace: IWorkspace = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        collectEvents(
+          backend.send(
+            session,
+            {
+              turnId: 'turn_1',
+              threadId: 'thread_1',
+              workspaceId: 'workspace_1',
+              input: { message: 'hello' },
+              model: 'copilot-agent',
+            },
+            controller.signal,
+          ),
+        ),
+      ).rejects.toThrow('cancel raw detail');
+
+      const failed = logger.entries.find(
+        (entry) => entry.fields['event'] === 'backend.turn.failed',
+      );
+      expect(failed?.fields).toMatchObject({
+        failureClass: 'cancelled',
+        deltaCount: 0,
+      });
+      expect(failed?.fields['firstAssistantDeltaMs']).toBeUndefined();
+      expect(failed?.fields['maxObservedInterDeltaGapMs']).toBeUndefined();
+      expect(JSON.stringify(logger.entries)).not.toContain('cancel raw detail');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
