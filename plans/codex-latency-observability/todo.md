@@ -8,8 +8,8 @@ Execution note: do not create commits until checks for the current slice pass an
 
 ## Tasks
 
-- [ ] `server-request-phase-metrics`: Add `POST /responses` request phase timing fields to `http.request.completed` without changing other route semantics.
-- [ ] `responses-duration-semantics`: Document and test the `POST /responses`-only meaning of `http.request.completed.durationMs` as request received to SSE `Response` creation.
+- [x] `server-request-phase-metrics`: Add `POST /responses` request phase timing fields to `http.request.completed` without changing other route semantics.
+- [x] `responses-duration-semantics`: Document and test the `POST /responses`-only meaning of `http.request.completed.durationMs` as request received to SSE `Response` creation.
 - [ ] `sse-lifecycle-observer`: Add local adapter/server stream lifecycle observer hooks for SSE frame count, first pull, first assistant frame, terminal frame, `[DONE]` observation, event-specific stream fields, `sseActiveMs` semantics, and the finalized interruption reason/phase taxonomy.
 - [ ] `sse-finalizer-classification`: Replace canonical-event wrapper lifecycle logging with `StreamLifecycleContext` plus an idempotent stream finalizer that follows the precedence rules in `design.md`; cancellation handlers only record state, while final classification happens in the finalizer.
 - [ ] `sse-tests-docs`: Add server/SSE lifecycle tests and update operations docs/integration tests for PR 1 event semantics, including `responses.stream.cancelled` migration, `responseOutcome: unknown`, and omitted first-assistant timing fields.
@@ -34,6 +34,10 @@ Execution note: do not create commits until checks for the current slice pass an
 
 - `bun run check`
 - `bun run test`
+
+## Evidence
+
+- `server-request-phase-metrics`, `responses-duration-semantics`: added `POST /responses` phase fields and request-ready `durationMs` coverage in `src/server/app.ts` and `tests/unit_tests/server/app.test.ts`. Validation: `bun test tests/unit_tests/server/app.test.ts --pass-with-no-tests`; `bun run check && bun run test`.
 
 ## Notes
 

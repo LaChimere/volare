@@ -44,7 +44,7 @@ export function createApp(dependencies: IAppDependencies): {
   return {
     async fetch(request: Request): Promise<Response> {
       requestsTotal += 1;
-      const requestStartedAt = Date.now();
+      const requestStartedAt = performance.now();
       const requestId = crypto.randomUUID();
       const url = new URL(request.url);
       const logFields = {
@@ -116,7 +116,10 @@ export function createApp(dependencies: IAppDependencies): {
         }
 
         if (request.method === 'POST' && openAIPath === '/responses') {
+          const phaseMetrics: ILogFields = {};
+          let phaseStartedAt = performance.now();
           const body = await parseJsonBody(request);
+          phaseMetrics['bodyParseMs'] = elapsedMs(phaseStartedAt);
           const northboundRequest = {
             transport: 'http' as const,
             method: request.method,
@@ -124,11 +127,15 @@ export function createApp(dependencies: IAppDependencies): {
             headers: request.headers,
             body,
           };
+          phaseStartedAt = performance.now();
           const workspaceHints = await adapter.extractWorkspaceHints(northboundRequest);
+          phaseMetrics['workspaceHintMs'] = elapsedMs(phaseStartedAt);
+          phaseStartedAt = performance.now();
           const workspace = await workspaceResolver.resolve(workspaceHints, dependencies.config);
           const persistedWorkspace = stateStore
             ? await stateStore.getOrCreateWorkspace({ rootPath: workspace.rootPath })
             : workspace;
+          phaseMetrics['workspaceResolveMs'] = elapsedMs(phaseStartedAt);
           logger.info(
             {
               event: 'workspace.selected',
@@ -143,18 +150,22 @@ export function createApp(dependencies: IAppDependencies): {
             },
             'workspace selected',
           );
+          phaseStartedAt = performance.now();
           const input = await adapter.parseRequest(northboundRequest, {
             workspaceId: persistedWorkspace.id,
             requestId,
           });
+          phaseMetrics['adapterParseMs'] = elapsedMs(phaseStartedAt);
           const reasoningEffort = reasoningEffortFromRequestBody(northboundRequest.body);
           if (!sessionManager) {
             throw new VolareError('internal_error', 'Session manager is not configured');
           }
+          phaseStartedAt = performance.now();
           const resolved = await sessionManager.startTurn(input, {
             workspaceId: persistedWorkspace.id,
             requestId,
           });
+          phaseMetrics['sessionStartMs'] = elapsedMs(phaseStartedAt);
           const streamLogger = logger.child({
             requestId,
             workspaceId: persistedWorkspace.id,
@@ -213,6 +224,7 @@ export function createApp(dependencies: IAppDependencies): {
                 'Cache-Control': 'no-cache',
               },
             }),
+            phaseMetrics,
           );
         }
 
@@ -433,7 +445,7 @@ function logHttpResponse(
     ...fields,
     ...extra,
     status: response.status,
-    durationMs: Date.now() - startedAt,
+    durationMs: elapsedMs(startedAt),
   };
   if (response.status >= 500) {
     logger.error(logFields, 'http request completed');
@@ -443,6 +455,10 @@ function logHttpResponse(
     logger.info(logFields, 'http request completed');
   }
   return response;
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
 }
 
 function asyncIterableToStream(
