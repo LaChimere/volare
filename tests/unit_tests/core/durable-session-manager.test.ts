@@ -17,6 +17,7 @@ import type {
   ICreateSessionOptions,
   IWorkspace,
 } from '../../../src/core/types';
+import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
 import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
 
@@ -80,6 +81,20 @@ class TerminalOmittingBackend implements IAgentBackend {
   }
 }
 
+class SuccessfulBackend extends TerminalOmittingBackend {
+  override async *send(
+    _session: IBackendSession,
+    request: IAgentRequest,
+  ): AsyncIterable<AgentEvent> {
+    yield { type: 'text.delta', turnId: request.turnId, delta: 'done' } satisfies AgentEvent;
+    yield {
+      type: 'turn.succeeded',
+      turnId: request.turnId,
+      output: { text: 'done' },
+    } satisfies AgentEvent;
+  }
+}
+
 class CreateFailingBackend extends TerminalOmittingBackend {
   override async createSession(): Promise<IBackendSession> {
     throw new Error('backend failed to start');
@@ -139,6 +154,49 @@ class HangingPermissionBackend extends PermissionBackend {
   }
 }
 
+class CapturingLogger implements ILogger {
+  constructor(
+    readonly entries: Array<{ level: string; fields: ILogFields; message?: string }> = [],
+    readonly bindings: ILogBindings = {},
+  ) {}
+
+  child(bindings: ILogBindings): ILogger {
+    return new CapturingLogger(this.entries, { ...this.bindings, ...bindings });
+  }
+
+  trace(fields: ILogFields, message?: string): void {
+    this.push('trace', fields, message);
+  }
+
+  debug(fields: ILogFields, message?: string): void {
+    this.push('debug', fields, message);
+  }
+
+  info(fields: ILogFields, message?: string): void {
+    this.push('info', fields, message);
+  }
+
+  warn(fields: ILogFields, message?: string): void {
+    this.push('warn', fields, message);
+  }
+
+  error(fields: ILogFields, message?: string): void {
+    this.push('error', fields, message);
+  }
+
+  fatal(fields: ILogFields, message?: string): void {
+    this.push('fatal', fields, message);
+  }
+
+  private push(level: string, fields: ILogFields, message?: string): void {
+    this.entries.push({
+      level,
+      fields: { ...this.bindings, ...fields },
+      ...(message === undefined ? {} : { message }),
+    });
+  }
+}
+
 class StubApprovalProvider implements IApprovalProvider {
   constructor(
     readonly evaluation: ApprovalEvaluation,
@@ -177,6 +235,111 @@ describe('DurableSessionManager', () => {
     expect(
       store.database.query<{ status: string }, []>('SELECT status FROM backend_sessions').all(),
     ).toEqual([{ status: 'lost' }]);
+  });
+
+  test('logs durable turn startup and stream summary metrics', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const logger = new CapturingLogger();
+    const manager = new DurableSessionManager({
+      store,
+      backend: new SuccessfulBackend(),
+      logger,
+    });
+    try {
+      const resolved = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'hello' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+
+      const events = await Array.fromAsync(manager.streamTurn(resolved));
+
+      expect(events.map((event) => event.type)).toEqual([
+        'turn.created',
+        'text.delta',
+        'turn.succeeded',
+      ]);
+      const turnStarted = logger.entries.find((entry) => entry.fields['event'] === 'turn.started');
+      expect(turnStarted?.fields).toMatchObject({
+        component: 'session-manager',
+        event: 'turn.started',
+        requestId: 'request_1',
+        workspaceId: workspace.id,
+        threadId: resolved.thread.id,
+        turnId: resolved.turn.id,
+        bridgeSessionId: resolved.session.bridgeSessionId,
+        reusedThread: false,
+      });
+      for (const field of [
+        'stateStartMs',
+        'threadResolveMs',
+        'backendSessionResolveMs',
+        'turnPersistMs',
+      ]) {
+        expect(typeof turnStarted?.fields[field]).toBe('number');
+      }
+      expect(logger.entries).toContainEqual(
+        expect.objectContaining({
+          level: 'info',
+          message: 'turn stream started',
+          fields: expect.objectContaining({
+            event: 'turn.stream.started',
+            activeTurnCount: 1,
+          }),
+        }),
+      );
+      expect(logger.entries).toContainEqual(
+        expect.objectContaining({
+          level: 'info',
+          message: 'turn stream terminal event',
+          fields: expect.objectContaining({
+            event: 'turn.stream.terminal',
+            terminalType: 'turn.succeeded',
+            activeTurnCount: 1,
+            canonicalEventCount: 3,
+          }),
+        }),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('does not leak active turn count when a stream iterator is closed early', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const logger = new CapturingLogger();
+    const manager = new DurableSessionManager({
+      store,
+      backend: new TerminalOmittingBackend(),
+      logger,
+    });
+    try {
+      const first = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'first' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+      const firstIterator = manager.streamTurn(first)[Symbol.asyncIterator]();
+      await firstIterator.next();
+      await firstIterator.return?.();
+
+      const second = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'second' } },
+        { workspaceId: workspace.id, requestId: 'request_2' },
+      );
+      const secondIterator = manager.streamTurn(second)[Symbol.asyncIterator]();
+      await secondIterator.next();
+      await secondIterator.return?.();
+
+      const streamStartedLogs = logger.entries.filter(
+        (entry) => entry.fields['event'] === 'turn.stream.started',
+      );
+      expect(streamStartedLogs.map((entry) => entry.fields['activeTurnCount'])).toEqual([1, 1]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test('resumes existing sessions and synthesizes one terminal event', async () => {
