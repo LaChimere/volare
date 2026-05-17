@@ -1,0 +1,3 @@
+{"type":"assistant.message_delta","data":{"deltaContent":"hello"}}
+{"type":"assistant.message_delta","data":{"deltaContent":" world"}}
+{"type":"assistant.message","data":{"content":"hello world"}}
