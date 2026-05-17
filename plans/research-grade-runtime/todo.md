@@ -70,7 +70,7 @@
 
 ### PR 2a / Phase 1a — Pure grounding hints and signals
 
-- [ ] Add conservative classifier and grounding evaluator.
+- [x] Add conservative classifier and grounding evaluator.
   - Acceptance criteria:
     - Phase 0 baseline evidence exists before this PR changes behavior.
     - Type inventory includes `RequestDomainHint`, `IRequestGroundingHint`, `GroundingWarningCode`, and `IAnswerGroundingSignals`.
@@ -82,7 +82,7 @@
     - Fixtures cover English current/search language and Chinese terms such as `搜索`, `最近`, `最新`, and `披露`.
     - Evaluator scans at most 256 KiB UTF-8 bytes, reports `evaluatedByteCount`, and documents `groundingTruncated=true` as a known false-negative risk.
     - Emits only `NEEDS_SOURCES_NO_SOURCES` and `CITATION_LIKE_TEXT_WITHOUT_SOURCES` in this phase.
-  - Evidence:
+  - Evidence: Added pure `classifyRequestGrounding` and `evaluateAnswerGrounding` helpers in `src/core/grounding.ts` with `RequestDomainHint`, `IRequestGroundingHint`, `GroundingWarningCode`, and `IAnswerGroundingSignals`. Tests cover code/general/external classifications, mixed external prompts, English current/search/public-filing terms, Chinese `搜索`/`最近`/`最新`/`披露`/source terms, 256 KiB truncation propagation, and Phase 1 warning codes only. `bun test tests/unit_tests/core/grounding.test.ts`, `bun run check`, and `bun run test` passed on 2026-05-17.
 
 ### PR 2b / Phase 1b — Conditional prompt grounding rules
 
