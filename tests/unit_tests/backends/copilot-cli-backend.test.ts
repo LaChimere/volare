@@ -196,6 +196,12 @@ describe('CopilotCliBackend', () => {
         backend: 'copilot-cli',
         event: 'backend.turn.completed',
         outputChars: 11,
+        groundingCitationLikeOutputCount: 0,
+        groundingMarkdownHttpLinkCount: 0,
+        groundingBareHttpUrlCount: 0,
+        groundingBracketReferenceCount: 0,
+        groundingEvaluatedByteCount: 11,
+        groundingTruncated: false,
         deltaCount: 2,
         historyMessagesBucket: '1-5',
       });

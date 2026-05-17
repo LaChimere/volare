@@ -3,7 +3,7 @@
 objective: "好的，根据 @plans/research-grade-runtime/ 来进行实现，确保和 design align，但尽量避免 over-design/over-engineering。所有的逻辑都需要有 UT 和 IT 测试覆盖，原子化 commit，多 review 和 refine，直到全部做完。"
 status: active
 slug: "research-grade-runtime"
-turns_used: 2
+turns_used: 3
 turn_budget: null
 docs_update_approved: true
 created_at: "2026-05-17T16:43:23+08:00"
@@ -47,6 +47,7 @@ updated_at: "2026-05-17T16:49:27+08:00"
 - Turn 0: Goal registered. Approved plan is committed at `f587f5a`.
 - Turn 1: Phase 0 bounded raw grounding scanner implemented with UTF-8 byte-boundary tests.
 - Turn 2: Generic URL redaction hardened without changing Biome rules.
+- Turn 3: Phase 0 backend log fields and aggregate live-turn metrics implemented.
 
 ## Deferred items
 
