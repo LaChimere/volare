@@ -83,7 +83,7 @@ Volare currently supports the text bridge subset needed by Codex CLI/Desktop:
 - `/v1/*` aliases for the model and response routes.
 - `previous_response_id` resolution through durable client refs.
 - Full-history `input[]` parsing into system instructions, conversation history, the latest user message, and image/file attachment summaries.
-- Request `metadata` and Codex `client_metadata` echoing on encoded Responses snapshots for client correlation.
+- Request `metadata` and Codex `client_metadata` echoing on encoded Responses snapshots for client correlation, except the reserved `volare` / `volare.*` namespace which is stripped before core state and replay.
 - Non-empty `tools`, `tool_choice`, and `parallel_tool_calls` request fields as client capability metadata.
 - Explicit rejection of `stream: false`; Volare streams every response.
 - Compatibility acceptance for unsupported Codex controls such as `reasoning` and `text` so ordinary Codex CLI/Desktop requests are not blocked. Volare advertises GPT-5.5 reasoning levels for Codex UI compatibility, but currently treats those request fields as client-side selection metadata for the text bridge.

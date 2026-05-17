@@ -73,6 +73,8 @@ Out of scope for the current architecture:
 
 Core runtime types intentionally do not contain OpenAI Responses wire shapes. Codex/OpenAI-specific request parsing, response encoding, model catalog fields, and stable external response IDs belong under `src/northbound/openai-responses/`.
 
+OpenAI Responses request parsing strips client-supplied `metadata` and `client_metadata` keys whose normalized names are `volare` or start with `volare.` before metadata enters core state, logs, or the event journal. The `volare.*` namespace is reserved for future server-owned response metadata.
+
 The backend is also protocol-neutral from the session manager's perspective. It accepts `IAgentRequest`, yields `AgentEvent`, and owns only the mechanics needed to run Copilot CLI.
 
 ## Workspace isolation

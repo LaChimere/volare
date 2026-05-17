@@ -20,6 +20,7 @@ import {
   estimateAgentInputTokens,
   estimateTextTokens,
 } from '../../core/usage';
+import { type ILogger, NoopLogger } from '../../logging/logger';
 import { codexWorkspaceHintsFromRequest } from './codex-workspace-hints';
 
 const encoder = new TextEncoder();
@@ -46,8 +47,14 @@ export interface IOpenAIResponsesStreamObserver {
 
 export class OpenAIResponsesAdapter implements INorthboundAdapter {
   readonly protocol = 'openai-responses-v1';
+  readonly #logger: ILogger;
 
-  constructor(readonly stateStore?: IStateStore) {}
+  constructor(
+    readonly stateStore?: IStateStore,
+    logger: ILogger = new NoopLogger(),
+  ) {
+    this.#logger = logger.child({ component: 'northbound', protocol: this.protocol });
+  }
 
   async extractWorkspaceHints(request: INorthboundRequest): Promise<IWorkspaceHints> {
     const metadata = metadataFromRequestBody(request.body);
@@ -106,7 +113,7 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
     if (previousResponseId && this.stateStore && !parentRef) {
       throw new VolareError('not_found', 'previous_response_id was not found');
     }
-    const metadata = metadataFromRequestBody(request.body);
+    const metadata = metadataFromRequestBody(request.body, this.#logger);
     return {
       ...(parentRef ? { threadId: parentRef.threadId, parentTurnId: parentRef.turnId } : {}),
       model,
@@ -643,13 +650,94 @@ function pickDefined(values: Record<string, unknown>): Record<string, unknown> |
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
-function metadataFromRequestBody(body: unknown): Record<string, unknown> | undefined {
+function metadataFromRequestBody(
+  body: unknown,
+  logger: ILogger = new NoopLogger(),
+): Record<string, unknown> | undefined {
   if (!isRecord(body)) {
     return undefined;
   }
-  const metadata = isRecord(body['metadata']) ? body['metadata'] : undefined;
-  const clientMetadata = isRecord(body['client_metadata']) ? body['client_metadata'] : undefined;
+  const stripContext: IReservedMetadataStripContext = { keyPaths: [] };
+  const metadata = isMetadataRecord(body['metadata'])
+    ? stripReservedMetadataKeys(body['metadata'], ['metadata'], stripContext)
+    : undefined;
+  const clientMetadata = isMetadataRecord(body['client_metadata'])
+    ? stripReservedMetadataKeys(body['client_metadata'], ['client_metadata'], stripContext)
+    : undefined;
+  if (stripContext.keyPaths.length > 0) {
+    logger.warn(
+      {
+        event: 'responses.metadata.reserved_keys_stripped',
+        keyPaths: stripContext.keyPaths,
+        strippedKeyCount: stripContext.keyPaths.length,
+      },
+      'reserved Volare metadata stripped',
+    );
+  }
   return mergeMetadata(metadata, clientMetadata);
+}
+
+interface IReservedMetadataStripContext {
+  keyPaths: string[];
+}
+
+function stripReservedMetadataKeys(
+  metadata: Record<string, unknown>,
+  path: string[],
+  context: IReservedMetadataStripContext,
+): Record<string, unknown> | undefined {
+  const sanitized: Record<string, unknown> = {};
+  let keptCount = 0;
+  for (const [key, value] of Object.entries(metadata)) {
+    const childPath = [...path, key];
+    if (isReservedVolareMetadataKey(key)) {
+      context.keyPaths.push(formatMetadataPath(childPath));
+      continue;
+    }
+    Object.defineProperty(sanitized, key, {
+      value: stripReservedMetadataValue(value, childPath, context),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    keptCount += 1;
+  }
+  return keptCount > 0 ? sanitized : undefined;
+}
+
+function stripReservedMetadataValue(
+  value: unknown,
+  path: string[],
+  context: IReservedMetadataStripContext,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item, index) =>
+      isRecord(item)
+        ? (stripReservedMetadataKeys(item, [...path, `[${index}]`], context) ?? {})
+        : stripReservedMetadataValue(item, [...path, `[${index}]`], context),
+    );
+  }
+  if (isRecord(value)) {
+    return stripReservedMetadataKeys(value, path, context) ?? {};
+  }
+  return value;
+}
+
+function isReservedVolareMetadataKey(key: string): boolean {
+  const normalized = key.trim().normalize('NFKC').toLowerCase();
+  return normalized === 'volare' || normalized.startsWith('volare.');
+}
+
+function formatMetadataPath(path: string[]): string {
+  return path
+    .map((segment, index) =>
+      segment.startsWith('[') ? segment : `${index === 0 ? '' : '.'}${segment}`,
+    )
+    .join('');
+}
+
+function isMetadataRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && !Array.isArray(value);
 }
 
 function mergeMetadata(

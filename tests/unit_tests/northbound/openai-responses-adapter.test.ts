@@ -2,12 +2,56 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
+import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
 import {
   createCodexModelsResponse,
   OpenAIResponsesAdapter,
 } from '../../../src/northbound/openai-responses/adapter';
 import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
+
+class CapturingLogger implements ILogger {
+  constructor(
+    readonly entries: Array<{ level: string; fields: ILogFields; message?: string }> = [],
+    readonly bindings: ILogBindings = {},
+  ) {}
+
+  child(bindings: ILogBindings): ILogger {
+    return new CapturingLogger(this.entries, { ...this.bindings, ...bindings });
+  }
+
+  trace(fields: ILogFields, message?: string): void {
+    this.push('trace', fields, message);
+  }
+
+  debug(fields: ILogFields, message?: string): void {
+    this.push('debug', fields, message);
+  }
+
+  info(fields: ILogFields, message?: string): void {
+    this.push('info', fields, message);
+  }
+
+  warn(fields: ILogFields, message?: string): void {
+    this.push('warn', fields, message);
+  }
+
+  error(fields: ILogFields, message?: string): void {
+    this.push('error', fields, message);
+  }
+
+  fatal(fields: ILogFields, message?: string): void {
+    this.push('fatal', fields, message);
+  }
+
+  private push(level: string, fields: ILogFields, message?: string): void {
+    this.entries.push({
+      level,
+      fields: { ...this.bindings, ...fields },
+      ...(message === undefined ? {} : { message }),
+    });
+  }
+}
 
 describe('OpenAIResponsesAdapter', () => {
   test('advertises Desktop-compatible GPT-5.5 reasoning controls', () => {
@@ -349,6 +393,128 @@ describe('OpenAIResponsesAdapter', () => {
         client: 'codex',
       },
     });
+  });
+
+  test('strips reserved Volare metadata keys before request metadata is constructed', async () => {
+    const logger = new CapturingLogger();
+    const adapter = new OpenAIResponsesAdapter(undefined, logger);
+    const parsed = await adapter.parseRequest(
+      {
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
+        body: {
+          model: 'copilot-agent',
+          input: 'hello',
+          metadata: {
+            ' volare ': { secret: 'metadata-root-secret' },
+            'VOLARE.SOURCES': { secret: 'metadata-sources-secret' },
+            ｖｏｌａｒｅ: { secret: 'metadata-fullwidth-secret' },
+            safe: {
+              keep: true,
+              'volare.audit': { secret: 'nested-secret' },
+            },
+            array: [
+              {
+                ok: 'value',
+                Volare: { secret: 'array-secret' },
+              },
+            ],
+            vоlare: 'confusable-kept',
+            constructor: { safe: true, 'volare.constructor': 'stripped' },
+            ['__proto__']: { safe: 'own-value', 'volare.proto': 'stripped' },
+          },
+          client_metadata: {
+            client: 'codex',
+            'volare.client': { secret: 'client-secret' },
+            nested: { VOLARE: { secret: 'client-nested-secret' }, keep: 'yes' },
+          },
+        },
+      },
+      { workspaceId: 'workspace_1', requestId: 'request_1' },
+    );
+
+    const metadata = parsed.metadata;
+    expect(metadata).toBeDefined();
+    if (!metadata) {
+      throw new Error('expected metadata');
+    }
+    expect(metadata).toMatchObject({
+      safe: { keep: true },
+      array: [{ ok: 'value' }],
+      vоlare: 'confusable-kept',
+      constructor: { safe: true },
+      client: 'codex',
+      nested: { keep: 'yes' },
+    });
+    expect(Object.hasOwn(metadata, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(metadata, '__proto__')?.value).toEqual({
+      safe: 'own-value',
+    });
+    expect(logger.entries).toHaveLength(1);
+    expect(logger.entries[0]).toMatchObject({
+      level: 'warn',
+      message: 'reserved Volare metadata stripped',
+      fields: {
+        component: 'northbound',
+        protocol: 'openai-responses-v1',
+        event: 'responses.metadata.reserved_keys_stripped',
+        strippedKeyCount: 9,
+        keyPaths: [
+          'metadata. volare ',
+          'metadata.VOLARE.SOURCES',
+          'metadata.ｖｏｌａｒｅ',
+          'metadata.safe.volare.audit',
+          'metadata.array[0].Volare',
+          'metadata.constructor.volare.constructor',
+          'metadata.__proto__.volare.proto',
+          'client_metadata.volare.client',
+          'client_metadata.nested.VOLARE',
+        ],
+      },
+    });
+    expect(JSON.stringify(logger.entries)).not.toContain('metadata-root-secret');
+    expect(JSON.stringify(logger.entries)).not.toContain('client-secret');
+  });
+
+  test('omits metadata when only reserved Volare metadata keys are present', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+    const parsed = await adapter.parseRequest(
+      {
+        transport: 'http',
+        method: 'POST',
+        path: '/openai/v1/responses',
+        body: {
+          model: 'copilot-agent',
+          input: 'hello',
+          metadata: { volare: { sources: [] } },
+          client_metadata: { 'volare.sources': [] },
+        },
+      },
+      { workspaceId: 'workspace_1', requestId: 'request_1' },
+    );
+
+    expect(parsed.metadata).toBeUndefined();
+  });
+
+  test('ignores non-object metadata boundaries', async () => {
+    const adapter = new OpenAIResponsesAdapter();
+    await expect(
+      adapter.parseRequest(
+        {
+          transport: 'http',
+          method: 'POST',
+          path: '/openai/v1/responses',
+          body: {
+            model: 'copilot-agent',
+            input: 'hello',
+            metadata: null,
+            client_metadata: [{ volare: 'not accepted metadata' }],
+          },
+        },
+        { workspaceId: 'workspace_1', requestId: 'request_1' },
+      ),
+    ).resolves.not.toHaveProperty('metadata');
   });
 
   test('accepts Codex tool definitions without invoking client-side tools', async () => {

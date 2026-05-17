@@ -137,7 +137,7 @@
 
 ### PR 4 / Phase 3 — Reserved Volare metadata namespace guard
 
-- [ ] Add reserved Volare metadata namespace guard.
+- [x] Add reserved Volare metadata namespace guard.
   - Acceptance criteria:
     - Parser strips any direct or nested object key inside `metadata` or `client_metadata` whose NFKC-normalized, case-folded key is `volare` or starts with `volare.`.
     - Matching trims surrounding whitespace and covers ASCII/case variants, dotted forms such as `volare.sources`, fullwidth forms normalized by NFKC, arrays of objects, and nested object keys.
@@ -146,7 +146,7 @@
     - Stripping happens before `requestMetadata` construction, journal write, and logs that include request metadata.
     - Tests cover dotted and nested-object input shapes, arrays of objects, mixed case, fullwidth/NFKC fixtures, non-object/null/array metadata, duplicate casing, prototype-pollution keys, and preservation of safe metadata.
     - No server-owned `volare.*` response metadata is introduced before this guard lands.
-  - Evidence:
+  - Evidence: Added recursive OpenAI Responses metadata stripping for NFKC-normalized, case-folded `volare` and `volare.*` keys in both `metadata` and `client_metadata`, before metadata is returned to core request state. Tests cover direct/dotted keys, nested objects, arrays of objects, mixed case, fullwidth/NFKC keys, Unicode confusable preservation, null/non-object omission through existing boundaries, duplicate merge precedence, `constructor` / `__proto__` preservation without pollution, warning key paths without values, SSE/journal/stored replay stripping, and safe metadata preservation. `bun test tests/unit_tests/northbound/openai-responses-adapter.test.ts tests/unit_tests/server/app.test.ts` passed on 2026-05-17.
 
 ### PR 5 / Phase 4 — Copilot tool-frame schema probe
 
