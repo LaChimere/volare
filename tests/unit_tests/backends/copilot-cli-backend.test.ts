@@ -164,7 +164,7 @@ describe('CopilotCliBackend', () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
     const runner = new FakeCopilotPromptRunner(['hello', ' world']);
     const logger = new CapturingLogger();
-    const backend = new CopilotCliBackend({ runner, logger });
+    const backend = new CopilotCliBackend({ runner, logger, mcpMode: 'unmediated' });
     const workspace: IWorkspace = {
       id: 'workspace_1',
       rootPath: await realpath(root),
@@ -204,8 +204,8 @@ describe('CopilotCliBackend', () => {
         groundingBracketReferenceCount: 0,
         groundingEvaluatedByteCount: 11,
         groundingTruncated: false,
-        groundingWarningCodes: [],
-        unmediatedToolingEnabled: false,
+        groundingWarningCodes: ['UNMEDIATED_TOOLING_ENABLED'],
+        unmediatedToolingEnabled: true,
         deltaCount: 2,
         historyMessagesBucket: '1-5',
       });
@@ -703,6 +703,7 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"hello"}}\\n'
 
       expect(chunks).toEqual(['hello']);
       const args = await readArgvFile(path.join(workspace, 'args.txt'));
+      expect(args).toContain('--disable-builtin-mcps');
       expect(args).toContain('--allow-all');
       expect(args).not.toContain('--allow-all-urls');
       expect(DEFAULT_COPILOT_CLI_PERMISSION_MODE).toBe('full');
@@ -732,6 +733,7 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
       }
       expect(restrictedChunks).toEqual(['ok']);
       const restrictedArgs = await readArgvFile(path.join(workspace, 'args.txt'));
+      expect(restrictedArgs).toContain('--disable-builtin-mcps');
       expect(restrictedArgs).not.toContain('--allow-all-urls');
       expect(restrictedArgs).not.toContain('--allow-all');
 
@@ -745,6 +747,7 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
       }
       expect(webChunks).toEqual(['ok']);
       const webArgs = (await readFile(path.join(workspace, 'args.txt'), 'utf8')).split(/\r?\n/);
+      expect(webArgs).toContain('--disable-builtin-mcps');
       expect(webArgs).toContain('--allow-all-urls');
       expect(webArgs).not.toContain('--allow-all');
 
@@ -758,8 +761,46 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
       }
       expect(fullChunks).toEqual(['ok']);
       const fullArgs = await readArgvFile(path.join(workspace, 'args.txt'));
+      expect(fullArgs).toContain('--disable-builtin-mcps');
       expect(fullArgs).toContain('--allow-all');
       expect(fullArgs).not.toContain('--allow-all-urls');
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(path.dirname(bin), { recursive: true, force: true });
+    }
+  });
+
+  test('omits builtin MCP disabling only in unmediated mode', async () => {
+    const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const bin = await installFakeCopilot(
+      'mcp-mode',
+      `#!/bin/sh
+printf '%s\\n' "$@" > "$PWD/args.txt"
+printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
+`,
+    );
+    try {
+      const disabled = new BunCopilotPromptRunner(undefined, bin, 'web', 'disabled');
+      for await (const _chunk of disabled.run('hello', {
+        backendSessionId: 'backend_session_disabled',
+        cwd: workspace,
+      })) {
+        // consume
+      }
+      expect(await readArgvFile(path.join(workspace, 'args.txt'))).toContain(
+        '--disable-builtin-mcps',
+      );
+
+      const unmediated = new BunCopilotPromptRunner(undefined, bin, 'web', 'unmediated');
+      for await (const _chunk of unmediated.run('hello', {
+        backendSessionId: 'backend_session_unmediated',
+        cwd: workspace,
+      })) {
+        // consume
+      }
+      const args = await readArgvFile(path.join(workspace, 'args.txt'));
+      expect(args).not.toContain('--disable-builtin-mcps');
+      expect(args).toContain('--allow-all-urls');
     } finally {
       await rm(workspace, { recursive: true, force: true });
       await rm(path.dirname(bin), { recursive: true, force: true });
@@ -873,7 +914,11 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
 `,
     );
     try {
-      const backend = new CopilotCliBackend({ command: bin, permissionMode: 'web' });
+      const backend = new CopilotCliBackend({
+        command: bin,
+        permissionMode: 'web',
+        mcpMode: 'unmediated',
+      });
       const workspaceRoot = await realpath(workspace);
       const session = await backend.createSession(
         { id: 'workspace_1', rootPath: workspaceRoot },
@@ -894,6 +939,7 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
         expect.objectContaining({ type: 'turn.succeeded', output: { text: 'ok' } }),
       );
       const args = await readArgvFile(path.join(workspace, 'args.txt'));
+      expect(args).not.toContain('--disable-builtin-mcps');
       expect(args).toContain('--allow-all-urls');
       expect(args).not.toContain('--allow-all');
     } finally {

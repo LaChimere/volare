@@ -25,6 +25,12 @@ const config = createServerRuntimeConfig({
   VOLARE_API_KEY: '0123456789abcdef',
   VOLARE_WORKSPACE_ROOT: process.cwd(),
 });
+const unmediatedConfig = createServerRuntimeConfig({
+  VOLARE_API_KEY: '0123456789abcdef',
+  VOLARE_WORKSPACE_ROOT: process.cwd(),
+  VOLARE_COPILOT_MCP_MODE: 'unmediated',
+  VOLARE_COPILOT_PERMISSION_MODE: 'web',
+});
 
 function request(path: string, init: RequestInit = {}): Request {
   return new Request(`http://127.0.0.1:8000${path}`, {
@@ -380,7 +386,7 @@ describe('server app', () => {
     });
   });
 
-  test('updates aggregate turn metrics only for live terminal turns', async () => {
+  test('updates aggregate turn metrics only for accepted live turns and terminal events', async () => {
     const app = createInMemoryApp();
     const before = await app.fetch(request('/metrics'));
     await expect(before.json()).resolves.toMatchObject({
@@ -443,6 +449,101 @@ describe('server app', () => {
       turns_with_citation_like_output_total: 1,
       turns_with_grounding_warnings_total: 1,
     });
+  });
+
+  test('emits one turn audit per accepted live turn without replay or content leakage', async () => {
+    const logger = new CapturingLogger();
+    const app = createInMemoryApp({ logger });
+
+    const malformed = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: '{',
+      }),
+    );
+    expect(malformed.status).toBe(400);
+    expect(logger.entries.filter((entry) => entry.fields['event'] === 'turn.audit')).toHaveLength(
+      0,
+    );
+
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'do not leak this prompt',
+        }),
+      }),
+    );
+    const streamText = await createResponse.text();
+    const responseId = /"id":"(resp_[^"]+)"/.exec(streamText)?.[1];
+    expect(responseId).toBeDefined();
+
+    const audits = logger.entries.filter((entry) => entry.fields['event'] === 'turn.audit');
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      level: 'info',
+      message: 'turn audit',
+      fields: {
+        copilotMcpMode: 'disabled',
+        copilotPermissionMode: 'full',
+        unmediatedToolingEnabled: false,
+      },
+    });
+    expect(typeof audits[0]?.fields['sessionId']).toBe('string');
+    expect(JSON.stringify(audits)).not.toContain('do not leak this prompt');
+    expect(JSON.stringify(audits)).not.toContain(process.cwd());
+
+    const stored = await app.fetch(request(`/openai/v1/responses/${responseId}`));
+    expect(stored.status).toBe(200);
+    expect(logger.entries.filter((entry) => entry.fields['event'] === 'turn.audit')).toHaveLength(
+      1,
+    );
+  });
+
+  test('counts unmediated turns separately without counting them as content-grounding warnings', async () => {
+    const logger = new CapturingLogger();
+    const app = createInMemoryApp({ config: unmediatedConfig, logger });
+
+    const responses = await Promise.all([
+      app.fetch(
+        request('/openai/v1/responses', {
+          method: 'POST',
+          body: JSON.stringify({ model: 'copilot-agent', input: 'first [1]' }),
+        }),
+      ),
+      app.fetch(
+        request('/openai/v1/responses', {
+          method: 'POST',
+          body: JSON.stringify({ model: 'copilot-agent', input: 'second' }),
+        }),
+      ),
+    ]);
+    const streamTexts = await Promise.all(responses.map((response) => response.text()));
+
+    const metrics = (await (await app.fetch(request('/metrics'))).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(metrics).toMatchObject({
+      turns_total: 2,
+      turns_unmediated_total: 2,
+      turns_with_citation_like_output_total: 1,
+      turns_with_grounding_warnings_total: 1,
+    });
+    const audits = logger.entries.filter((entry) => entry.fields['event'] === 'turn.audit');
+    expect(audits).toHaveLength(2);
+    expect(audits.every((entry) => entry.level === 'warn')).toBe(true);
+    expect(audits.map((entry) => entry.fields['unmediatedToolingEnabled'])).toEqual([true, true]);
+    const encoded = streamTexts.join('\n');
+    for (const field of [
+      'copilotMcpMode',
+      'copilotPermissionMode',
+      'unmediatedToolingEnabled',
+      'sessionId',
+    ]) {
+      expect(encoded).not.toContain(field);
+    }
   });
 
   test('counts concurrent live turns and tool-observed turns without prompt-derived metric keys', async () => {
@@ -977,7 +1078,12 @@ describe('server app', () => {
   test('journals streamed canonical events for debug replay', async () => {
     const stateStore = createStateStore();
     const eventJournal = new SQLiteEventJournal(stateStore.database);
-    const app = createDurableApp(stateStore, { eventJournal });
+    const logger = new CapturingLogger();
+    const app = createDurableApp(stateStore, {
+      config: unmediatedConfig,
+      eventJournal,
+      logger,
+    });
 
     const createResponse = await app.fetch(
       request('/openai/v1/responses', {
@@ -1004,6 +1110,23 @@ describe('server app', () => {
         (event: { canonicalJson?: { type?: string } }) => event.canonicalJson?.type,
       ),
     ).toEqual(['turn.created', 'text.delta', 'turn.succeeded']);
+    for (const field of [
+      'copilotMcpMode',
+      'copilotPermissionMode',
+      'unmediatedToolingEnabled',
+      'sessionId',
+    ]) {
+      expect(JSON.stringify(debugBody)).not.toContain(field);
+    }
+
+    const auditCount = logger.entries.filter(
+      (entry) => entry.fields['event'] === 'turn.audit',
+    ).length;
+    const stored = await app.fetch(request(`/openai/v1/responses/${responseId}`));
+    expect(stored.status).toBe(200);
+    expect(logger.entries.filter((entry) => entry.fields['event'] === 'turn.audit')).toHaveLength(
+      auditCount,
+    );
   });
 
   test('serves stored durable responses from journal replay after manager restart', async () => {
@@ -1186,6 +1309,17 @@ describe('server app', () => {
     expect(() => createServerRuntimeConfig({ VOLARE_COPILOT_PERMISSION_MODE: 'ask' })).toThrow(
       'VOLARE_COPILOT_PERMISSION_MODE must be restricted, web, or full',
     );
+    expect(() => createServerRuntimeConfig({ VOLARE_COPILOT_MCP_MODE: 'auto' })).toThrow(
+      'VOLARE_COPILOT_MCP_MODE must be disabled or unmediated',
+    );
+    expect(() =>
+      createServerRuntimeConfig({
+        VOLARE_COPILOT_MCP_MODE: 'unmediated',
+        VOLARE_COPILOT_PERMISSION_MODE: 'restricted',
+      }),
+    ).toThrow(
+      'VOLARE_COPILOT_MCP_MODE=unmediated requires VOLARE_COPILOT_PERMISSION_MODE to be web or full',
+    );
   });
 
   test('parses safe timeout and retention configuration values', () => {
@@ -1200,6 +1334,7 @@ describe('server app', () => {
         VOLARE_MAX_ACTIVE_SESSIONS: '10',
         VOLARE_EVENT_RETENTION_DAYS: '30',
         VOLARE_COPILOT_PERMISSION_MODE: 'full',
+        VOLARE_COPILOT_MCP_MODE: 'unmediated',
       }),
     ).toMatchObject({
       approvalTimeoutMs: 60_000,
@@ -1211,8 +1346,10 @@ describe('server app', () => {
       maxActiveSessions: 10,
       eventRetentionDays: 30,
       copilotPermissionMode: 'full',
+      copilotMcpMode: 'unmediated',
     });
     expect(createServerRuntimeConfig({}).copilotPermissionMode).toBe('full');
+    expect(createServerRuntimeConfig({}).copilotMcpMode).toBe('disabled');
     expect(
       createServerRuntimeConfig({ VOLARE_COPILOT_PERMISSION_MODE: 'restricted' })
         .copilotPermissionMode,

@@ -206,6 +206,8 @@ describe('Volare CLI', () => {
         '--log-level',
         'debug',
         '--copilot-permission-mode=full',
+        '--copilot-mcp-mode',
+        'unmediated',
       ]),
     ).toEqual({
       type: 'start',
@@ -218,6 +220,7 @@ describe('Volare CLI', () => {
         VOLARE_PROJECTLESS_WORKSPACE_ROOT: '/tmp/projectless',
         VOLARE_LOG_LEVEL: 'debug',
         VOLARE_COPILOT_PERMISSION_MODE: 'full',
+        VOLARE_COPILOT_MCP_MODE: 'unmediated',
       },
       daemonArgs: [
         'start',
@@ -235,6 +238,8 @@ describe('Volare CLI', () => {
         'debug',
         '--copilot-permission-mode',
         'full',
+        '--copilot-mcp-mode',
+        'unmediated',
       ],
     });
   });
@@ -331,7 +336,15 @@ describe('Volare CLI', () => {
     const { io, stdout } = memoryIo();
     const calls: unknown[] = [];
     const exitCode = await runCli(
-      ['start', '--daemon', '--port', '8765', '--copilot-permission-mode', 'web'],
+      [
+        'start',
+        '--daemon',
+        '--port',
+        '8765',
+        '--copilot-permission-mode',
+        'web',
+        '--copilot-mcp-mode=unmediated',
+      ],
       testDependencies({
         startDaemon: async (command) => {
           calls.push(command);
@@ -350,8 +363,20 @@ describe('Volare CLI', () => {
     expect(calls[0]).toMatchObject({
       type: 'start',
       daemon: true,
-      env: { VOLARE_PORT: '8765', VOLARE_COPILOT_PERMISSION_MODE: 'web' },
-      daemonArgs: ['start', '--port', '8765', '--copilot-permission-mode', 'web'],
+      env: {
+        VOLARE_PORT: '8765',
+        VOLARE_COPILOT_PERMISSION_MODE: 'web',
+        VOLARE_COPILOT_MCP_MODE: 'unmediated',
+      },
+      daemonArgs: [
+        'start',
+        '--port',
+        '8765',
+        '--copilot-permission-mode',
+        'web',
+        '--copilot-mcp-mode',
+        'unmediated',
+      ],
     });
     expect(stdout.text()).toContain('Volare daemon started (pid 4242)');
   });
@@ -410,6 +435,31 @@ describe('Volare CLI', () => {
     expect(stderr.text()).toContain('--copilot-permission-mode "ask" is not valid');
     expect(stderr.text()).toContain('Valid modes: restricted, web, or full');
     expect(stderr.text()).toContain('bunx @lachimere/volare start --copilot-permission-mode web');
+  });
+
+  test('rejects invalid Copilot MCP modes before daemon startup', async () => {
+    const { io, stderr } = memoryIo();
+    const calls: unknown[] = [];
+    const exitCode = await runCli(
+      ['start', '--daemon', '--copilot-mcp-mode', 'auto'],
+      testDependencies({
+        startDaemon: async (command) => {
+          calls.push(command);
+          return {
+            pid: 4242,
+            logPath: '/tmp/volare.log',
+            pidPath: '/tmp/volare.pid',
+          };
+        },
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(2);
+    expect(calls).toEqual([]);
+    expect(stderr.text()).toContain('--copilot-mcp-mode "auto" is not valid');
+    expect(stderr.text()).toContain('Valid modes: disabled or unmediated');
+    expect(stderr.text()).toContain('bunx @lachimere/volare start --copilot-mcp-mode unmediated');
   });
 
   test('rejects missing start option values before daemon startup', async () => {

@@ -107,6 +107,9 @@ export function evaluateAnswerGrounding(
   ) {
     warningCodes.push('CITATION_LIKE_TEXT_WITHOUT_SOURCES');
   }
+  if (options.unmediatedToolingEnabled) {
+    warningCodes.push('UNMEDIATED_TOOLING_ENABLED');
+  }
   return {
     domain: options.hint.domain,
     needsSourceGrounding: options.hint.needsSourceGrounding,

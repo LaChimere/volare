@@ -156,7 +156,7 @@ describe('evaluateAnswerGrounding', () => {
     });
   });
 
-  test('does not emit Phase 2 unmediated warnings yet', () => {
+  test('warns when unmediated tooling is enabled', () => {
     expect(
       evaluateAnswerGrounding({
         outputText: '',
@@ -165,7 +165,7 @@ describe('evaluateAnswerGrounding', () => {
         toolObservedCount: 1,
         unmediatedToolingEnabled: true,
       }).warningCodes,
-    ).toEqual([]);
+    ).toEqual(['UNMEDIATED_TOOLING_ENABLED']);
   });
 
   test('does not warn on citation-like text for code prompts', () => {

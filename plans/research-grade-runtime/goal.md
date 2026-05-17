@@ -3,11 +3,11 @@
 objective: "好的，根据 @plans/research-grade-runtime/ 来进行实现，确保和 design align，但尽量避免 over-design/over-engineering。所有的逻辑都需要有 UT 和 IT 测试覆盖，原子化 commit，多 review 和 refine，直到全部做完。"
 status: active
 slug: "research-grade-runtime"
-turns_used: 8
+turns_used: 9
 turn_budget: null
 docs_update_approved: true
 created_at: "2026-05-17T16:43:23+08:00"
-updated_at: "2026-05-17T17:06:00+08:00"
+updated_at: "2026-05-17T17:35:00+08:00"
 
 ## Acceptance criteria
 
@@ -54,6 +54,8 @@ updated_at: "2026-05-17T17:06:00+08:00"
 - Turn 7: Phase 1b conditional source-grounding prompt rules implemented.
 - Turn 8: Phase 1c grounding completion log fields, warning metrics, classifier false-positive guard, and directly coupled docs implemented.
 - Turn 8 review: pre-commit code review found no blocking issues; full `bun run check` and `bun run test` passed.
+- Turn 9: Phase 2 explicit unmediated MCP mode, accepted-turn audit logs, unmediated metrics/warnings, and MCP/security docs implemented.
+- Turn 9 review: pre-commit code review reported one syntax concern that was verified as absent in the file; full `bun run check`, `bun run test`, and `bun run package` passed.
 
 ## Deferred items
 

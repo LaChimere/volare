@@ -2,8 +2,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   type CopilotCliPermissionMode,
+  type CopilotMcpMode,
   DEFAULT_COPILOT_CLI_PERMISSION_MODE,
+  DEFAULT_COPILOT_MCP_MODE,
   isCopilotCliPermissionMode,
+  isCopilotMcpMode,
 } from '../backends/copilot-cli/backend';
 import { VolareError } from '../core/errors';
 import type { LogLevel } from '../logging/logger';
@@ -24,6 +27,7 @@ export interface IServerRuntimeConfig {
   maxActiveSessions: number;
   eventRetentionDays?: number;
   copilotPermissionMode: CopilotCliPermissionMode;
+  copilotMcpMode: CopilotMcpMode;
   defaultWorkspaceRoot?: string;
   allowedWorkspaceRoots?: string[];
   projectlessWorkspaceRoot: string;
@@ -47,6 +51,7 @@ export interface IServerRuntimeEnv {
   VOLARE_MAX_ACTIVE_SESSIONS: string | undefined;
   VOLARE_EVENT_RETENTION_DAYS: string | undefined;
   VOLARE_COPILOT_PERMISSION_MODE: string | undefined;
+  VOLARE_COPILOT_MCP_MODE: string | undefined;
 }
 
 export function createServerRuntimeConfig(
@@ -77,6 +82,10 @@ export function createServerRuntimeConfig(
     1,
     3650,
   );
+
+  const copilotPermissionMode = parseCopilotPermissionMode(env.VOLARE_COPILOT_PERMISSION_MODE);
+  const copilotMcpMode = parseCopilotMcpMode(env.VOLARE_COPILOT_MCP_MODE);
+  validateCopilotMcpConfig(copilotMcpMode, copilotPermissionMode);
 
   return {
     host: env.VOLARE_HOST ?? '127.0.0.1',
@@ -114,7 +123,8 @@ export function createServerRuntimeConfig(
       0,
     ),
     logLevel: parseLogLevel(env.VOLARE_LOG_LEVEL),
-    copilotPermissionMode: parseCopilotPermissionMode(env.VOLARE_COPILOT_PERMISSION_MODE),
+    copilotPermissionMode,
+    copilotMcpMode,
     maxActiveSessions: integerInRange(
       'VOLARE_MAX_ACTIVE_SESSIONS',
       env.VOLARE_MAX_ACTIVE_SESSIONS,
@@ -148,6 +158,7 @@ export function readServerRuntimeEnv(): IServerRuntimeEnv {
     VOLARE_MAX_ACTIVE_SESSIONS: Bun.env['VOLARE_MAX_ACTIVE_SESSIONS'],
     VOLARE_EVENT_RETENTION_DAYS: Bun.env['VOLARE_EVENT_RETENTION_DAYS'],
     VOLARE_COPILOT_PERMISSION_MODE: Bun.env['VOLARE_COPILOT_PERMISSION_MODE'],
+    VOLARE_COPILOT_MCP_MODE: Bun.env['VOLARE_COPILOT_MCP_MODE'],
   };
 }
 
@@ -175,6 +186,26 @@ function parseCopilotPermissionMode(value: string | undefined): CopilotCliPermis
     'invalid_config',
     'VOLARE_COPILOT_PERMISSION_MODE must be restricted, web, or full',
   );
+}
+
+function parseCopilotMcpMode(value: string | undefined): CopilotMcpMode {
+  const mode = value?.trim() ?? DEFAULT_COPILOT_MCP_MODE;
+  if (isCopilotMcpMode(mode)) {
+    return mode;
+  }
+  throw new VolareError('invalid_config', 'VOLARE_COPILOT_MCP_MODE must be disabled or unmediated');
+}
+
+function validateCopilotMcpConfig(
+  mcpMode: CopilotMcpMode,
+  permissionMode: CopilotCliPermissionMode,
+): void {
+  if (mcpMode === 'unmediated' && permissionMode === 'restricted') {
+    throw new VolareError(
+      'invalid_config',
+      'VOLARE_COPILOT_MCP_MODE=unmediated requires VOLARE_COPILOT_PERMISSION_MODE to be web or full',
+    );
+  }
 }
 
 function validateCorsConfig(env: Partial<IServerRuntimeEnv>): void {

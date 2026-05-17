@@ -40,6 +40,8 @@ Out of scope for the current architecture:
 - Remote multi-user deployment.
 - Private or reverse-engineered Copilot APIs.
 
+`VOLARE_COPILOT_MCP_MODE=unmediated` is a passthrough capability exposure to Copilot CLI, not a full MCP manager and not bridge-owned tool execution. Volare approvals do not mediate Copilot internal MCP actions in that mode; Volare records startup/per-turn audit fields so the capability boundary is explicit.
+
 ## Component map
 
 | Area | Path | Responsibility |

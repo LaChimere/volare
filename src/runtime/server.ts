@@ -50,7 +50,11 @@ export async function startVolareRuntime(
   await stateStore.recoverStartupState();
   const sessionManager = new DurableSessionManager({
     store: stateStore,
-    backend: new CopilotCliBackend({ logger, permissionMode: config.copilotPermissionMode }),
+    backend: new CopilotCliBackend({
+      logger,
+      permissionMode: config.copilotPermissionMode,
+      mcpMode: config.copilotMcpMode,
+    }),
     approvalProvider: new ApprovalProvider({
       store: stateStore,
       policy: new DefaultApprovalPolicy({ timeoutMs: config.approvalTimeoutMs }),
@@ -64,6 +68,17 @@ export async function startVolareRuntime(
     runtimeLogger.warn({ event: 'runtime.api_key.generated' }, 'ephemeral API key generated');
     console.error(`Volare API token: ${config.apiKey}`);
   }
+  if (config.copilotMcpMode === 'unmediated') {
+    runtimeLogger.warn(
+      {
+        event: 'runtime.unmediated_mcp.enabled',
+        copilotMcpMode: config.copilotMcpMode,
+        copilotPermissionMode: config.copilotPermissionMode,
+        unmediatedToolingEnabled: true,
+      },
+      'Copilot builtin MCPs are enabled without Volare approval mediation',
+    );
+  }
 
   runtimeLogger.info(
     {
@@ -73,6 +88,7 @@ export async function startVolareRuntime(
       stateDatabasePath: config.stateDatabasePath,
       httpIdleTimeoutSeconds: config.httpIdleTimeoutSeconds,
       copilotPermissionMode: config.copilotPermissionMode,
+      copilotMcpMode: config.copilotMcpMode,
       logLevel: config.logLevel,
     },
     'Volare starting',

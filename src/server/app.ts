@@ -183,6 +183,14 @@ export function createApp(dependencies: IAppDependencies): {
             turnId: resolved.turn.id,
             responseId: resolved.externalResponseId ?? resolved.turn.id,
           });
+          const unmediatedToolingEnabled = dependencies.config.copilotMcpMode === 'unmediated';
+          recordAcceptedTurnMetrics(turnMetrics, unmediatedToolingEnabled);
+          logTurnAudit(streamLogger, {
+            sessionId: resolved.session.bridgeSessionId,
+            copilotMcpMode: dependencies.config.copilotMcpMode,
+            copilotPermissionMode: dependencies.config.copilotPermissionMode,
+            unmediatedToolingEnabled,
+          });
           streamLogger.info(
             {
               event: 'responses.stream.started',
@@ -200,6 +208,7 @@ export function createApp(dependencies: IAppDependencies): {
                   sessionManager.streamTurn(resolved, streamAbort.signal),
                   turnMetrics,
                   classifyRequestGrounding(input.input),
+                  unmediatedToolingEnabled,
                 ),
                 dependencies.eventJournal,
               ),
@@ -417,6 +426,7 @@ async function* observeLiveTurnMetrics(
   events: AsyncIterable<AgentEvent>,
   metrics: ITurnMetrics,
   groundingHint: IRequestGroundingHint,
+  unmediatedToolingEnabled: boolean,
 ): AsyncIterable<AgentEvent> {
   let toolObservedCount = 0;
   for await (const event of events) {
@@ -424,7 +434,13 @@ async function* observeLiveTurnMetrics(
       toolObservedCount += 1;
     }
     if (isTerminalEvent(event)) {
-      recordTerminalTurnMetrics(metrics, event, toolObservedCount, groundingHint);
+      recordTerminalTurnMetrics(
+        metrics,
+        event,
+        toolObservedCount,
+        groundingHint,
+        unmediatedToolingEnabled,
+      );
     }
     yield event;
   }
@@ -435,8 +451,8 @@ function recordTerminalTurnMetrics(
   event: AgentEvent,
   toolObservedCount: number,
   groundingHint: IRequestGroundingHint,
+  unmediatedToolingEnabled: boolean,
 ): void {
-  metrics.turns_total += 1;
   if (toolObservedCount === 0) {
     metrics.turns_with_zero_tools_total += 1;
   }
@@ -450,15 +466,43 @@ function recordTerminalTurnMetrics(
       hint: groundingHint,
       sourceCount,
       toolObservedCount,
-      unmediatedToolingEnabled: false,
+      unmediatedToolingEnabled,
     });
     if (groundingSignals.citationLikeOutputCount > 0) {
       metrics.turns_with_citation_like_output_total += 1;
     }
-    if (groundingSignals.warningCodes.length > 0) {
+    if (groundingSignals.warningCodes.some(isContentGroundingWarning)) {
       metrics.turns_with_grounding_warnings_total += 1;
     }
   }
+}
+
+function recordAcceptedTurnMetrics(metrics: ITurnMetrics, unmediatedToolingEnabled: boolean): void {
+  metrics.turns_total += 1;
+  if (unmediatedToolingEnabled) {
+    metrics.turns_unmediated_total += 1;
+  }
+}
+
+function logTurnAudit(
+  logger: ILogger,
+  fields: {
+    sessionId: string;
+    copilotMcpMode: string;
+    copilotPermissionMode: string;
+    unmediatedToolingEnabled: boolean;
+  },
+): void {
+  const logFields = { event: 'turn.audit', ...fields };
+  if (fields.unmediatedToolingEnabled) {
+    logger.warn(logFields, 'turn audit');
+    return;
+  }
+  logger.info(logFields, 'turn audit');
+}
+
+function isContentGroundingWarning(code: string): boolean {
+  return code === 'NEEDS_SOURCES_NO_SOURCES' || code === 'CITATION_LIKE_TEXT_WITHOUT_SOURCES';
 }
 
 function isTerminalEvent(event: AgentEvent): boolean {
