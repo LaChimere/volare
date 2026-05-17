@@ -23,23 +23,23 @@
 - [x] Confirm plan approval before implementation.
   - Acceptance criteria: `plans/research-grade-runtime/plan.md` Approval section is filled or user gives explicit approval such as "approved", "proceed", "LGTM", or "可以开始".
   - Evidence: User approval in chat on 2026-05-17: "好的，我 approve，你可以更新之后 commit 下".
-- [ ] Confirm working tree and branch state.
+- [x] Confirm working tree and branch state.
   - Acceptance criteria: unrelated changes are identified and not touched.
-  - Evidence:
-- [ ] Confirm target verification level per PR.
+  - Evidence: 2026-05-17 on branch `lachimere/fix-tooling`; working tree was clean after `0d4ed9c docs(research-grade-runtime): register implementation goal` before Phase 0 code changes.
+- [x] Confirm target verification level per PR.
   - Acceptance criteria: L1/L2 expectations from `plan.md` are preserved in each PR.
-  - Evidence:
+  - Evidence: Phase 0 implementation follows PR 1 acceptance criteria; each code slice runs targeted tests plus `bun run check` and `bun run test` before commit.
 
 ### PR 1 / Phase 0 — Raw grounding observability baseline
 
-- [ ] Implement bounded raw output scanner.
+- [x] Implement bounded raw output scanner.
   - Acceptance criteria:
     - Counts markdown `http(s)` links, bare `http(s)` URLs, and `[n]`-style references.
     - Scans at most 256 KiB UTF-8 bytes.
     - Tests cover 256 KiB exactly, 256 KiB + 1 byte, and a multibyte UTF-8 sequence at the boundary.
     - Uses linear-time scans/regexes with match caps.
     - Emits `groundingEvaluatedByteCount`/truncation data without classifier or warning codes; do not introduce `groundingEvaluatedCharCount`.
-  - Evidence:
+  - Evidence: Added `src/core/grounding.ts` and `tests/unit_tests/core/grounding.test.ts`; `bun test tests/unit_tests/core/grounding.test.ts` passed on 2026-05-17. Full `bun run check` and `bun run test` passed before commit.
 - [ ] Harden generic URL redaction.
   - Acceptance criteria:
     - Strips URL userinfo.
