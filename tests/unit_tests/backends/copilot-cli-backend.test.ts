@@ -681,6 +681,55 @@ describe('CopilotCliBackend', () => {
     );
   });
 
+  test('ignores structured unmediated MCP frames instead of journaling raw payload text', async () => {
+    const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const fixture = await readFile(
+      path.join(import.meta.dir, '../../fixtures/copilot-cli/unmediated-mcp.jsonl'),
+      'utf8',
+    );
+    const bin = await installFakeCopilot(
+      'structured-frames',
+      `#!/bin/sh
+cat <<'JSON'
+${fixture}
+JSON
+`,
+    );
+    try {
+      const backend = new CopilotCliBackend({
+        command: bin,
+        permissionMode: 'web',
+        mcpMode: 'unmediated',
+      });
+      const workspaceRoot = await realpath(workspace);
+      const session = await backend.createSession(
+        { id: 'workspace_1', rootPath: workspaceRoot },
+        { bridgeSessionId: 'bridge_session_1', threadId: 'thread_1' },
+      );
+
+      const events = await collectEvents(
+        backend.send(session, {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          workspaceId: 'workspace_1',
+          input: { message: 'hello' },
+          model: 'copilot-agent',
+        }),
+      );
+
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'turn.succeeded', output: { text: 'done' } }),
+      );
+      const serialized = JSON.stringify(events);
+      expect(serialized).not.toContain('tool.call');
+      expect(serialized).not.toContain('fixture.lookup');
+      expect(serialized).not.toContain('safe fixture result');
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(path.dirname(bin), { recursive: true, force: true });
+    }
+  });
+
   test('runs a PATH-resolved Copilot process and streams JSON output', async () => {
     const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
     const bin = await installFakeCopilot(

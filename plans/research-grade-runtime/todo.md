@@ -150,7 +150,7 @@
 
 ### PR 5 / Phase 4 — Copilot tool-frame schema probe
 
-- [ ] Add redacted fixture capture helper.
+- [x] Add redacted fixture capture helper.
   - Acceptance criteria:
     - Production redactor runs before fixture write.
     - Fixtures cover text-only and unmediated-MCP turns.
@@ -158,18 +158,18 @@
     - Fixture capture fails closed: any redactor exception or post-write secret-pattern rejection deletes the candidate fixture and fails the test/CI step.
     - CI rejects secret/path patterns listed in the plan, including absolute paths, bearer tokens, signed URLs, JWTs, AWS keys, GitHub tokens, private-key blocks, `X-Amz-Signature=`, `sig=`, and `https://user:pass@`.
     - Runtime redaction and fixture rejection share a documented pattern source; if a separate CI scanner is unavoidable, a drift-prevention test proves both use the same pattern inventory.
-  - Evidence:
-- [ ] Add parser tests for structured frames.
+  - Evidence: Added `tests/support/copilot-frame-fixtures.ts` with production `DefaultRedactor` fixture writing, shared forbidden-pattern checks, fail-closed deletion on redaction or post-write safety failure, and static text-only / unmediated-MCP JSONL fixtures under `tests/fixtures/copilot-cli/`. Tests cover safe fixture parsing, poisoned bearer/JWT/AWS/GitHub/private-key/signed-URL/userinfo redaction, absolute-path rejection, redaction failure deletion, and shared forbidden-pattern drift via the exported pattern inventory.
+- [x] Add parser tests for structured frames.
   - Acceptance criteria:
     - Text deltas remain answer text.
     - Unknown structured frames are not emitted as answer text.
     - No raw frame payload is journaled.
-  - Evidence:
-- [ ] Write tool-frame decision record.
+  - Evidence: Added fixture-backed parser coverage proving text deltas remain answer text, unmediated structured frames are not emitted as answer text, and backend events do not contain raw unknown tool-frame payloads.
+- [x] Write tool-frame decision record.
   - Acceptance criteria:
     - Stable frames lead to a future lifecycle-event proposal.
     - Unstable/no frames means no invented lifecycle events.
-  - Evidence:
+  - Evidence: Added `plans/research-grade-runtime/tool-frame-decision.md`, recording that current fixtures are probe fixtures only and Volare should not invent tool lifecycle events until a stable Copilot CLI tool-frame schema is captured and reviewed.
 
 ### Conditional PR 6a / Phase 5a — Core source refs, redaction, journal safety
 

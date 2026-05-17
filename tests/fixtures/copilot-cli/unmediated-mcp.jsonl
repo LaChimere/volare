@@ -1,0 +1,4 @@
+{"type":"session.mcp_servers_loaded","data":{"servers":[{"name":"fixture-mcp","status":"ready"}]}}
+{"type":"tool.call","data":{"id":"call_fixture","name":"fixture.lookup","arguments":{"query":"safe fixture query"}}}
+{"type":"tool.result","data":{"id":"call_fixture","status":"ok","content":[{"type":"text","text":"safe fixture result"}]}}
+{"type":"assistant.message_delta","data":{"deltaContent":"done"}}
