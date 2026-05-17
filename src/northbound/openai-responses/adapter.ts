@@ -57,7 +57,7 @@ export class OpenAIResponsesAdapter implements INorthboundAdapter {
   }
 
   async extractWorkspaceHints(request: INorthboundRequest): Promise<IWorkspaceHints> {
-    const metadata = metadataFromRequestBody(request.body);
+    const metadata = metadataFromRequestBody(request.body, this.#logger);
     const requestedRoot = metadata ? stringValue(metadata['workspace_root']) : undefined;
     if (requestedRoot) {
       return { source: 'client-metadata', requestedRoot };
@@ -652,7 +652,7 @@ function pickDefined(values: Record<string, unknown>): Record<string, unknown> |
 
 function metadataFromRequestBody(
   body: unknown,
-  logger: ILogger = new NoopLogger(),
+  logger: ILogger,
 ): Record<string, unknown> | undefined {
   if (!isRecord(body)) {
     return undefined;

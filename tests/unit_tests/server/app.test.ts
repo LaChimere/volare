@@ -102,6 +102,33 @@ class ToolObservedBackend extends MockBackend {
   }
 }
 
+class AuditOrderingBackend extends MockBackend {
+  sawAuditBeforeSend = false;
+
+  constructor(private readonly logger: CapturingLogger) {
+    super();
+  }
+
+  override async *send(_session: IBackendSession, request: IAgentRequest) {
+    this.sawAuditBeforeSend = this.logger.entries.some(
+      (entry) => entry.fields['event'] === 'turn.audit',
+    );
+    this.logger.info(
+      {
+        event: 'test.backend.send.entered',
+        sawAuditBeforeSend: this.sawAuditBeforeSend,
+      },
+      'backend send entered',
+    );
+    yield { type: 'text.delta' as const, turnId: request.turnId, delta: request.input.message };
+    yield {
+      type: 'turn.succeeded' as const,
+      turnId: request.turnId,
+      output: { text: request.input.message },
+    };
+  }
+}
+
 class ThrowingEventJournal implements IEventJournal {
   async append() {
     throw new Error('journal write failed');
@@ -499,6 +526,31 @@ describe('server app', () => {
     expect(logger.entries.filter((entry) => entry.fields['event'] === 'turn.audit')).toHaveLength(
       1,
     );
+  });
+
+  test('emits turn audit before backend execution can begin', async () => {
+    const logger = new CapturingLogger();
+    const backend = new AuditOrderingBackend(logger);
+    const app = createInMemoryApp({ config: unmediatedConfig, logger }, backend);
+
+    const response = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'search current docs',
+        }),
+      }),
+    );
+    await response.text();
+
+    const auditIndex = logger.entries.findIndex((entry) => entry.fields['event'] === 'turn.audit');
+    const backendIndex = logger.entries.findIndex(
+      (entry) => entry.fields['event'] === 'test.backend.send.entered',
+    );
+    expect(backend.sawAuditBeforeSend).toBe(true);
+    expect(auditIndex).toBeGreaterThanOrEqual(0);
+    expect(backendIndex).toBeGreaterThan(auditIndex);
   });
 
   test('counts unmediated turns separately without counting them as content-grounding warnings', async () => {
