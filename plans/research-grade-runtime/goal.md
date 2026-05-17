@@ -1,13 +1,13 @@
 # Goal State
 
 objective: "好的，根据 @plans/research-grade-runtime/ 来进行实现，确保和 design align，但尽量避免 over-design/over-engineering。所有的逻辑都需要有 UT 和 IT 测试覆盖，原子化 commit，多 review 和 refine，直到全部做完。"
-status: active
+status: complete
 slug: "research-grade-runtime"
-turns_used: 11
+turns_used: 12
 turn_budget: null
 docs_update_approved: true
 created_at: "2026-05-17T16:43:23+08:00"
-updated_at: "2026-05-17T18:15:00+08:00"
+updated_at: "2026-05-17T18:28:00+08:00"
 
 ## Acceptance criteria
 
@@ -60,6 +60,7 @@ updated_at: "2026-05-17T18:15:00+08:00"
 - Turn 10 review: pre-commit review noted empty safe containers remain after reserved-child stripping; kept intentionally because Phase 3 strips reserved keys, not non-reserved parent keys.
 - Turn 11: Phase 4 redacted Copilot frame fixture probe, structured-frame parser tests, and no-tool-lifecycle decision record implemented.
 - Turn 11 review: pre-commit review found an absolute-path fixture scanner false positive on safe HTTP URL paths; fixed with delimiter-aware matching and regression coverage.
+- Turn 12: Conditional Phase 5 source work explicitly deferred because no stable source producer exists; final milestone review found no blocking issues.
 
 ## Deferred items
 
