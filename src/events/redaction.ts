@@ -21,6 +21,8 @@ export class RedactionFailedError extends VolareError {
 const SAFE_HEADER_NAMES = new Set(['accept', 'content-length', 'content-type']);
 const SAFE_ENV_NAMES = new Set(['CI', 'NODE_ENV']);
 const SECRET_KEY_PATTERN = /authorization|cookie|token|api[_-]?key|password|secret/i;
+const SAFE_URL_PROTOCOLS = new Set(['http:', 'https:']);
+const URL_MAX_BYTES = 2048;
 
 export class DefaultRedactor implements IRedactor {
   redact(value: unknown): IRedactionResult {
@@ -136,18 +138,59 @@ function redactEnvironment(
 }
 
 function redactUrl(value: string, path: string, redactedPaths: string[]): string {
+  const originalByteCount = new TextEncoder().encode(value).byteLength;
+  if (hasAsciiControl(value)) {
+    markRedacted(redactedPaths, path);
+    return '[redacted-url:invalid-control]';
+  }
+  if (hasPercentEncodedUserinfo(value)) {
+    markRedacted(redactedPaths, path);
+    return '[redacted-url:encoded-userinfo]';
+  }
   try {
     const url = new URL(value);
-    if (url.search || url.hash) {
-      redactedPaths.push(path);
+    if (!SAFE_URL_PROTOCOLS.has(url.protocol)) {
+      markRedacted(redactedPaths, path);
+      return `[redacted-url:scheme=${url.protocol.slice(0, -1) || 'unknown'}]`;
     }
+    if (url.username || url.password || url.search || url.hash) {
+      markRedacted(redactedPaths, path);
+    }
+    url.username = '';
+    url.password = '';
     url.search = '';
     url.hash = '';
-    return url.toString();
+    const redactedUrl = url.toString();
+    if (new TextEncoder().encode(redactedUrl).byteLength > URL_MAX_BYTES) {
+      markRedacted(redactedPaths, path);
+      return `[redacted-url:scheme=${url.protocol.slice(0, -1)},host=${url.host},byteCount=${originalByteCount}]`;
+    }
+    return redactedUrl;
   } catch {
-    redactedPaths.push(path);
+    markRedacted(redactedPaths, path);
     return '[redacted-url]';
   }
+}
+
+function markRedacted(redactedPaths: string[], path: string): void {
+  if (redactedPaths.at(-1) !== path) {
+    redactedPaths.push(path);
+  }
+}
+
+function hasAsciiControl(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasPercentEncodedUserinfo(value: string): boolean {
+  const authority = value.match(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/([^/?#]*)/)?.[1] ?? '';
+  return /%(?:40|3a)/i.test(authority);
 }
 
 function summarizeCommand(command: string, path: string, redactedPaths: string[]) {

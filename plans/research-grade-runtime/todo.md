@@ -40,13 +40,13 @@
     - Uses linear-time scans/regexes with match caps.
     - Emits `groundingEvaluatedByteCount`/truncation data without classifier or warning codes; do not introduce `groundingEvaluatedCharCount`.
   - Evidence: Added `src/core/grounding.ts` and `tests/unit_tests/core/grounding.test.ts`; `bun test tests/unit_tests/core/grounding.test.ts` passed on 2026-05-17. Full `bun run check` and `bun run test` passed before commit.
-- [ ] Harden generic URL redaction.
+- [x] Harden generic URL redaction.
   - Acceptance criteria:
     - Strips URL userinfo.
     - Strips/summarizes percent-encoded userinfo, CRLF/newline log-injection attempts, and very long URL values.
     - Replaces unsupported schemes such as `file:`, `data:`, `javascript:`, `blob:`, and `vbscript:` with scheme-only markers and no path/content.
     - Tests cover old and new URL redaction behavior.
-  - Evidence:
+  - Evidence: Added URL redaction coverage for userinfo, percent-encoded userinfo markers, CRLF/control injection, long URL summaries, and unsupported schemes in `tests/unit_tests/events/redaction.test.ts`; `bun test tests/unit_tests/events/redaction.test.ts`, `bun run check`, and `bun run test` passed on 2026-05-17.
 - [ ] Add Phase 0 log fields and aggregate metrics.
   - Acceptance criteria:
     - Completion logs include raw grounding counters.
