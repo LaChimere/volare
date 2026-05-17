@@ -86,12 +86,12 @@
 
 ### PR 2b / Phase 1b — Conditional prompt grounding rules
 
-- [ ] Add conditional grounding prompt rules.
+- [x] Add conditional grounding prompt rules.
   - Acceptance criteria:
     - Rules are inserted after context-provenance rules and before user/system-supplied instructions.
     - Full backend prompt snapshot uses clear delimiters or line-numbered sections proving context-provenance rules first, grounding instructions second, and user/system-supplied content after those Volare rules.
     - Code-only prompts do not get external-research instructions.
-  - Evidence:
+  - Evidence: Added conditional external source-grounding rules in `src/backends/copilot-cli/backend.ts` after context provenance rules and before client/system/user sections. Tests assert external-research prompts receive rules in the required order and code-only prompts do not. `bun test tests/unit_tests/backends/copilot-cli-backend.test.ts`, `bun run check`, and `bun run test` passed on 2026-05-17.
 
 ### PR 2c / Phase 1c — Grounding log fields and docs hygiene
 

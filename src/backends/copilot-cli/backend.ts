@@ -1,7 +1,7 @@
 import { realpath } from 'node:fs/promises';
 
 import { toVolareError, VolareError } from '../../core/errors';
-import { scanRawGroundingSignals } from '../../core/grounding';
+import { classifyRequestGrounding, scanRawGroundingSignals } from '../../core/grounding';
 import type {
   AgentEvent,
   IAgentBackend,
@@ -272,6 +272,9 @@ export class CopilotCliBackend implements IAgentBackend {
 function formatCopilotPrompt(request: IAgentRequest, cwd: string): string {
   const { input } = request;
   const sections: string[] = [formatBridgeContext(request, cwd), formatContextProvenanceRules()];
+  if (classifyRequestGrounding(input).needsSourceGrounding) {
+    sections.push(formatExternalGroundingRules());
+  }
   if (input.systemInstructions) {
     sections.push(`System instructions:\n${input.systemInstructions}`);
   }
@@ -296,6 +299,15 @@ function formatContextProvenanceRules(): string {
     '- Do not say the user pasted or provided a file unless the current user request explicitly did so.',
     '- Do not say a file exists, was read, or defines project rules unless current tool output proves it.',
     '- If prior conversation conflicts with current tool output, prefer current tool output and call out uncertainty.',
+  ].join('\n');
+}
+
+function formatExternalGroundingRules(): string {
+  return [
+    'External source-grounding rules:',
+    '- For current, recent, public, or externally factual claims, cite only sources that current tool output actually observed.',
+    '- If no source evidence is available, say that source evidence is unavailable instead of inventing citations.',
+    '- Do not treat client-provided links, filenames, or prior conversation as verified sources unless current tool output confirms them.',
   ].join('\n');
 }
 
