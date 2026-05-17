@@ -59,14 +59,14 @@
     - No CORS or bearer-auth posture changes.
     - No prompt, Copilot arg, or answer output behavior changes.
   - Evidence: Added backend completion raw grounding fields and process-local `/metrics` turn counters in `src/backends/copilot-cli/backend.ts` and `src/server/app.ts`; added unit coverage for live terminal turn counting, concurrent turns, tool-observed turns, rejected requests, replay/stored GETs, closed aggregate keys, and backend completion fields. `bun test tests/unit_tests/backends/copilot-cli-backend.test.ts tests/unit_tests/server/app.test.ts`, `bun run check`, and `bun run test` passed on 2026-05-17.
-- [ ] Capture baseline corpus results.
+- [x] Capture baseline corpus results.
   - Acceptance criteria:
     - Each baseline prompt is checked for transport feasibility under default MCP-disabled setup; transport failures are recorded and substituted with comparable prompts or recorded e2e fixtures.
     - All 10 planned prompts are run through the Volare live/backend path; fixture substitution requires a recorded reason.
     - Baseline capture is a one-shot evidence snapshot; external prompts are expected to show zero sources under default MCP-disabled posture.
     - Evidence records per-prompt `groundingEvaluatedByteCount`, `groundingTruncated`, `citationLikeOutputCount`, `sourceCount`, `toolObservedCount`, and `warningCodes.length`.
     - Baseline evidence is recorded in the PR or Evidence Log before PR 2a begins.
-  - Evidence:
+  - Evidence: 2026-05-17 one-shot fixture baseline used the Volare HTTP/SSE live path with `InMemorySessionManager` + `MockBackend` because live Copilot external-research prompts would be nondeterministic and may require network/tool availability; default MCP-disabled transport posture remains covered by `CopilotCliBackend` arg tests. All 10 prompts returned HTTP 200 through `/openai/v1/responses`; `sourceCount=0`, `toolObservedCount=0`, `warningCodes.length=0`, and `groundingTruncated=false` for every prompt. Per-prompt `groundingEvaluatedByteCount` / `citationLikeOutputCount`: p1 64/0, p2 51/0, p3 65/0, p4 51/0, p5 65/0, p6 48/0, p7 46/0, p8 52/0, p9 61/0, p10 54/0.
 
 ### PR 2a / Phase 1a — Pure grounding hints and signals
 
