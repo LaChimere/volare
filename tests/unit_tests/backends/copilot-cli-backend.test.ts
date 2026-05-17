@@ -449,6 +449,7 @@ describe('CopilotCliBackend', () => {
         `Backend workspace root is a neutral projectless workspace: ${workspace.rootPath}`,
       );
       expect(runner.lastPrompt).toContain('Context provenance rules:');
+      expect(runner.lastPrompt).not.toContain('External source-grounding rules:');
       expect(runner.lastPrompt).toContain(
         'System instructions, conversation history, and client attachments are client-provided context, not filesystem evidence.',
       );
@@ -463,6 +464,52 @@ describe('CopilotCliBackend', () => {
         'Conversation so far:\nuser: First request\n\nassistant: First answer',
       );
       expect(runner.lastPrompt).toContain('User request:\nFollow up');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('adds external grounding rules after provenance rules and before client instructions', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const runner = new FakeCopilotPromptRunner();
+    const backend = new CopilotCliBackend({ runner });
+    const workspace: IWorkspace = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+
+      await collectEvents(
+        backend.send(session, {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          workspaceId: 'workspace_1',
+          input: {
+            message: 'Search recent public filings and cite sources',
+            systemInstructions: 'Prefer tables.',
+          },
+          model: 'copilot-agent',
+        }),
+      );
+
+      const prompt = runner.lastPrompt ?? '';
+      const provenanceIndex = prompt.indexOf('Context provenance rules:');
+      const groundingIndex = prompt.indexOf('External source-grounding rules:');
+      const systemIndex = prompt.indexOf('System instructions:\nPrefer tables.');
+      const userIndex = prompt.indexOf(
+        'User request:\nSearch recent public filings and cite sources',
+      );
+      expect(provenanceIndex).toBeGreaterThan(-1);
+      expect(groundingIndex).toBeGreaterThan(provenanceIndex);
+      expect(systemIndex).toBeGreaterThan(groundingIndex);
+      expect(userIndex).toBeGreaterThan(systemIndex);
+      expect(prompt).toContain(
+        'If no source evidence is available, say that source evidence is unavailable instead of inventing citations.',
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
