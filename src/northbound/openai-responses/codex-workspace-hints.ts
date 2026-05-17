@@ -190,7 +190,7 @@ function parseJsonRecord(value: string): Record<string, unknown> | undefined {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function stringValue(value: unknown): string | undefined {
