@@ -12,7 +12,7 @@ import {
   type ICodexReasoningEffort,
   inspectCodexConfig,
 } from '../scripts/config-codex';
-import { isCopilotCliPermissionMode } from './backends/copilot-cli/backend';
+import { isCopilotCliPermissionMode, isCopilotMcpMode } from './backends/copilot-cli/backend';
 import {
   defaultPersistentEnvPath,
   defaultVolareHome,
@@ -440,6 +440,18 @@ function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
       }
       env.VOLARE_COPILOT_PERMISSION_MODE = parsed.value;
       daemonArgs.push('--copilot-permission-mode', parsed.value);
+      index = parsed.index;
+      continue;
+    }
+    if (arg === '--copilot-mcp-mode' || arg.startsWith('--copilot-mcp-mode=')) {
+      const parsed = readFlagValue(args, index, '--copilot-mcp-mode');
+      if (!isCopilotMcpMode(parsed.value)) {
+        throw new CliUsageError(
+          `--copilot-mcp-mode "${parsed.value}" is not valid. Valid modes: disabled or unmediated. Example: bunx @lachimere/volare start --copilot-mcp-mode unmediated --copilot-permission-mode web`,
+        );
+      }
+      env.VOLARE_COPILOT_MCP_MODE = parsed.value;
+      daemonArgs.push('--copilot-mcp-mode', parsed.value);
       index = parsed.index;
       continue;
     }
@@ -1046,6 +1058,8 @@ Start options:
       --log-level <level>              Set VOLARE_LOG_LEVEL
       --copilot-permission-mode <mode> Set VOLARE_COPILOT_PERMISSION_MODE
                                         (restricted, web, or full)
+      --copilot-mcp-mode <mode>        Set VOLARE_COPILOT_MCP_MODE
+                                        (disabled or unmediated)
 
 Config options:
       --config, --config-path <path>   Codex config path

@@ -36,10 +36,11 @@ If `VOLARE_API_KEY` is not set and no persisted token exists, the server generat
 | `VOLARE_MAX_ACTIVE_SESSIONS` | `10` | Reserved for session limiting. |
 | `VOLARE_EVENT_RETENTION_DAYS` | unset | When set, terminal-turn events older than the configured days can be pruned. |
 | `VOLARE_COPILOT_PERMISSION_MODE` | `full` | Copilot CLI permission mode: `full` passes Copilot CLI `--allow-all`, `web` allows public URL fetches only, and `restricted` passes no non-interactive grants. |
+| `VOLARE_COPILOT_MCP_MODE` | `disabled` | Copilot builtin MCP capability mode: `disabled` passes `--disable-builtin-mcps`; `unmediated` omits that flag and is valid only with permission mode `web` or `full`. |
 
 Persisted setup values are loaded first, process environment variables override persisted values, and CLI flags override both. Daemon mode passes CLI flags to the child process as environment overrides.
 
-Volare currently invokes Copilot CLI with `--disable-builtin-mcps` in every permission mode. `VOLARE_COPILOT_PERMISSION_MODE` controls the non-interactive permission flags Volare passes to Copilot CLI; it does not make Volare a source-retrieval system or a mediator for Copilot-internal MCP tools.
+By default, Volare invokes Copilot CLI with `--disable-builtin-mcps`. `VOLARE_COPILOT_PERMISSION_MODE` controls the non-interactive permission flags Volare passes to Copilot CLI; it does not make Volare a source-retrieval system or a mediator for Copilot-internal MCP tools. `VOLARE_COPILOT_MCP_MODE=unmediated` is explicit local-developer risk acceptance: Copilot internal MCP actions are not evaluated by Volare approvals or persisted as bridge-owned tool events.
 
 ## CLI flags
 
@@ -61,6 +62,7 @@ Common `start` flags:
 | `--projectless-workspace-root <path>` | `VOLARE_PROJECTLESS_WORKSPACE_ROOT` |
 | `--log-level <level>` | `VOLARE_LOG_LEVEL` |
 | `--copilot-permission-mode <mode>` | `VOLARE_COPILOT_PERMISSION_MODE` |
+| `--copilot-mcp-mode <mode>` | `VOLARE_COPILOT_MCP_MODE` |
 | `-d`, `--daemon` | Starts a background daemon. |
 
 Common Codex setup/config flags:

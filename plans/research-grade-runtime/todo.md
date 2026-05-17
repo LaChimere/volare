@@ -110,15 +110,15 @@
 
 ### PR 3 / Phase 2 — Explicit unmediated MCP capability mode
 
-- [ ] Add `VOLARE_COPILOT_MCP_MODE=disabled|unmediated`.
+- [x] Add `VOLARE_COPILOT_MCP_MODE=disabled|unmediated`.
   - Acceptance criteria:
     - Default is `disabled`.
     - Default `disabled` still passes `--disable-builtin-mcps`.
     - `unmediated + restricted` fails config validation.
     - `unmediated + web/full` emits one startup WARN; per-turn visibility comes from audit fields.
     - Only `unmediated` omits `--disable-builtin-mcps`.
-  - Evidence:
-- [ ] Emit unmediated tooling warning and audit fields.
+  - Evidence: Added `VOLARE_COPILOT_MCP_MODE` / `--copilot-mcp-mode`, default `disabled`, config validation rejecting `unmediated + restricted`, startup WARN for `unmediated`, runtime wiring into `CopilotCliBackend`, and conditional Copilot argv so only `unmediated` omits `--disable-builtin-mcps`. Tests cover config parsing/validation, CLI parsing/rejection, backend argv defaults, and unmediated arg omission. `bun test tests/unit_tests/core/grounding.test.ts tests/unit_tests/backends/copilot-cli-backend.test.ts tests/unit_tests/server/app.test.ts tests/unit_tests/cli.test.ts`, `bun run check`, `bun run test`, and `bun run package` passed on 2026-05-17.
+- [x] Emit unmediated tooling warning and audit fields.
   - Acceptance criteria:
     - Every unmediated turn emits `UNMEDIATED_TOOLING_ENABLED`.
     - Exactly one dedicated server-owned `turn.audit` structured log record is emitted per accepted turn in both `disabled` and `unmediated` modes, including errored or aborted turns.
@@ -128,12 +128,12 @@
     - Journal replay never emits `turn.audit`; tests assert live accepted turns produce one audit each, N concurrent accepted turns produce N audits, auth/parse/rejected requests produce none, and replay produces zero additional audits.
     - Backend completion logs may keep ordinary completion summaries, but exactly-once tests count only `turn.audit`; durable security-journal mirroring is deferred.
     - Audit fields are not written to `requestMetadata`, SSE/live event frames, debug event payloads, or OpenAI response metadata in either `disabled` or `unmediated` mode.
-  - Evidence:
-- [ ] Update MCP/security docs.
+  - Evidence: Added per-accepted-turn `turn.audit` logs before backend execution, accepted-turn `turns_total` / `turns_unmediated_total` accounting, unmediated `UNMEDIATED_TOOLING_ENABLED` warning emission, and content-only grounding warning metric filtering. Tests cover exactly-one audit per accepted live turn, rejected/replay paths emitting none, concurrent unmediated turns producing two audits, no audit field leakage through SSE/debug/stored responses, and unmediated warnings not inflating content-grounding warning metrics. `bun test tests/unit_tests/core/grounding.test.ts tests/unit_tests/backends/copilot-cli-backend.test.ts tests/unit_tests/server/app.test.ts tests/unit_tests/cli.test.ts`, `bun run check`, `bun run test`, and `bun run package` passed on 2026-05-17.
+- [x] Update MCP/security docs.
   - Acceptance criteria:
     - Docs state Volare approvals do not mediate Copilot internal MCP actions.
     - `docs/architecture.md` clarifies unmediated MCP mode is passthrough capability exposure, not a full MCP manager.
-  - Evidence:
+  - Evidence: Updated `docs/configuration.md`, `docs/codex-integration.md`, `docs/architecture.md`, and `docs/operations.md` for `VOLARE_COPILOT_MCP_MODE`, `--copilot-mcp-mode`, unmediated passthrough boundaries, audit logs, and the fact that Volare approvals do not mediate Copilot internal MCP actions. `bun run check`, `bun run test`, and `bun run package` passed on 2026-05-17.
 
 ### PR 4 / Phase 3 — Reserved Volare metadata namespace guard
 

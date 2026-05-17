@@ -53,15 +53,23 @@ export interface ICopilotPromptRunOptions {
 export const COPILOT_CLI_PERMISSION_MODES = ['restricted', 'web', 'full'] as const;
 export type CopilotCliPermissionMode = (typeof COPILOT_CLI_PERMISSION_MODES)[number];
 export const DEFAULT_COPILOT_CLI_PERMISSION_MODE: CopilotCliPermissionMode = 'full';
+export const COPILOT_MCP_MODES = ['disabled', 'unmediated'] as const;
+export type CopilotMcpMode = (typeof COPILOT_MCP_MODES)[number];
+export const DEFAULT_COPILOT_MCP_MODE: CopilotMcpMode = 'disabled';
 
 export function isCopilotCliPermissionMode(value: string): value is CopilotCliPermissionMode {
   return COPILOT_CLI_PERMISSION_MODES.includes(value as CopilotCliPermissionMode);
+}
+
+export function isCopilotMcpMode(value: string): value is CopilotMcpMode {
+  return COPILOT_MCP_MODES.includes(value as CopilotMcpMode);
 }
 
 export interface ICopilotCliBackendOptions {
   runner?: ICopilotPromptRunner;
   logger?: ILogger;
   permissionMode?: CopilotCliPermissionMode;
+  mcpMode?: CopilotMcpMode;
   command?: string;
 }
 
@@ -70,11 +78,18 @@ export class CopilotCliBackend implements IAgentBackend {
   readonly #runner: ICopilotPromptRunner;
   readonly #logger: ILogger;
   readonly #workspaceRoots = new Map<string, string>();
+  readonly #mcpMode: CopilotMcpMode;
 
   constructor(options: ICopilotCliBackendOptions = {}) {
+    this.#mcpMode = options.mcpMode ?? DEFAULT_COPILOT_MCP_MODE;
     this.#runner =
       options.runner ??
-      new BunCopilotPromptRunner(undefined, options.command ?? 'copilot', options.permissionMode);
+      new BunCopilotPromptRunner(
+        undefined,
+        options.command ?? 'copilot',
+        options.permissionMode,
+        this.#mcpMode,
+      );
     this.#logger = (options.logger ?? new NoopLogger()).child({
       component: 'backend',
       backend: this.name,
@@ -221,7 +236,7 @@ export class CopilotCliBackend implements IAgentBackend {
       hint: groundingHint,
       sourceCount: 0,
       toolObservedCount: 0,
-      unmediatedToolingEnabled: false,
+      unmediatedToolingEnabled: this.#mcpMode === 'unmediated',
     });
     logger.info(
       {
@@ -381,15 +396,18 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #identityValidator: IProcessIdentityValidator;
   readonly #command: string;
   readonly #permissionMode: CopilotCliPermissionMode;
+  readonly #mcpMode: CopilotMcpMode;
 
   constructor(
     identityValidator: IProcessIdentityValidator = new DefaultProcessIdentityValidator(),
     command = 'copilot',
     permissionMode: CopilotCliPermissionMode = DEFAULT_COPILOT_CLI_PERMISSION_MODE,
+    mcpMode: CopilotMcpMode = DEFAULT_COPILOT_MCP_MODE,
   ) {
     this.#identityValidator = identityValidator;
     this.#command = command;
     this.#permissionMode = permissionMode;
+    this.#mcpMode = mcpMode;
   }
 
   async *run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string> {
@@ -398,7 +416,7 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
         this.#command,
         '--no-color',
         '--no-custom-instructions',
-        '--disable-builtin-mcps',
+        ...mcpArgs(this.#mcpMode),
         ...permissionArgs(this.#permissionMode),
         '--log-level',
         'error',
@@ -582,6 +600,10 @@ function permissionArgs(mode: CopilotCliPermissionMode): string[] {
     case 'full':
       return ['--allow-all'];
   }
+}
+
+function mcpArgs(mode: CopilotMcpMode): string[] {
+  return mode === 'disabled' ? ['--disable-builtin-mcps'] : [];
 }
 
 function streamFailureError(

@@ -42,12 +42,12 @@ curl -H "Authorization: Bearer $VOLARE_API_KEY" \
 
 | Counter | Meaning |
 |---|---|
-| `turns_total` | Accepted live turns that reached a terminal event. |
+| `turns_total` | Accepted live turns after auth, parse, workspace resolution, and turn creation. |
 | `turns_with_zero_tools_total` | Terminal live turns with no observed bridge-level tool event. |
 | `turns_with_sources_total` | Terminal live turns with backend-provided source refs. This remains `0` until a concrete source producer exists. |
 | `turns_with_citation_like_output_total` | Terminal live turns whose assistant text contains markdown links, bare `http(s)` URLs, or `[n]` references. |
 | `turns_with_grounding_warnings_total` | Terminal live turns with content-grounding warnings such as source-needed answers without observable sources. |
-| `turns_unmediated_total` | Terminal live turns using explicit unmediated tooling mode. This remains `0` until that mode exists. |
+| `turns_unmediated_total` | Accepted live turns using explicit unmediated tooling mode. |
 
 These counters are aggregate-only. They intentionally do not include prompt text, domains, warning-code breakdowns, source URLs, session IDs, or hostnames. Auth failures, parse failures, rejected requests, `GET` handlers, debug reads, and journal replay do not increment them.
 
@@ -58,10 +58,11 @@ Runtime logs are structured JSON lines. Important event names include:
 | Event | Meaning |
 |---|---|
 | `runtime.starting`, `runtime.listening` | Server startup. |
+| `runtime.unmediated_mcp.enabled` | Startup warning when Copilot builtin MCPs are enabled without Volare approval mediation. |
 | `runtime.api_key.generated` | Server generated an ephemeral token. |
 | `http.request.completed` | Request completed with status and duration. For `POST /responses`, `durationMs` measures request receipt to SSE `Response` creation and includes phase fields such as `bodyParseMs`, `workspaceResolveMs`, `adapterParseMs`, and `sessionStartMs`; other routes keep normal request-completion semantics. |
 | `workspace.resolved`, `workspace.selected` | Workspace selection and projectless status. |
-| `turn.started`, `turn.stream.started`, `turn.stream.terminal`, `turn.stream.interrupted`, `turn.stream.failed` | Session manager turn lifecycle. |
+| `turn.started`, `turn.audit`, `turn.stream.started`, `turn.stream.terminal`, `turn.stream.interrupted`, `turn.stream.failed` | Session manager turn lifecycle and per-accepted-turn capability audit. |
 | `backend.turn.started`, `backend.turn.completed`, `backend.turn.failed` | Copilot CLI backend lifecycle and summary metrics. |
 | `responses.stream.started`, `responses.stream.completed`, `responses.stream.failed`, `responses.stream.interrupted` | SSE lifecycle. Stream start logs include safe model and reasoning-effort metadata when the client sends it. |
 | `journal.redaction_failed` | Redaction failed before event persistence. |
@@ -79,6 +80,7 @@ SSE timing fields are emitted only when observable. `streamStartGapMs` measures 
 Core and backend summaries use separate counters:
 
 - `turn.started` includes `stateStartMs` and cheap subphase fields such as `threadResolveMs`, `backendSessionResolveMs`, and `turnPersistMs`. On `POST /responses`, `http.request.completed.sessionStartMs` is the server-observed call into this startup path; do not add it to `stateStartMs` as an independent phase.
+- `turn.audit` is emitted once per accepted live turn before backend execution starts. It includes server-owned correlation IDs and `copilotMcpMode`, `copilotPermissionMode`, and `unmediatedToolingEnabled`; it does not include prompt text, workspace paths, client metadata, source refs, or tool output. Journal replay and stored-response reads do not emit new `turn.audit` records.
 - `turn.stream.started` includes `activeTurnCount`. Terminal, interrupted, and failed stream logs include `canonicalEventCount`, which counts canonical `AgentEvent` records and is separate from SSE `sseFrameCount`.
 - `backend.turn.completed` and `backend.turn.failed` include `promptAssembleMs`, `deltaCount`, coarse `promptSizeBucket` and `historyMessagesBucket`, and assistant delta timing fields when observed. Successful completion logs also include grounding-adjacent fields such as `groundingDomain`, `needsSourceGrounding`, `groundingCitationLikeOutputCount`, `groundingEvaluatedByteCount`, `groundingTruncated`, and `groundingWarningCodes`. `durationMs` keeps the backend runner duration after prompt assembly; it does not include `promptAssembleMs`.
 - `firstAssistantDeltaMs` and `maxObservedInterDeltaGapMs` are pull-path observations from backend text deltas. They can include downstream backpressure, journaling, SSE encoding, or client pull delays, so treat them as local correlation fields rather than model-only latency. Cancelled backend failures omit non-comparable `maxObservedInterDeltaGapMs` because cancellation and backpressure can dominate the observed gap.
@@ -114,6 +116,10 @@ jq -c --arg turnId "$TURN_ID" '
     threadResolveMs,
     backendSessionResolveMs,
     turnPersistMs,
+    sessionId,
+    copilotMcpMode,
+    copilotPermissionMode,
+    unmediatedToolingEnabled,
     activeTurnCount,
     canonicalEventCount,
     streamStartGapMs,

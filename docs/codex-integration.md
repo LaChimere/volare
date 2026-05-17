@@ -98,7 +98,7 @@ Image and file content parts are preserved as attachment summaries and passed to
 
 ChatGPT-backed plugin browsing and installation can remain available through Codex/Desktop account state. Actually executing plugin-provided tools through Volare still depends on the current bridge limitation: Volare does not yet route client-side plugin tool calls back to Codex for execution.
 
-Copilot CLI is invoked with the configured permission mode. By default, Volare uses `VOLARE_COPILOT_PERMISSION_MODE=full`, which grants the Copilot CLI subprocess URL, shell/tool, and path permissions for trusted local Codex/Desktop dogfooding:
+Copilot CLI is invoked with the configured permission mode. By default, Volare uses `VOLARE_COPILOT_PERMISSION_MODE=full`, which grants the Copilot CLI subprocess URL, shell/tool, and path permissions for trusted local Codex/Desktop dogfooding while keeping builtin Copilot MCPs disabled:
 
 ```text
 copilot --no-color --no-custom-instructions --disable-builtin-mcps --allow-all --log-level error --stream on --output-format json --prompt <prompt>
@@ -106,9 +106,11 @@ copilot --no-color --no-custom-instructions --disable-builtin-mcps --allow-all -
 
 Set `VOLARE_COPILOT_PERMISSION_MODE=web` to allow only public URL fetches, or `VOLARE_COPILOT_PERMISSION_MODE=restricted` to pass no non-interactive grants. The same setting is available as `volare start --copilot-permission-mode <restricted|web|full>`.
 
+Set `VOLARE_COPILOT_MCP_MODE=unmediated` only when you intentionally want to expose Copilot builtin MCP capability directly to the Copilot CLI subprocess. In that mode Volare omits `--disable-builtin-mcps`, emits startup and per-turn audit warnings, and still does not mediate Copilot internal MCP actions through Volare approvals. `unmediated` is rejected with `restricted`; use `web` or `full` if you explicitly accept that local risk.
+
 Codex UI/Desktop "Full access" controls Codex client tools; it is not automatically forwarded through the Responses API to the Copilot CLI subprocess. Use Volare's `full` mode when you intentionally want the Copilot CLI subprocess to have URL, shell/tool, and path grants too.
 
-Volare observes stdout/stderr and process lifecycle but does not broker individual Copilot CLI internal tools as OpenAI Responses tool calls. Full Codex client-executed tool calls require a future bridge-owned tool-call broker.
+Volare observes stdout/stderr and process lifecycle but does not broker individual Copilot CLI internal tools as OpenAI Responses tool calls. Unmediated MCP mode is passthrough capability exposure, not a full MCP manager. Full Codex client-executed tool calls require a future bridge-owned tool-call broker.
 
 ## Context and workspace expectations
 
