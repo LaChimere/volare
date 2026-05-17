@@ -173,13 +173,13 @@
 
 ### Conditional PR 6a / Phase 5a — Core source refs, redaction, journal safety
 
-- [ ] Confirm source producer precondition.
+- [x] Confirm source producer precondition.
   - Acceptance criteria:
     - Do not implement `SourceRef` persistence or emission until a concrete source producer exists or is implemented in the same PR.
     - Acceptable MVP producers must be Volare-observable and testable, such as stable Copilot tool frames from Phase 4 or a separately approved bridge-owned producer; do not derive source refs merely from citation-like answer text.
     - If no producer exists, defer Phase 5a/5b and keep Phase 3 guard plus Phase 4 probe as the current endpoint.
-  - Evidence:
-- [ ] Add minimal `SourceRef` and `ISourceRefTruncation`.
+  - Evidence: Phase 4 decision record concludes the current fixtures are probe fixtures only and do not prove a stable Volare-observable source producer. No bridge-owned producer was approved or implemented, so Phase 5a/5b are deferred and the Phase 3 metadata guard plus Phase 4 probe are the current endpoint.
+- [x] Add minimal `SourceRef` and `ISourceRefTruncation`.
   - Acceptance criteria:
     - Type inventory includes `SourceRefId`, `IUrlSourceRef`, `IWorkspaceSourceRef`, `SourceRef`, `ISourceRefTruncation`, and optional `IAgentOutput.sources` / `sourceTruncation`.
     - URL and workspace refs only.
@@ -187,8 +187,8 @@
     - Truncation reason is exactly `source_count_limit | source_byte_limit`.
     - No excerpts, spans, scores, provider metadata, or tool-output refs.
     - Existing `items` and `metadata` are not used as source/provenance escape hatches.
-  - Evidence:
-- [ ] Add source validation/factories.
+  - Evidence: Deferred because the source producer precondition is not met; adding source types now would create unused provenance shapes without a producer.
+- [x] Add source validation/factories.
   - Acceptance criteria:
     - URL refs are `http(s)` only, no userinfo, credential-like query/hash names and values handled, 2 KiB cap.
     - Credential-like values include token/password/signature/api-key names, `x-amz-*`, JWTs, GitHub tokens, AWS keys, private-key blocks, and signed URL signatures.
@@ -199,15 +199,15 @@
     - Duplicate URLs within one turn and across different turns receive distinct IDs.
     - Titles are redacted, stripped, capped, stripped of ANSI/log-forging/rendered-injection patterns, and scanned for credential/secret substrings.
     - Max 100 refs and max 64 KiB serialized sanitized source-ref payload per turn; truncation reason records `source_count_limit` or `source_byte_limit`.
-  - Evidence:
-- [ ] Add typed fail-closed source redaction.
+  - Evidence: Deferred because no source refs are produced; source validation/factory code will be implemented with the first concrete producer to avoid speculative redaction surface.
+- [x] Add typed fail-closed source redaction.
   - Acceptance criteria:
     - Exhaustive sanitizer handles all source variants.
     - Sanitizer runs before journal persistence and before wire emission.
     - Missing variants fail closed.
     - Unsanitized source refs cannot reach logs, metrics derivation, SSE/live frames, replay, debug endpoints, or OpenAI encoders.
-  - Evidence:
-- [ ] Add journal/replay tests.
+  - Evidence: Deferred because no source refs are produced or persisted; existing journal/replay remains source-free after Phase 4.
+- [x] Add journal/replay tests.
   - Acceptance criteria:
     - Old events and source-bearing events replay.
     - Interleaved old and source-bearing events in the same journal replay.
@@ -216,23 +216,23 @@
     - Persisted sources live only on sanitized terminal `IAgentOutput.sources` / `sourceTruncation`.
     - Mixed-version replay assumptions hold.
     - No new journal kind is introduced.
-  - Evidence:
-- [ ] Update source/debug docs.
+  - Evidence: Deferred because no source-bearing debug events exist; docs should be updated when a concrete source producer and `SourceRef` schema are approved.
+- [x] Update source/debug docs.
   - Acceptance criteria:
     - Docs state source-bearing debug events reveal source history even after content redaction.
     - Docs state workspace refs are advisory and must not be dereferenced by consumers without containment checks.
-  - Evidence:
+  - Evidence: Deferred because no source-bearing debug events exist.
 
 ### Conditional PR 6b / Phase 5b — OpenAI adapter source metadata
 
-- [ ] Verify reserved Volare metadata guard across the OpenAI adapter.
+- [x] Verify reserved Volare metadata guard across the OpenAI adapter.
   - Acceptance criteria:
     - Phase 3 parser guard remains active before core state and journaling.
     - Stripped spoofed client metadata cannot appear in `turn.created` or response metadata.
     - Legacy pre-guard journal/request metadata containing `volare` / `volare.sources` is ignored during response encoding.
     - Server-written `volare.sources` survives the response pipeline and is not stripped by the request-side guard.
-  - Evidence:
-- [ ] Encode server-owned `volare.sources`.
+  - Evidence: Phase 3 tests prove spoofed `volare` / `volare.*` client metadata is stripped before `turn.created`, SSE response metadata, debug journal output, and stored replay. Legacy pre-guard response encoding and server-written `volare.sources` remain deferred because no server-owned source metadata is introduced without a source producer.
+- [x] Encode server-owned `volare.sources`.
   - Acceptance criteria:
     - Metadata shape is `{ "volare.sources": { "version": 1, "items": [...], "truncation"?: ... } }`.
     - URL items use exactly `id`, `kind: "url"`, `url`, optional `title`, and optional `retrieved_at_ms`.
@@ -242,30 +242,30 @@
     - Response encoder is sole writer.
     - Client metadata cannot override or merge.
     - Source metadata remains sanitized.
-  - Evidence:
-- [ ] Verify Codex/Desktop metadata rendering.
+  - Evidence: Deferred because the source producer precondition is not met and no sanitized `IAgentOutput.sources` exists for the encoder to map.
+- [x] Verify Codex/Desktop metadata rendering.
   - Acceptance criteria:
     - Test a response containing server-owned `volare.sources`, record client/version/method, and capture response JSON/log/screenshot or explicit "no UI surface observed" evidence.
     - If ignored, source refs remain internal/diagnostic and client-visible citation UX is deferred.
-  - Evidence:
+  - Evidence: Deferred because no `volare.sources` response metadata is emitted yet; client rendering will be tested when source metadata exists.
 
 ### Optional follow-up — Grounding signal refinement
 
-- [ ] Refine classifier and thresholds only if evidence supports it.
+- [x] Refine classifier and thresholds only if evidence supports it.
   - Acceptance criteria:
     - Baseline corpus evidence justifies changes.
     - Execute only for repeated false-positive/false-negative evidence or user-reported misclassification.
     - No new grounding domains or warning codes without a separate design update.
     - Classifier remains pure and synchronous; no model calls, external lookups, or backend routing.
     - No backend routing, answer rewriting, answer blocking, or research-engine behavior is introduced.
-  - Evidence:
+  - Evidence: Deferred; Phase 0-4 evidence did not establish repeated classifier false positives/false negatives requiring a threshold change beyond the Phase 1c URL-hostname guard.
 
 ### Acceptance Gate (before proposing PR)
 
-- [ ] All acceptance criteria above are met with evidence for the current PR.
-- [ ] Diff is consistent with approved plan; no scope creep or missing pieces.
-- [ ] Applicable verification level executed.
-- [ ] Related docs are updated or explicitly deferred according to plan.
+- [x] All acceptance criteria above are met with evidence for the current PR.
+- [x] Diff is consistent with approved plan; no scope creep or missing pieces.
+- [x] Applicable verification level executed.
+- [x] Related docs are updated or explicitly deferred according to plan.
 
 If any check fails, follow the recovery flow defined in the active framework contract:
 
@@ -276,22 +276,22 @@ If any check fails, follow the recovery flow defined in the active framework con
 
 ### Verification (Evidence)
 
-- [ ] Run lint/typecheck: `bun run check`
-- [ ] Run unit tests: `bun run test`
-- [ ] Run package when CLI startup/config behavior changes: `bun run package`
+- [x] Run lint/typecheck: `bun run check`
+- [x] Run unit tests: `bun run test`
+- [x] Run package when CLI startup/config behavior changes: `bun run package`
   - Required for PR 3 and whenever `src/server/config.ts`, `src/runtime/server.ts`, CLI startup wiring, or packaged entry behavior changes.
-- [ ] Capture before/after grounding counters for Phase 0/1.
-- [ ] Capture unmediated MCP disabled/unmediated smoke evidence for Phase 2.
-- [ ] Capture spoofing evidence for Phase 3.
-- [ ] Capture fixture/parser evidence for Phase 4.
-- [ ] Capture source producer/redaction/replay/metadata evidence for conditional Phase 5 if it proceeds.
+- [x] Capture before/after grounding counters for Phase 0/1.
+- [x] Capture unmediated MCP disabled/unmediated smoke evidence for Phase 2.
+- [x] Capture spoofing evidence for Phase 3.
+- [x] Capture fixture/parser evidence for Phase 4.
+- [x] Capture source producer/redaction/replay/metadata evidence for conditional Phase 5 if it proceeds.
 
 ### Review / Packaging
 
-- [ ] Summarize changes by PR (what/why).
-- [ ] Confirm no unrelated cleanup.
-- [ ] Check whether related docs need updating; use `refresh-related-docs` if behavior, configuration, or API docs drift.
-- [ ] Prepare PR description with security/rollback notes.
+- [x] Summarize changes by PR (what/why).
+- [x] Confirm no unrelated cleanup.
+- [x] Check whether related docs need updating; use `refresh-related-docs` if behavior, configuration, or API docs drift.
+- [x] Prepare PR description with security/rollback notes.
 
 ## Evidence Log
 
