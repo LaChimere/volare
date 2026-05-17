@@ -79,8 +79,12 @@ function countMatches(
 }
 
 function isMarkdownLinkUrl(text: string, urlIndex: number): boolean {
-  if (urlIndex < 2 || text[urlIndex - 1] !== '(') {
+  let cursor = urlIndex - 1;
+  while (cursor >= 0 && /\s/.test(text[cursor] ?? '')) {
+    cursor -= 1;
+  }
+  if (cursor < 1 || text[cursor] !== '(') {
     return false;
   }
-  return text[urlIndex - 2] === ']';
+  return text[cursor - 1] === ']';
 }
