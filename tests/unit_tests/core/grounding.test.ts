@@ -19,6 +19,14 @@ describe('scanRawGroundingSignals', () => {
     });
   });
 
+  test('does not double-count markdown link URLs with whitespace as bare URLs', () => {
+    expect(scanRawGroundingSignals('[Reuters]( https://example.test/a )')).toMatchObject({
+      markdownHttpLinkCount: 1,
+      bareHttpUrlCount: 0,
+      citationLikeOutputCount: 1,
+    });
+  });
+
   test('evaluates exactly 256 KiB without truncation', () => {
     const prefix = 'x'.repeat(MAX_EVALUATED_BYTES - ' [1]'.length);
     const scan = scanRawGroundingSignals(`${prefix} [1]`);
