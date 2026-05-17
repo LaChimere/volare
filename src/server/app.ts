@@ -1,5 +1,9 @@
 import { toVolareError, VolareError } from '../core/errors';
-import { scanRawGroundingSignals } from '../core/grounding';
+import {
+  classifyRequestGrounding,
+  evaluateAnswerGrounding,
+  type IRequestGroundingHint,
+} from '../core/grounding';
 import type {
   AgentEvent,
   IEventJournal,
@@ -195,6 +199,7 @@ export function createApp(dependencies: IAppDependencies): {
                 observeLiveTurnMetrics(
                   sessionManager.streamTurn(resolved, streamAbort.signal),
                   turnMetrics,
+                  classifyRequestGrounding(input.input),
                 ),
                 dependencies.eventJournal,
               ),
@@ -411,6 +416,7 @@ function createTurnMetrics(): ITurnMetrics {
 async function* observeLiveTurnMetrics(
   events: AsyncIterable<AgentEvent>,
   metrics: ITurnMetrics,
+  groundingHint: IRequestGroundingHint,
 ): AsyncIterable<AgentEvent> {
   let toolObservedCount = 0;
   for await (const event of events) {
@@ -418,7 +424,7 @@ async function* observeLiveTurnMetrics(
       toolObservedCount += 1;
     }
     if (isTerminalEvent(event)) {
-      recordTerminalTurnMetrics(metrics, event, toolObservedCount);
+      recordTerminalTurnMetrics(metrics, event, toolObservedCount, groundingHint);
     }
     yield event;
   }
@@ -428,6 +434,7 @@ function recordTerminalTurnMetrics(
   metrics: ITurnMetrics,
   event: AgentEvent,
   toolObservedCount: number,
+  groundingHint: IRequestGroundingHint,
 ): void {
   metrics.turns_total += 1;
   if (toolObservedCount === 0) {
@@ -438,9 +445,18 @@ function recordTerminalTurnMetrics(
     metrics.turns_with_sources_total += 1;
   }
   if (event.type === 'turn.succeeded') {
-    const scan = scanRawGroundingSignals(event.output?.text ?? '');
-    if (scan.citationLikeOutputCount > 0) {
+    const groundingSignals = evaluateAnswerGrounding({
+      outputText: event.output?.text ?? '',
+      hint: groundingHint,
+      sourceCount,
+      toolObservedCount,
+      unmediatedToolingEnabled: false,
+    });
+    if (groundingSignals.citationLikeOutputCount > 0) {
       metrics.turns_with_citation_like_output_total += 1;
+    }
+    if (groundingSignals.warningCodes.length > 0) {
+      metrics.turns_with_grounding_warnings_total += 1;
     }
   }
 }

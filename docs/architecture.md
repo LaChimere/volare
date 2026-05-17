@@ -83,6 +83,8 @@ If a client explicitly sends `metadata.workspace_root`, Volare treats that as a 
 
 Copilot backend prompts start with an `Volare bridge context` section. It tells the backend whether the client explicitly requested a workspace and whether the backend cwd is a neutral projectless workspace. This helps the model distinguish backend filesystem context from client-provided conversation or Desktop/Codex context.
 
+For prompts that conservatively look like current, recent, public, or externally factual research, Volare adds source-grounding instructions after context-provenance rules and before client-provided instructions. These instructions are guidance only: they do not create source provenance, retrieval capability, or verified citations by themselves. Source evidence is only present when a backend/tool event actually produces observable source data.
+
 ## Durable state and replay
 
 SQLite stores workspaces, threads, turns, backend sessions, client response references, approvals, and journal events. Startup recovery interrupts non-terminal turns and abandons non-terminal backend sessions so restarts do not leave ambiguous active state.

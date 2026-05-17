@@ -5,6 +5,7 @@ const MAX_MATCHES_PER_PATTERN = 10_000;
 
 const markdownHttpLinkPattern = /\[[^\]\r\n]{1,512}\]\(\s*https?:\/\/[^\s)<>]{1,2048}\s*\)/gi;
 const httpUrlPattern = /https?:\/\/[^\s<>"'`]+/gi;
+const classificationUrlPattern = /https?:\/\/[^\s<>"'`]+/gi;
 const bracketReferencePattern = /\[\d{1,4}\]/g;
 const externalResearchPattern =
   /\b(search|recent|latest|current|today|news|fetch|browse|source|sources|cite|citation|public\s+filings?)\b|搜索|最近|最新|披露|出处|来源|引用|浏览|抓取/i;
@@ -84,7 +85,7 @@ export function classifyRequestGrounding(input: IAgentInput): IRequestGroundingH
   if (externalResearchPattern.test(text)) {
     return { domain: 'external_research', needsSourceGrounding: true };
   }
-  if (codeRequestPattern.test(text)) {
+  if (codeRequestPattern.test(text.replace(classificationUrlPattern, ' '))) {
     return { domain: 'code', needsSourceGrounding: false };
   }
   return { domain: 'general', needsSourceGrounding: false };
@@ -100,6 +101,7 @@ export function evaluateAnswerGrounding(
   }
   if (
     !options.hint.needsSourceGrounding &&
+    options.hint.domain !== 'code' &&
     options.sourceCount === 0 &&
     scan.citationLikeOutputCount > 0
   ) {

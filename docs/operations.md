@@ -38,7 +38,18 @@ curl -H "Authorization: Bearer $VOLARE_API_KEY" \
   http://127.0.0.1:8000/metrics
 ```
 
-`/healthz` returns `ready` or `recovering`. `/metrics` currently returns readiness, uptime, and request count.
+`/healthz` returns `ready` or `recovering`. `/metrics` returns readiness, uptime, request count, and aggregate live-turn grounding counters:
+
+| Counter | Meaning |
+|---|---|
+| `turns_total` | Accepted live turns that reached a terminal event. |
+| `turns_with_zero_tools_total` | Terminal live turns with no observed bridge-level tool event. |
+| `turns_with_sources_total` | Terminal live turns with backend-provided source refs. This remains `0` until a concrete source producer exists. |
+| `turns_with_citation_like_output_total` | Terminal live turns whose assistant text contains markdown links, bare `http(s)` URLs, or `[n]` references. |
+| `turns_with_grounding_warnings_total` | Terminal live turns with content-grounding warnings such as source-needed answers without observable sources. |
+| `turns_unmediated_total` | Terminal live turns using explicit unmediated tooling mode. This remains `0` until that mode exists. |
+
+These counters are aggregate-only. They intentionally do not include prompt text, domains, warning-code breakdowns, source URLs, session IDs, or hostnames. Auth failures, parse failures, rejected requests, `GET` handlers, debug reads, and journal replay do not increment them.
 
 ## Logs
 
@@ -69,7 +80,7 @@ Core and backend summaries use separate counters:
 
 - `turn.started` includes `stateStartMs` and cheap subphase fields such as `threadResolveMs`, `backendSessionResolveMs`, and `turnPersistMs`. On `POST /responses`, `http.request.completed.sessionStartMs` is the server-observed call into this startup path; do not add it to `stateStartMs` as an independent phase.
 - `turn.stream.started` includes `activeTurnCount`. Terminal, interrupted, and failed stream logs include `canonicalEventCount`, which counts canonical `AgentEvent` records and is separate from SSE `sseFrameCount`.
-- `backend.turn.completed` and `backend.turn.failed` include `promptAssembleMs`, `deltaCount`, coarse `promptSizeBucket` and `historyMessagesBucket`, and assistant delta timing fields when observed. `durationMs` keeps the backend runner duration after prompt assembly; it does not include `promptAssembleMs`.
+- `backend.turn.completed` and `backend.turn.failed` include `promptAssembleMs`, `deltaCount`, coarse `promptSizeBucket` and `historyMessagesBucket`, and assistant delta timing fields when observed. Successful completion logs also include grounding-adjacent fields such as `groundingDomain`, `needsSourceGrounding`, `groundingCitationLikeOutputCount`, `groundingEvaluatedByteCount`, `groundingTruncated`, and `groundingWarningCodes`. `durationMs` keeps the backend runner duration after prompt assembly; it does not include `promptAssembleMs`.
 - `firstAssistantDeltaMs` and `maxObservedInterDeltaGapMs` are pull-path observations from backend text deltas. They can include downstream backpressure, journaling, SSE encoding, or client pull delays, so treat them as local correlation fields rather than model-only latency. Cancelled backend failures omit non-comparable `maxObservedInterDeltaGapMs` because cancellation and backpressure can dominate the observed gap.
 - `backend.turn.failed.failureClass` uses low-cardinality classes such as `process_exit`, `stream_read_failure`, `cancelled`, `backend_ended_without_terminal`, and `unknown`. These logs use safe `errorCode`/`failureClass` fields and do not serialize raw causes, CLI stderr, prompts, or history.
 
@@ -162,7 +173,7 @@ A single client disconnect can produce both `responses.stream.interrupted` and a
 
 Some latency remains unobservable without upstream Copilot CLI support. In particular, `firstStdoutMs` is not available yet, and pull-path backend delta timings are not pure model timings.
 
-Detailed per-turn diagnostics remain log-first. `/metrics` continues to expose readiness, uptime, and request count only; latency aggregates and a public analyzer command are deferred until a separate follow-up is approved. Revisit that decision if a second consumer needs machine-readable aggregate latency data, log-volume overhead becomes unacceptable in normal use, instrumentation emits more than a small bounded number of lines per turn at p99, or operators need live readiness/latency status that cannot use local log files.
+Detailed per-turn diagnostics remain log-first. `/metrics` exposes only safe aggregate counters; latency aggregates and a public analyzer command are deferred until a separate follow-up is approved. Revisit that decision if a second consumer needs machine-readable aggregate latency data, log-volume overhead becomes unacceptable in normal use, instrumentation emits more than a small bounded number of lines per turn at p99, or operators need live readiness/latency status that cannot use local log files.
 
 ## Debug journal
 
@@ -246,6 +257,10 @@ Volare may still be in projectless mode. Check logs for `projectless: true` and 
 ### Context usage shows approximate values
 
 Usage is estimated from prompt/output text because Copilot CLI does not currently expose authoritative token counts through this bridge. The wire fields remain standard OpenAI Responses usage fields.
+
+### Answers contain citations but no sources in metrics
+
+Prompt grounding rules are not provenance. Volare can ask the backend to avoid unsupported citations, but it only counts source evidence when a Volare-observable producer emits it. Backend Python, certificate, fetch, browser, or tool-output problems are backend/tool-content failures unless Volare itself fails transport, parsing, auth, journaling, or SSE encoding.
 
 ## Shutdown and recovery
 

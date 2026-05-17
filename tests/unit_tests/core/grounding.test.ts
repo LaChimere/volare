@@ -111,6 +111,13 @@ describe('classifyRequestGrounding', () => {
       needsSourceGrounding: false,
     });
   });
+
+  test('does not classify URL hostnames as code requests', () => {
+    expect(classifyRequestGrounding({ message: 'see https://example.test/report [1]' })).toEqual({
+      domain: 'general',
+      needsSourceGrounding: false,
+    });
+  });
 });
 
 describe('evaluateAnswerGrounding', () => {
@@ -157,6 +164,18 @@ describe('evaluateAnswerGrounding', () => {
         sourceCount: 0,
         toolObservedCount: 1,
         unmediatedToolingEnabled: true,
+      }).warningCodes,
+    ).toEqual([]);
+  });
+
+  test('does not warn on citation-like text for code prompts', () => {
+    expect(
+      evaluateAnswerGrounding({
+        outputText: 'Patch src/index.ts and run [1] test.',
+        hint: { domain: 'code', needsSourceGrounding: false },
+        sourceCount: 0,
+        toolObservedCount: 0,
+        unmediatedToolingEnabled: false,
       }).warningCodes,
     ).toEqual([]);
   });
