@@ -658,10 +658,10 @@ function metadataFromRequestBody(
     return undefined;
   }
   const stripContext: IReservedMetadataStripContext = { keyPaths: [] };
-  const metadata = isMetadataRecord(body['metadata'])
+  const metadata = isRecord(body['metadata'])
     ? stripReservedMetadataKeys(body['metadata'], ['metadata'], stripContext)
     : undefined;
-  const clientMetadata = isMetadataRecord(body['client_metadata'])
+  const clientMetadata = isRecord(body['client_metadata'])
     ? stripReservedMetadataKeys(body['client_metadata'], ['client_metadata'], stripContext)
     : undefined;
   if (stripContext.keyPaths.length > 0) {
@@ -736,10 +736,6 @@ function formatMetadataPath(path: string[]): string {
     .join('');
 }
 
-function isMetadataRecord(value: unknown): value is Record<string, unknown> {
-  return isRecord(value) && !Array.isArray(value);
-}
-
 function mergeMetadata(
   metadata: Record<string, unknown> | undefined,
   clientMetadata: Record<string, unknown> | undefined,
@@ -763,7 +759,7 @@ function roleFromInputItem(item: Record<string, unknown>): 'user' | 'assistant' 
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function stringValue(value: unknown): string | undefined {

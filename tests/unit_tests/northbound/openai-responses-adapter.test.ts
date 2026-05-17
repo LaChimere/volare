@@ -508,7 +508,7 @@ describe('OpenAIResponsesAdapter', () => {
           body: {
             model: 'copilot-agent',
             input: 'hello',
-            metadata: null,
+            metadata: [{ volare: 'not accepted metadata' }],
             client_metadata: [{ volare: 'not accepted metadata' }],
           },
         },
@@ -736,6 +736,10 @@ describe('OpenAIResponsesAdapter', () => {
       body,
     });
 
+    await expect(adapter.parseRequest(request([]), context)).rejects.toMatchObject({
+      code: 'invalid_request',
+      message: 'Responses request body must be a JSON object',
+    });
     await expect(
       adapter.parseRequest(request({ model: '', input: 'hello' }), context),
     ).rejects.toMatchObject({
