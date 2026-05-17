@@ -47,7 +47,7 @@
     - Replaces unsupported schemes such as `file:`, `data:`, `javascript:`, `blob:`, and `vbscript:` with scheme-only markers and no path/content.
     - Tests cover old and new URL redaction behavior.
   - Evidence: Added URL redaction coverage for userinfo, percent-encoded userinfo markers, CRLF/control injection, long URL summaries, and unsupported schemes in `tests/unit_tests/events/redaction.test.ts`; `bun test tests/unit_tests/events/redaction.test.ts`, `bun run check`, and `bun run test` passed on 2026-05-17.
-- [ ] Add Phase 0 log fields and aggregate metrics.
+- [x] Add Phase 0 log fields and aggregate metrics.
   - Acceptance criteria:
     - Completion logs include raw grounding counters.
     - `/metrics` counters are aggregate-only and named `turns_total`, `turns_with_zero_tools_total`, `turns_with_sources_total`, `turns_with_citation_like_output_total`, `turns_with_grounding_warnings_total`, and `turns_unmediated_total`.
@@ -58,7 +58,7 @@
     - Live turns increment relevant counters once, N concurrent accepted turns increment by N, and `/metrics` GETs, debug reads, and journal replay do not increment any counter.
     - No CORS or bearer-auth posture changes.
     - No prompt, Copilot arg, or answer output behavior changes.
-  - Evidence:
+  - Evidence: Added backend completion raw grounding fields and process-local `/metrics` turn counters in `src/backends/copilot-cli/backend.ts` and `src/server/app.ts`; added unit coverage for live terminal turn counting, concurrent turns, tool-observed turns, rejected requests, replay/stored GETs, closed aggregate keys, and backend completion fields. `bun test tests/unit_tests/backends/copilot-cli-backend.test.ts tests/unit_tests/server/app.test.ts`, `bun run check`, and `bun run test` passed on 2026-05-17.
 - [ ] Capture baseline corpus results.
   - Acceptance criteria:
     - Each baseline prompt is checked for transport feasibility under default MCP-disabled setup; transport failures are recorded and substituted with comparable prompts or recorded e2e fixtures.

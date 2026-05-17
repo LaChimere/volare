@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises';
 
 import { toVolareError, VolareError } from '../../core/errors';
+import { scanRawGroundingSignals } from '../../core/grounding';
 import type {
   AgentEvent,
   IAgentBackend,
@@ -209,11 +210,18 @@ export class CopilotCliBackend implements IAgentBackend {
       throw error;
     }
 
+    const groundingScan = scanRawGroundingSignals(text);
     logger.info(
       {
         event: 'backend.turn.completed',
         durationMs: elapsedMs(startedAt),
         outputChars: text.length,
+        groundingCitationLikeOutputCount: groundingScan.citationLikeOutputCount,
+        groundingMarkdownHttpLinkCount: groundingScan.markdownHttpLinkCount,
+        groundingBareHttpUrlCount: groundingScan.bareHttpUrlCount,
+        groundingBracketReferenceCount: groundingScan.bracketReferenceCount,
+        groundingEvaluatedByteCount: groundingScan.evaluatedByteCount,
+        groundingTruncated: groundingScan.truncated,
         promptAssembleMs,
         deltaCount,
         ...(firstAssistantDeltaMs !== undefined ? { firstAssistantDeltaMs } : {}),

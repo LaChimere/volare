@@ -80,6 +80,22 @@ class FailingBackend extends MockBackend {
   }
 }
 
+class ToolObservedBackend extends MockBackend {
+  override async *send(_session: IBackendSession, request: IAgentRequest) {
+    yield {
+      type: 'tool.observed' as const,
+      turnId: request.turnId,
+      toolName: 'fixture',
+    };
+    yield { type: 'text.delta' as const, turnId: request.turnId, delta: request.input.message };
+    yield {
+      type: 'turn.succeeded' as const,
+      turnId: request.turnId,
+      output: { text: request.input.message },
+    };
+  }
+}
+
 class ThrowingEventJournal implements IEventJournal {
   async append() {
     throw new Error('journal write failed');
@@ -355,7 +371,112 @@ describe('server app', () => {
     await expect(metrics.json()).resolves.toMatchObject({
       status: 'recovering',
       requests_total: 2,
+      turns_total: 0,
+      turns_with_zero_tools_total: 0,
+      turns_with_sources_total: 0,
+      turns_with_citation_like_output_total: 0,
+      turns_with_grounding_warnings_total: 0,
+      turns_unmediated_total: 0,
     });
+  });
+
+  test('updates aggregate turn metrics only for live terminal turns', async () => {
+    const app = createInMemoryApp();
+    const before = await app.fetch(request('/metrics'));
+    await expect(before.json()).resolves.toMatchObject({
+      turns_total: 0,
+      turns_with_zero_tools_total: 0,
+      turns_with_sources_total: 0,
+      turns_with_citation_like_output_total: 0,
+      turns_with_grounding_warnings_total: 0,
+      turns_unmediated_total: 0,
+    });
+
+    const malformed = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: '{',
+      }),
+    );
+    expect(malformed.status).toBe(400);
+    const afterRejected = await app.fetch(request('/metrics'));
+    await expect(afterRejected.json()).resolves.toMatchObject({
+      turns_total: 0,
+      turns_with_zero_tools_total: 0,
+      turns_with_citation_like_output_total: 0,
+    });
+
+    const created = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'see https://example.test/report [1]',
+        }),
+      }),
+    );
+    expect(created.status).toBe(200);
+    const streamText = await created.text();
+    const responseId = /"id":"(resp_[^"]+)"/.exec(streamText)?.[1];
+    expect(responseId).toBeDefined();
+
+    const afterLiveTurn = await app.fetch(request('/metrics'));
+    const metrics = (await afterLiveTurn.json()) as Record<string, unknown>;
+    expect(metrics).toMatchObject({
+      turns_total: 1,
+      turns_with_zero_tools_total: 1,
+      turns_with_sources_total: 0,
+      turns_with_citation_like_output_total: 1,
+      turns_with_grounding_warnings_total: 0,
+      turns_unmediated_total: 0,
+    });
+    expect(Object.keys(metrics).filter((key) => key.startsWith('turns_by_'))).toEqual([]);
+    expect(Object.keys(metrics).filter((key) => key.includes('warning_code'))).toEqual([]);
+    expect(Object.keys(metrics).filter((key) => key.includes('source_url'))).toEqual([]);
+
+    const stored = await app.fetch(request(`/openai/v1/responses/${responseId}`));
+    expect(stored.status).toBe(200);
+    const afterReplay = await app.fetch(request('/metrics'));
+    await expect(afterReplay.json()).resolves.toMatchObject({
+      turns_total: 1,
+      turns_with_zero_tools_total: 1,
+      turns_with_citation_like_output_total: 1,
+    });
+  });
+
+  test('counts concurrent live turns and tool-observed turns without prompt-derived metric keys', async () => {
+    const app = createInMemoryApp({}, new ToolObservedBackend());
+
+    const responses = await Promise.all([
+      app.fetch(
+        request('/openai/v1/responses', {
+          method: 'POST',
+          body: JSON.stringify({ model: 'copilot-agent', input: 'first [1]' }),
+        }),
+      ),
+      app.fetch(
+        request('/openai/v1/responses', {
+          method: 'POST',
+          body: JSON.stringify({ model: 'copilot-agent', input: 'second' }),
+        }),
+      ),
+    ]);
+    await Promise.all(responses.map((response) => response.text()));
+
+    const metrics = (await (await app.fetch(request('/metrics'))).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(metrics).toMatchObject({
+      turns_total: 2,
+      turns_with_zero_tools_total: 0,
+      turns_with_citation_like_output_total: 1,
+      turns_with_grounding_warnings_total: 0,
+      turns_unmediated_total: 0,
+    });
+    expect(
+      Object.keys(metrics).some((key) => key.includes('first') || key.includes('second')),
+    ).toBe(false);
   });
 
   test('requires auth for health and metrics routes', async () => {
