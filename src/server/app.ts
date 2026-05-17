@@ -40,8 +40,8 @@ export function createApp(dependencies: IAppDependencies): {
   fetch(request: Request): Promise<Response>;
 } {
   const stateStore = dependencies.stateStore;
-  const adapter = dependencies.adapter ?? new OpenAIResponsesAdapter(stateStore);
   const baseLogger = dependencies.logger ?? new NoopLogger();
+  const adapter = dependencies.adapter ?? new OpenAIResponsesAdapter(stateStore, baseLogger);
   const logger = baseLogger.child({ component: 'server' });
   const workspaceResolver =
     dependencies.workspaceResolver ?? new WorkspaceResolver({ logger: baseLogger });

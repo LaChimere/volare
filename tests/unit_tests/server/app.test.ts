@@ -1129,6 +1129,58 @@ describe('server app', () => {
     );
   });
 
+  test('strips reserved Volare metadata before SSE, journal, and stored replay', async () => {
+    const stateStore = createStateStore();
+    const eventJournal = new SQLiteEventJournal(stateStore.database);
+    const logger = new CapturingLogger();
+    const app = createDurableApp(stateStore, { eventJournal, logger });
+
+    const createResponse = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: 'metadata guard',
+          metadata: {
+            keep: 'safe',
+            'volare.sources': { secret: 'source-secret' },
+            nested: { VOLARE: { secret: 'nested-secret' } },
+          },
+        }),
+      }),
+    );
+    const streamText = await createResponse.text();
+    const responseId = /"id":"(resp_[^"]+)"/.exec(streamText)?.[1];
+    const clientRef = await stateStore.resolveClientRef('openai-responses-v1', responseId ?? '');
+
+    expect(streamText).toContain('"metadata":{"keep":"safe","nested":{}}');
+    expect(streamText).not.toContain('volare.sources');
+    expect(streamText).not.toContain('source-secret');
+    expect(clientRef).toBeDefined();
+
+    const debugResponse = await app.fetch(request(`/debug/turns/${clientRef?.turnId}/events`));
+    const debugText = await debugResponse.text();
+    expect(debugText).toContain('"requestMetadata":{"keep":"safe","nested":{}}');
+    expect(debugText).not.toContain('volare.sources');
+    expect(debugText).not.toContain('nested-secret');
+
+    const stored = await app.fetch(request(`/openai/v1/responses/${responseId}`));
+    const storedText = await stored.text();
+    expect(storedText).toContain('"metadata":{"keep":"safe","nested":{}}');
+    expect(storedText).not.toContain('volare.sources');
+    expect(storedText).not.toContain('source-secret');
+    expect(logger.entries).toContainEqual(
+      expect.objectContaining({
+        level: 'warn',
+        message: 'reserved Volare metadata stripped',
+        fields: expect.objectContaining({
+          event: 'responses.metadata.reserved_keys_stripped',
+          keyPaths: ['metadata.volare.sources', 'metadata.nested.VOLARE'],
+        }),
+      }),
+    );
+  });
+
   test('serves stored durable responses from journal replay after manager restart', async () => {
     const stateStore = createStateStore();
     const eventJournal = new SQLiteEventJournal(stateStore.database);
