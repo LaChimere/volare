@@ -72,4 +72,63 @@ describe('DefaultRedactor', () => {
       },
     });
   });
+
+  test('strips URL userinfo and summarizes unsafe URL forms', () => {
+    const redactor = new DefaultRedactor();
+
+    expect(
+      redactor.redact({
+        direct: {
+          url: 'https://user:pass@example.test/path?token=secret#fragment',
+          uri: 'https://user%3Apass%40example.test/path',
+        },
+        unsupported: {
+          file: { url: 'file:///Users/alice/secret.txt' },
+          data: { url: 'data:text/plain,secret' },
+          javascript: { url: 'javascript:alert(secret)' },
+          blob: { url: 'blob:https://example.test/secret' },
+          vbscript: { url: 'vbscript:msgbox(secret)' },
+        },
+        injection: {
+          url: 'https://example.test/path\r\nx-secret: value',
+        },
+        long: {
+          url: `https://example.test/${'a'.repeat(2100)}?token=secret`,
+        },
+      }),
+    ).toEqual({
+      value: {
+        direct: {
+          url: 'https://example.test/path',
+          uri: '[redacted-url:encoded-userinfo]',
+        },
+        unsupported: {
+          file: { url: '[redacted-url:scheme=file]' },
+          data: { url: '[redacted-url:scheme=data]' },
+          javascript: { url: '[redacted-url:scheme=javascript]' },
+          blob: { url: '[redacted-url:scheme=blob]' },
+          vbscript: { url: '[redacted-url:scheme=vbscript]' },
+        },
+        injection: {
+          url: '[redacted-url:invalid-control]',
+        },
+        long: {
+          url: '[redacted-url:scheme=https,host=example.test,byteCount=2134]',
+        },
+      },
+      redactionJson: {
+        redactedPaths: [
+          '$.direct.url',
+          '$.direct.uri',
+          '$.unsupported.file.url',
+          '$.unsupported.data.url',
+          '$.unsupported.javascript.url',
+          '$.unsupported.blob.url',
+          '$.unsupported.vbscript.url',
+          '$.injection.url',
+          '$.long.url',
+        ],
+      },
+    });
+  });
 });
