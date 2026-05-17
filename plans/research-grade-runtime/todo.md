@@ -95,18 +95,18 @@
 
 ### PR 2c / Phase 1c — Grounding log fields and docs hygiene
 
-- [ ] Add Phase 1 backend fields.
+- [x] Add Phase 1 backend fields.
   - Acceptance criteria:
     - Logs include `groundingDomain`, `needsSourceGrounding`, `unmediatedToolingEnabled`, and `groundingWarningCodes`.
     - `UNMEDIATED_TOOLING_ENABLED` remains unreachable until PR 3.
     - Phase 1 comparison uses Phase 0 baseline; code-only prompts do not emit `NEEDS_SOURCES_NO_SOURCES` or `CITATION_LIKE_TEXT_WITHOUT_SOURCES`, and raw counter differences are explained rather than treated as source-grounding regressions.
-  - Evidence:
-- [ ] Update docs for prompt grounding and backend/tool-content failures.
+  - Evidence: Added Phase 1 grounding evaluation fields to backend completion summaries and live-turn aggregate metrics, while leaving `UNMEDIATED_TOOLING_ENABLED` unreachable until Phase 2. Added tests for warning-free code prompts, citation-like non-code warnings, URL-hostname false positives, and warning metric increments from live terminal turns. `bun test tests/unit_tests/core/grounding.test.ts tests/unit_tests/backends/copilot-cli-backend.test.ts tests/unit_tests/server/app.test.ts`, `bun run check`, and `bun run test` passed on 2026-05-17; pre-commit code review found no blocking issues.
+- [x] Update docs for prompt grounding and backend/tool-content failures.
   - Acceptance criteria:
     - Docs explain prompt rules are not provenance.
     - Docs explain Python/certificate/tool-output issues as backend/tool-content unless Volare transport fails.
     - Permission docs align with current Copilot args.
-  - Evidence:
+  - Evidence: Updated `docs/architecture.md`, `docs/configuration.md`, and `docs/operations.md` to state that prompt grounding rules are not provenance, backend/tool-content errors are distinct from Volare transport failures, current Copilot invocations still pass `--disable-builtin-mcps`, and `/metrics` exposes only safe aggregate grounding counters. `bun run check` and `bun run test` passed on 2026-05-17.
 
 ### PR 3 / Phase 2 — Explicit unmediated MCP capability mode
 

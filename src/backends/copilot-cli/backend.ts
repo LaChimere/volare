@@ -1,7 +1,11 @@
 import { realpath } from 'node:fs/promises';
 
 import { toVolareError, VolareError } from '../../core/errors';
-import { classifyRequestGrounding, scanRawGroundingSignals } from '../../core/grounding';
+import {
+  classifyRequestGrounding,
+  evaluateAnswerGrounding,
+  scanRawGroundingSignals,
+} from '../../core/grounding';
 import type {
   AgentEvent,
   IAgentBackend,
@@ -211,17 +215,29 @@ export class CopilotCliBackend implements IAgentBackend {
     }
 
     const groundingScan = scanRawGroundingSignals(text);
+    const groundingHint = classifyRequestGrounding(request.input);
+    const groundingSignals = evaluateAnswerGrounding({
+      outputText: text,
+      hint: groundingHint,
+      sourceCount: 0,
+      toolObservedCount: 0,
+      unmediatedToolingEnabled: false,
+    });
     logger.info(
       {
         event: 'backend.turn.completed',
         durationMs: elapsedMs(startedAt),
         outputChars: text.length,
-        groundingCitationLikeOutputCount: groundingScan.citationLikeOutputCount,
+        groundingDomain: groundingSignals.domain,
+        needsSourceGrounding: groundingSignals.needsSourceGrounding,
+        groundingCitationLikeOutputCount: groundingSignals.citationLikeOutputCount,
         groundingMarkdownHttpLinkCount: groundingScan.markdownHttpLinkCount,
         groundingBareHttpUrlCount: groundingScan.bareHttpUrlCount,
         groundingBracketReferenceCount: groundingScan.bracketReferenceCount,
-        groundingEvaluatedByteCount: groundingScan.evaluatedByteCount,
-        groundingTruncated: groundingScan.truncated,
+        groundingEvaluatedByteCount: groundingSignals.evaluatedByteCount,
+        groundingTruncated: groundingSignals.truncated,
+        groundingWarningCodes: groundingSignals.warningCodes,
+        unmediatedToolingEnabled: groundingSignals.unmediatedToolingEnabled,
         promptAssembleMs,
         deltaCount,
         ...(firstAssistantDeltaMs !== undefined ? { firstAssistantDeltaMs } : {}),

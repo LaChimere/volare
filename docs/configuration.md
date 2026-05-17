@@ -39,6 +39,8 @@ If `VOLARE_API_KEY` is not set and no persisted token exists, the server generat
 
 Persisted setup values are loaded first, process environment variables override persisted values, and CLI flags override both. Daemon mode passes CLI flags to the child process as environment overrides.
 
+Volare currently invokes Copilot CLI with `--disable-builtin-mcps` in every permission mode. `VOLARE_COPILOT_PERMISSION_MODE` controls the non-interactive permission flags Volare passes to Copilot CLI; it does not make Volare a source-retrieval system or a mediator for Copilot-internal MCP tools.
+
 ## CLI flags
 
 Package usage:

@@ -411,7 +411,7 @@ describe('server app', () => {
         method: 'POST',
         body: JSON.stringify({
           model: 'copilot-agent',
-          input: 'see https://example.test/report [1]',
+          input: 'see https://example.com/report [1]',
         }),
       }),
     );
@@ -427,7 +427,7 @@ describe('server app', () => {
       turns_with_zero_tools_total: 1,
       turns_with_sources_total: 0,
       turns_with_citation_like_output_total: 1,
-      turns_with_grounding_warnings_total: 0,
+      turns_with_grounding_warnings_total: 1,
       turns_unmediated_total: 0,
     });
     expect(Object.keys(metrics).filter((key) => key.startsWith('turns_by_'))).toEqual([]);
@@ -441,6 +441,7 @@ describe('server app', () => {
       turns_total: 1,
       turns_with_zero_tools_total: 1,
       turns_with_citation_like_output_total: 1,
+      turns_with_grounding_warnings_total: 1,
     });
   });
 
@@ -471,7 +472,7 @@ describe('server app', () => {
       turns_total: 2,
       turns_with_zero_tools_total: 0,
       turns_with_citation_like_output_total: 1,
-      turns_with_grounding_warnings_total: 0,
+      turns_with_grounding_warnings_total: 1,
       turns_unmediated_total: 0,
     });
     expect(
