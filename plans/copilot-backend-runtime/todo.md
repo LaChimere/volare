@@ -57,7 +57,7 @@
     - Records binding location and mutability for cwd, model, permission mode, MCP mode, and `--no-custom-instructions`: worker startup flag, `initialize`, `session/new`, later config method, or unsupported.
     - Uses the identical minimal synthetic live prompt `Reply with the single word OK.` and temporary empty cwd directories unless a representative prompt is explicitly justified and redacted.
     - Explicitly reports unsupported or missing methods.
-  - Evidence: `bun run scripts/probe-copilot-acp.ts --discovery` succeeded on `GitHub Copilot CLI 1.0.59...`. Observed `protocolVersion=1`, unsupported requested version `999` returned client-side `unsupported_protocol_version`, `authMethods=[copilot-login terminal-auth redacted]`, `session/new` with temporary cwd and `mcpServers=[]`, `session/prompt` with one text `ContentBlock[]`, `session/update` notifications, update kinds `agent_message_chunk` and `config_option_update`, terminal `session/prompt` response with `stopReason=end_turn`, no reverse callbacks during the minimal prompt, and config binding for `model` plus `allow_all` in `session/new` config options.
+  - Evidence: `bun run scripts/probe-copilot-acp.ts --discovery` succeeded on `GitHub Copilot CLI 1.0.59...`. Observed `protocolVersion=1`, unsupported requested version `999` was classified as `negotiated_to_1`, `authMethods=[copilot-login terminal-auth redacted]`, `session/new` with temporary cwd and `mcpServers=[]`, `session/prompt` with one text `ContentBlock[]`, `session/update` notifications, update kinds `agent_message_chunk` and `config_option_update`, terminal `session/prompt` response with `stopReason=end_turn`, no reverse callbacks during the minimal prompt, and config binding for `model` plus `allow_all` in `session/new` config options.
 
 - [x] Add fake-ACP protocol tests using observed fixtures
   - Acceptance criteria:
@@ -136,11 +136,12 @@ If any check fails, follow the recovery flow:
 - before/after: evidence
 - `bun run scripts/probe-copilot-acp.ts --self-test`: 7 results, all `status="supported"`; `copilotVersion="GitHub Copilot CLI 1.0.59..."`.
 - `bunx biome check scripts/probe-copilot-acp.ts tests/unit_tests/scripts/probe-copilot-acp.test.ts scripts/probe-copilot-cli.ts`: passed.
-- `bun test tests/unit_tests/scripts/probe-copilot-acp.test.ts`: 11 pass, 0 fail.
+- `bun test tests/unit_tests/scripts/probe-copilot-acp.test.ts`: 13 pass, 0 fail.
 - `bun run typecheck`: passed.
 - `bun run scripts/probe-copilot-acp.ts`: initialize smoke succeeded against `GitHub Copilot CLI 1.0.59...`; evidence redacted nested `authMethods._meta` command/args payloads.
 - `bun run scripts/probe-copilot-acp.ts --discovery`: supported; `initialize~646ms`, `session/new~10482ms`, `session/prompt~4349ms`; update method `session/update`; stop reason `end_turn`; binding matrix recorded in `research.md`.
 - `bun run scripts/probe-copilot-acp.ts --self-test`: still 7/7 supported after adding notify/stdout-close lifecycle handling.
+- Milestone hardening: unsupported protocol probe now records `negotiated_to_1`; reverse request handling supports explicit `unsupported`, `allow`, `deny`, and `cancelled` policies for later behavior probes.
 - Baseline note: `bun run check && bun run test` was red before probe-harness changes due unrelated Biome `useLiteralKeys` findings in existing files such as `scripts/config-codex.ts` and `src/backends/copilot-cli/backend.ts`.
 - Example format:
   - `bun test tests/unit_tests/<probe-test>.test.ts`: fake ACP initialize/session/prompt/cancel cases passed.

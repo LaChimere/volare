@@ -37,6 +37,7 @@ export interface IAcpPeerOptions {
   requestTimeoutMs?: number;
   maxDiagnosticBytes?: number;
   supportedProtocolVersions?: readonly number[];
+  reverseRequestPolicy?: Partial<Record<string, AcpReverseRequestPolicy>>;
 }
 
 export interface IAcpInitializeSummary {
@@ -57,6 +58,13 @@ export interface IAcpProbeReport {
   copilotPath: string | null;
   copilotVersion: string | null;
   results: IAcpProbeResult[];
+}
+
+export type AcpReverseRequestPolicy = 'unsupported' | 'allow' | 'deny' | 'cancelled';
+
+export interface IAcpReverseRequestRecord {
+  method: string;
+  policy: AcpReverseRequestPolicy;
 }
 
 interface IAcpDiscoveryEvidence {
@@ -118,9 +126,10 @@ export class AcpJsonRpcPeer {
   readonly #stdin: IAcpWritable;
   readonly #requestTimeoutMs: number;
   readonly #supportedProtocolVersions: readonly number[];
+  readonly #reverseRequestPolicy: Partial<Record<string, AcpReverseRequestPolicy>>;
   readonly #pending = new Map<number, IPendingRequest>();
   readonly #messages: JsonValue[] = [];
-  readonly #serverRequestMethods = new Set<string>();
+  readonly #serverRequestRecords: IAcpReverseRequestRecord[] = [];
   readonly #diagnostics: string[] = [];
   readonly #maxDiagnosticBytes: number;
   #stdoutReader: { cancel(reason?: unknown): Promise<void> } | undefined;
@@ -135,6 +144,7 @@ export class AcpJsonRpcPeer {
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.#supportedProtocolVersions =
       options.supportedProtocolVersions ?? DEFAULT_SUPPORTED_ACP_PROTOCOL_VERSIONS;
+    this.#reverseRequestPolicy = options.reverseRequestPolicy ?? {};
     this.#maxDiagnosticBytes = options.maxDiagnosticBytes ?? DEFAULT_MAX_DIAGNOSTIC_BYTES;
     this.#stdoutTask = this.#readStdout(options.stdout);
     this.#stderrTask = this.#readStderr(options.stderr ?? null);
@@ -149,7 +159,11 @@ export class AcpJsonRpcPeer {
   }
 
   get serverRequestMethods(): readonly string[] {
-    return [...this.#serverRequestMethods].sort();
+    return [...new Set(this.#serverRequestRecords.map((record) => record.method))].sort();
+  }
+
+  get serverRequestRecords(): readonly IAcpReverseRequestRecord[] {
+    return this.#serverRequestRecords;
   }
 
   async initialize(): Promise<IAcpInitializeSummary> {
@@ -317,15 +331,9 @@ export class AcpJsonRpcPeer {
     this.#messages.push(redactAcpFrame(frame));
     if (!isJsonRpcResponse(frame)) {
       if (isJsonRpcRequest(frame)) {
-        this.#serverRequestMethods.add(frame.method);
-        void this.#writeFrame({
-          jsonrpc: '2.0',
-          id: frame.id,
-          error: {
-            code: -32601,
-            message: `Unsupported ACP client callback: ${frame.method}`,
-          },
-        }).catch((cause) => {
+        const decision = this.#reverseRequestDecision(frame);
+        this.#serverRequestRecords.push({ method: frame.method, policy: decision.policy });
+        void this.#writeFrame(decision.frame).catch((cause) => {
           this.#diagnostics.push(redactDiagnosticText(toAcpError(cause, 'callback_error').message));
         });
       }
@@ -347,6 +355,24 @@ export class AcpJsonRpcPeer {
       clearTimeout(pending.timeout);
       pending.reject(error);
     }
+  }
+
+  #reverseRequestDecision(request: IJsonRpcRequest): {
+    policy: AcpReverseRequestPolicy;
+    frame: IJsonRpcResponse;
+  } {
+    const configuredPolicy = this.#reverseRequestPolicy[request.method] ?? 'unsupported';
+    if (request.method === 'session/request_permission') {
+      return {
+        policy: configuredPolicy,
+        frame: permissionResponseFrame(request, configuredPolicy),
+      };
+    }
+
+    return {
+      policy: 'unsupported',
+      frame: unsupportedCallbackResponse(request),
+    };
   }
 }
 
@@ -660,19 +686,21 @@ async function probeUnsupportedProtocolVersion(copilotPath: string): Promise<Jso
     stdout: proc.stdout,
     stderr: proc.stderr,
     requestTimeoutMs: 15_000,
-    supportedProtocolVersions: [999],
   });
   try {
-    await peer.initialize();
-    return {
-      requestedProtocolVersion: 999,
-      outcome: 'accepted',
-      messages: [...peer.messages],
-    };
+    const response = await peer.request('initialize', {
+      protocolVersion: 999,
+      clientInfo: {
+        name: 'volare-acp-probe',
+        version: '0.0.0',
+      },
+      clientCapabilities: {},
+    });
+    return classifyUnsupportedProtocolResponse(response);
   } catch (cause) {
     return {
       requestedProtocolVersion: 999,
-      outcome: cause instanceof AcpProbeError ? cause.code : 'failed',
+      outcome: 'probe_failed',
       message: cause instanceof Error ? cause.message : String(cause),
       messages: [...peer.messages],
       stderr: peer.diagnostics,
@@ -683,6 +711,39 @@ async function probeUnsupportedProtocolVersion(copilotPath: string): Promise<Jso
     await Promise.race([proc.exited, Bun.sleep(1_000)]);
     proc.kill('SIGKILL');
   }
+}
+
+export function classifyUnsupportedProtocolResponse(response: IJsonRpcResponse): JsonValue {
+  if (response.error) {
+    return {
+      requestedProtocolVersion: 999,
+      outcome: 'rejected_with_error',
+      error: redactAcpFrame(response.error),
+    };
+  }
+  if (!isJsonObject(response.result)) {
+    return {
+      requestedProtocolVersion: 999,
+      outcome: 'invalid_response_shape',
+      response: redactAcpFrame(response),
+    };
+  }
+  const protocolVersion = getField(response.result, 'protocolVersion');
+  if (protocolVersion === 999) {
+    return {
+      requestedProtocolVersion: 999,
+      outcome: 'accepted_unsupported',
+      protocolVersion,
+      response: redactAcpFrame(response),
+    };
+  }
+  return {
+    requestedProtocolVersion: 999,
+    outcome:
+      typeof protocolVersion === 'number' ? `negotiated_to_${protocolVersion}` : 'missing_version',
+    protocolVersion: typeof protocolVersion === 'number' ? protocolVersion : null,
+    response: redactAcpFrame(response),
+  };
 }
 
 async function captureCopilotVersion(copilotPath: string | null): Promise<string | null> {
@@ -859,6 +920,88 @@ function isJsonRpcRequest(value: JsonValue): value is IJsonRpcRequest {
   const id = getField(value, 'id');
   const method = getField(value, 'method');
   return jsonrpc === '2.0' && Number.isInteger(id) && typeof method === 'string';
+}
+
+function permissionResponseFrame(
+  request: IJsonRpcRequest,
+  policy: AcpReverseRequestPolicy,
+): IJsonRpcResponse {
+  if (policy === 'unsupported') {
+    return unsupportedCallbackResponse(request);
+  }
+  if (policy === 'cancelled') {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        outcome: {
+          outcome: 'cancelled',
+        },
+      },
+    };
+  }
+
+  const optionId = selectPermissionOption(request.params, policy);
+  if (!optionId) {
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: -32602,
+        message: `No ${policy} permission option was available`,
+      },
+    };
+  }
+
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    result: {
+      outcome: {
+        outcome: 'selected',
+        optionId,
+      },
+    },
+  };
+}
+
+function unsupportedCallbackResponse(request: IJsonRpcRequest): IJsonRpcResponse {
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    error: {
+      code: -32601,
+      message: `Unsupported ACP client callback: ${request.method}`,
+    },
+  };
+}
+
+function selectPermissionOption(
+  params: JsonObject | undefined,
+  policy: Extract<AcpReverseRequestPolicy, 'allow' | 'deny'>,
+): string | null {
+  const options = params ? getField(params, 'options') : undefined;
+  if (!Array.isArray(options)) {
+    return null;
+  }
+  const preferredKinds =
+    policy === 'allow' ? ['allow_once', 'allow_always'] : ['reject_once', 'reject_always'];
+  for (const preferredKind of preferredKinds) {
+    const option = options.find((candidate) => {
+      if (!isJsonObject(candidate)) {
+        return false;
+      }
+      return (
+        getField(candidate, 'kind') === preferredKind &&
+        typeof getField(candidate, 'optionId') === 'string'
+      );
+    });
+    if (isJsonObject(option)) {
+      const optionId = getField(option, 'optionId');
+      return typeof optionId === 'string' ? optionId : null;
+    }
+  }
+  return null;
 }
 
 function isJsonObject(value: unknown): value is JsonObject {

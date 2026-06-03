@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   AcpJsonRpcPeer,
   AcpProbeError,
+  classifyUnsupportedProtocolResponse,
   redactAcpFrame,
   runSelfTests,
   summarizeInitializeResponse,
@@ -228,6 +229,7 @@ describe('probe-copilot-acp harness', () => {
       stdout: stdout.stream,
       requestTimeoutMs: 100,
     });
+
     try {
       stdout.enqueue(
         `${JSON.stringify({
@@ -255,6 +257,54 @@ describe('probe-copilot-acp harness', () => {
         },
       });
       expect(JSON.stringify(peer.messages)).not.toContain('approve this');
+    } finally {
+      peer.close();
+      stdout.close();
+      await peer.waitForReaders();
+    }
+  });
+
+  test('can answer permission requests with an explicit allow policy', async () => {
+    const stdout = createControlledStream();
+    const writable = new CapturingWritable();
+    const peer = new AcpJsonRpcPeer({
+      stdin: writable,
+      stdout: stdout.stream,
+      requestTimeoutMs: 100,
+      reverseRequestPolicy: {
+        'session/request_permission': 'allow',
+      },
+    });
+    try {
+      stdout.enqueue(
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 5,
+          method: 'session/request_permission',
+          params: {
+            sessionId: 'sess_123',
+            options: [
+              { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+              { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+            ],
+          },
+        })}\n`,
+      );
+      await waitFor(() => peer.serverRequestRecords.length > 0);
+
+      expect(peer.serverRequestRecords).toEqual([
+        { method: 'session/request_permission', policy: 'allow' },
+      ]);
+      expect(JSON.parse(writable.text()) as unknown).toMatchObject({
+        jsonrpc: '2.0',
+        id: 5,
+        result: {
+          outcome: {
+            outcome: 'selected',
+            optionId: 'allow-once',
+          },
+        },
+      });
     } finally {
       peer.close();
       stdout.close();
@@ -409,6 +459,30 @@ describe('probe-copilot-acp harness', () => {
     expect(() => summarizeInitializeResponse({})).toThrow('missing protocolVersion');
     expect(() => summarizeInitializeResponse({ protocolVersion: '1' })).toThrow('not an integer');
     expect(() => summarizeInitializeResponse({ protocolVersion: 999 })).toThrow('unsupported');
+  });
+
+  test('classifies unsupported protocolVersion negotiation without conflating client refusal', () => {
+    expect(
+      classifyUnsupportedProtocolResponse({
+        jsonrpc: '2.0',
+        id: 1,
+        result: { protocolVersion: 1 },
+      }),
+    ).toMatchObject({
+      requestedProtocolVersion: 999,
+      outcome: 'negotiated_to_1',
+      protocolVersion: 1,
+    });
+    expect(
+      classifyUnsupportedProtocolResponse({
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32602, message: 'unsupported' },
+      }),
+    ).toMatchObject({
+      requestedProtocolVersion: 999,
+      outcome: 'rejected_with_error',
+    });
   });
 
   test('redacts prompt text and token-like fields while preserving shape', () => {
