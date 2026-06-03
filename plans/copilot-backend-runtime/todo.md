@@ -169,14 +169,14 @@ If any check fails, follow the recovery flow:
 
 ### Production ACP protocol
 
-- [ ] Add production ACP JSON-RPC peer
+- [x] Add production ACP JSON-RPC peer
   - Acceptance criteria:
     - Uses NDJSON JSON-RPC over persistent stdin/stdout.
     - Validates returned `protocolVersion`, `authMethods`, and `session/new.sessionId`.
     - Fails explicitly on null/non-object lifecycle responses.
     - Handles permission requests with explicit allow/deny/cancelled policy and errors unsupported callbacks.
     - Has fake-ACP tests for malformed stdout, stderr diagnostics, auth-required/error responses, null `session/new`, unsupported returned versions, unexpected exit, and timeout.
-  - Evidence:
+  - Evidence: Added `src/backends/copilot-cli/acp.ts` with persistent NDJSON JSON-RPC peer, returned `protocolVersion` validation, `session/new.sessionId` validation, explicit permission callback policy, unsupported callback errors, stdout malformed/close/timeout errors, and stderr diagnostics. `bun test tests/unit_tests/backends/copilot-acp-peer.test.ts` passed; `bun run typecheck` passed.
 
 ### ACP runner
 
