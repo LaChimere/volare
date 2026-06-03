@@ -154,3 +154,64 @@ If any check fails, follow the recovery flow:
 
 - Outcome: Probe gate passed for ACP implementation planning with constraints; direct production implementation remains gated on an implementation plan that carries forward the required kill-and-replace, validation, auth, config, observability, docs, and ROI tests.
 - Follow-ups: Create/update ACP implementation plan/todo before touching production runtime code.
+
+## Post-gate ACP implementation checklist
+
+### Runtime config and guards
+
+- [ ] Add ACP runtime config
+  - Acceptance criteria:
+    - `VOLARE_COPILOT_RUNTIME_MODE` accepts only `process` or `acp`, defaults to `process`.
+    - `VOLARE_COPILOT_ACP_MAX_WORKERS` defaults to `10` and is capped by `VOLARE_MAX_ACTIVE_SESSIONS`.
+    - ACP mode rejects `VOLARE_COPILOT_MCP_MODE=unmediated`.
+    - Startup logs selected runtime mode.
+  - Evidence:
+
+### Production ACP protocol
+
+- [ ] Add production ACP JSON-RPC peer
+  - Acceptance criteria:
+    - Uses NDJSON JSON-RPC over persistent stdin/stdout.
+    - Validates returned `protocolVersion`, `authMethods`, and `session/new.sessionId`.
+    - Fails explicitly on null/non-object lifecycle responses.
+    - Handles permission requests with explicit allow/deny/cancelled policy and errors unsupported callbacks.
+    - Has fake-ACP tests for malformed stdout, stderr diagnostics, auth-required/error responses, null `session/new`, unsupported returned versions, unexpected exit, and timeout.
+  - Evidence:
+
+### ACP runner
+
+- [ ] Implement `AcpCopilotPromptRunner`
+  - Acceptance criteria:
+    - Reuses `ICopilotPromptRunner` and preserves existing prompt formatting.
+    - Sends one text `ContentBlock[]` via `session/prompt`.
+    - Maps `session/update` text chunks to existing text deltas and terminal `stopReason` to turn completion.
+    - Enforces one in-flight prompt per worker.
+    - Worker/session scope preserves cwd/projectless isolation and observed config bindings.
+    - Worker cap exhaustion fails explicitly.
+  - Evidence:
+
+### Cancellation and lifecycle
+
+- [ ] Implement kill-and-replace cancellation
+  - Acceptance criteria:
+    - No active turn returns `not_found`.
+    - Repeated and stale cancels cannot kill replacement workers.
+    - Owning worker is killed/replaced after cancel timeout when native `session/cancel` does not complete.
+    - Tests cover sibling worker survival, stale cancel after replacement, disconnect cleanup, idle eviction, startup/handshake timeout, active-turn no-progress timeout, replacement backoff, auth/network/provider failures, and shutdown with in-flight turns.
+  - Evidence:
+
+### Wiring, docs, and verification
+
+- [ ] Wire ACP mode into runtime
+  - Acceptance criteria:
+    - `src/runtime/server.ts` selects process vs ACP runner from config.
+    - Explicit ACP startup/handshake failure surfaces structured errors; no silent fallback.
+    - Process mode remains default and existing tests remain behavior-compatible.
+  - Evidence:
+
+- [ ] Update docs and remeasure integrated ROI
+  - Acceptance criteria:
+    - `docs/configuration.md` and `docs/operations.md` describe ACP opt-in, rollback, unmediated MCP incompatibility, worker caps, and troubleshooting.
+    - Integrated ACP runner ROI is remeasured with at least 5 process samples, 5 ACP warm samples, and 3 ACP cold samples.
+    - Logs/metrics cover worker startup, handshake, session creation, first frame/text, prompt duration, stop reason, cancellation path, replacement reason, active workers, and cap exhaustion.
+  - Evidence:

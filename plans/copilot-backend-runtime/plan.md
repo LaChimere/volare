@@ -131,11 +131,58 @@
 | ROI is below threshold with sufficient samples | Do not build ACP as a latency-first optimization; prioritize concurrency/admission, prompt/history, or provider-latency work. |
 | ROI sample size or backend-duration denominator is insufficient | Record the gate as inconclusive and rerun probes or gather historical latency evidence before deciding. |
 
+## Post-gate ACP implementation plan
+
+Gate decision: proceed with ACP implementation planning under the cancellation-unreliable outcome row. Runtime code changes are now allowed only within the slices below, and `process` mode remains default until the implementation and integrated-runner ROI checks pass.
+
+- [ ] Step 7: Add runtime config and validation
+  - Acceptance criteria:
+    - Add `VOLARE_COPILOT_RUNTIME_MODE=process|acp`, default `process`.
+    - Add `VOLARE_COPILOT_ACP_MAX_WORKERS`, default `10`, effective cap no greater than `VOLARE_MAX_ACTIVE_SESSIONS`.
+    - Reject `VOLARE_COPILOT_RUNTIME_MODE=acp` with `VOLARE_COPILOT_MCP_MODE=unmediated`.
+    - Log selected runtime mode at startup.
+    - Tests cover defaults, invalid values, cap bounds, and unmediated-MCP rejection.
+
+- [ ] Step 8: Move ACP JSON-RPC protocol handling into production backend code
+  - Acceptance criteria:
+    - Production peer uses persistent NDJSON JSON-RPC with stdout-only frames and stderr diagnostics.
+    - `initialize` uses `clientCapabilities`, validates returned integer `protocolVersion`, records/handles `authMethods`, and rejects unsupported returned versions.
+    - `session/new` response shape is validated; null/non-object/missing `sessionId` fail explicitly.
+    - Permission reverse requests are handled by explicit policy; unsupported callbacks receive explicit JSON-RPC errors.
+    - Fake-ACP tests cover malformed stdout, unsupported returned versions, null `session/new`, auth-required/error responses, permission allow/deny/cancelled, stderr capture, unexpected exit, and timeout.
+
+- [ ] Step 9: Implement `AcpCopilotPromptRunner`
+  - Acceptance criteria:
+    - Runner implements `ICopilotPromptRunner` without core protocol changes.
+    - Prompt is sent as one text `ContentBlock[]` preserving existing `formatCopilotPrompt()` behavior.
+    - One in-flight prompt per worker is enforced even though the probe saw same-worker concurrent prompts fulfill.
+    - Worker/session scope includes cwd/backend session, permission mode, MCP mode, model/config options as observed.
+    - Worker cap exhaustion fails explicitly; no silent fallback to process mode.
+    - Process mode remains behavior-compatible with existing tests.
+
+- [ ] Step 10: Implement kill-and-replace cancellation and lifecycle bounds
+  - Acceptance criteria:
+    - `cancel()` preserves existing return semantics: no active turn returns `not_found`.
+    - In-flight ACP cancellation marks only the owning worker for replacement; stale/repeated cancels cannot kill a replacement worker.
+    - `session/cancel` may be attempted, but because native drain-to-`cancelled` was not proven, timeout falls back to killing/replacing the owning worker.
+    - Tests cover repeated cancel, stale cancel after replacement, sibling worker survival, disconnect cleanup, startup/handshake timeout, active-turn no-progress timeout, idle eviction, replacement backoff, and shutdown with in-flight turns.
+
+- [ ] Step 11: Add observability, docs, and integrated ROI verification
+  - Acceptance criteria:
+    - Structured logs include selected runtime mode, worker startup/handshake/session creation, first frame, first assistant text, prompt duration, stop reason, cancellation path, replacement reason, active worker count, and cap exhaustion.
+    - `docs/configuration.md` and `docs/operations.md` document ACP opt-in, rollback to process mode, unmediated MCP incompatibility, and troubleshooting.
+    - Integrated runner ROI is remeasured with at least the probe sample floors before claiming improvement.
+    - If integrated ROI regresses below threshold, ACP remains experimental/opt-in and the result is recorded.
+
 ## Touch Surface
 
 - Key files/modules likely to change:
   - `scripts/probe-copilot-cli.ts` or a focused `scripts/probe-copilot-acp.ts`
   - tests under `tests/unit_tests/` and/or `tests/integration_tests/` for the probe harness
+  - `src/backends/copilot-cli/` for post-gate ACP protocol/runner implementation
+  - `src/server/config.ts` for post-gate runtime config
+  - `src/runtime/server.ts` for post-gate runner selection
+  - `docs/configuration.md` and `docs/operations.md` for post-gate opt-in documentation
   - `plans/copilot-backend-runtime/research.md`
   - `plans/copilot-backend-runtime/design.md`
   - `plans/copilot-backend-runtime/todo.md`
