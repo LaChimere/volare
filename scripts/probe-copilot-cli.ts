@@ -227,36 +227,11 @@ async function probeAcpStartup(copilotPath: string): Promise<IProbeResult> {
 }
 
 async function probeAcpInitialize(copilotPath: string): Promise<IProbeResult> {
-  const initializeRequest = JSON.stringify({
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'initialize',
-    params: {
-      protocolVersion: 1,
-      clientInfo: {
-        name: 'volare-probe',
-        version: '0.0.0',
-      },
-      capabilities: {},
-    },
-  });
-  const framedRequest = `Content-Length: ${Buffer.byteLength(initializeRequest, 'utf8')}\r\n\r\n${initializeRequest}`;
-  const result = await runCommand(
-    copilotPath,
-    ['--acp', '--no-color', '--no-custom-instructions', '--log-level', 'error'],
-    {
-      stdin: framedRequest,
-      timeoutMs: 8_000,
-    },
-  );
-  const output = `${result.stdout}\n${result.stderr}`;
-
   return {
     name: 'ACP initialize handshake',
-    status:
-      output.includes('"id":1') || output.includes('protocolVersion') ? 'supported' : 'unknown',
-    command: 'copilot --acp < initialize JSON-RPC frame',
-    evidence: summarize(result),
+    status: 'skipped',
+    command: 'bun run scripts/probe-copilot-acp.ts',
+    evidence: `ACP initialize requires persistent NDJSON JSON-RPC; use scripts/probe-copilot-acp.ts for trusted ACP evidence. copilotPath=${copilotPath}`,
   };
 }
 
