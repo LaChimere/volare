@@ -180,7 +180,7 @@ If any check fails, follow the recovery flow:
 
 ### ACP runner
 
-- [ ] Implement `AcpCopilotPromptRunner`
+- [x] Implement `AcpCopilotPromptRunner`
   - Acceptance criteria:
     - Reuses `ICopilotPromptRunner` and preserves existing prompt formatting.
     - Sends one text `ContentBlock[]` via `session/prompt`.
@@ -188,7 +188,7 @@ If any check fails, follow the recovery flow:
     - Enforces one in-flight prompt per worker.
     - Worker/session scope preserves cwd/projectless isolation and observed config bindings.
     - Worker cap exhaustion fails explicitly.
-  - Evidence:
+  - Evidence: Added `src/backends/copilot-cli/acp-runner.ts` implementing `ICopilotPromptRunner` over ACP with one text `ContentBlock[]`, `session/update` text deltas, terminal `stopReason`, one in-flight prompt per worker, explicit cap exhaustion, worker reuse by backend session/cwd, startup cleanup, abort handling, and kill-and-replace cancellation. `bun test tests/unit_tests/backends/acp-copilot-prompt-runner.test.ts tests/unit_tests/backends/copilot-acp-peer.test.ts` passed; `bun run typecheck` passed.
 
 ### Cancellation and lifecycle
 

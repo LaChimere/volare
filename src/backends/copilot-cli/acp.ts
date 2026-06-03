@@ -35,6 +35,7 @@ export interface IAcpJsonRpcPeerOptions {
   requestTimeoutMs: number;
   supportedProtocolVersions?: readonly number[];
   permissionPolicy?: AcpPermissionPolicy;
+  onNotification?: (frame: JsonObject) => void;
 }
 
 export interface IAcpInitializeSummary {
@@ -70,6 +71,7 @@ export class AcpJsonRpcPeer {
   readonly #requestTimeoutMs: number;
   readonly #supportedProtocolVersions: readonly number[];
   readonly #permissionPolicy: AcpPermissionPolicy;
+  readonly #onNotification: ((frame: JsonObject) => void) | undefined;
   readonly #pending = new Map<number, IPendingRequest>();
   readonly #diagnostics: string[] = [];
   #stdoutReader: { cancel(reason?: unknown): Promise<void> } | undefined;
@@ -85,6 +87,7 @@ export class AcpJsonRpcPeer {
     this.#supportedProtocolVersions =
       options.supportedProtocolVersions ?? SUPPORTED_ACP_PROTOCOL_VERSIONS;
     this.#permissionPolicy = options.permissionPolicy ?? 'unsupported';
+    this.#onNotification = options.onNotification;
     this.#stdoutTask = this.#readStdout(options.stdout);
     this.#stderrTask = this.#readStderr(options.stderr ?? null);
   }
@@ -268,6 +271,11 @@ export class AcpJsonRpcPeer {
       void this.#writeFrame(this.#reverseRequestResponse(frame)).catch((cause) => {
         this.#diagnostics.push(`reverse callback response failed: ${errorMessage(cause)}`);
       });
+      return;
+    }
+
+    if (isJsonObject(frame) && getField(frame, 'method') !== undefined) {
+      this.#onNotification?.(frame);
     }
   }
 
