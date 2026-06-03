@@ -62,6 +62,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #creatingWorkers = new Map<string, Promise<IAcpWorker>>();
   readonly #startupKillers = new Map<string, () => void>();
   readonly #cancelledCreations = new Set<string>();
+  #nextGeneration = 1;
 
   constructor(options: IAcpCopilotPromptRunnerOptions = {}) {
     this.#command = options.command ?? 'copilot';
@@ -291,8 +292,9 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         peer,
         sessionId: session.sessionId,
         active: null,
-        generation: Date.now(),
+        generation: this.#nextGeneration,
       };
+      this.#nextGeneration += 1;
       this.#workers.set(backendSessionId, worker);
       void proc.exited.then((exitCode) => {
         if (worker && this.#workers.get(backendSessionId) === worker) {
