@@ -19,22 +19,22 @@
 
 ### Preparation
 
-- [ ] Confirm worktree scope before execution
+- [x] Confirm worktree scope before execution
   - Acceptance criteria:
     - Only intended slug/probe changes are present before edits.
     - Probe-phase edits stay within `plans/copilot-backend-runtime/**`, `scripts/probe-copilot-cli.ts` or `scripts/probe-copilot-*.ts`, and probe-harness tests.
     - No production runtime paths under `src/backends/`, `src/core/`, `src/runtime/server.ts`, or `src/server/config.ts` change before the gate decision.
-  - Evidence:
-- [ ] Confirm verification level target
+  - Evidence: `git status --short` showed no pre-existing tracked changes before probe-harness edits; first slice stayed within `scripts/probe-copilot-acp.ts`, `scripts/probe-copilot-cli.ts`, `tests/unit_tests/scripts/probe-copilot-acp.test.ts`, and this slug.
+- [x] Confirm verification level target
   - Acceptance criteria: L2 verification is used for probe harness changes.
-  - Evidence:
-- [ ] Confirm existing ACP probe limitations
+  - Evidence: `bun test tests/unit_tests/scripts/probe-copilot-acp.test.ts`; `bun run typecheck`; targeted `bunx biome check` on changed files. Full `bun run check && bun run test` baseline was already red before this slice on unrelated Biome `useLiteralKeys` findings.
+- [x] Confirm existing ACP probe limitations
   - Acceptance criteria: current one-shot Content-Length-style initialize probe is not used as gate evidence.
-  - Evidence:
+  - Evidence: `scripts/probe-copilot-cli.ts` now reports ACP initialize as `skipped` and points trusted ACP evidence to `scripts/probe-copilot-acp.ts`.
 
 ### Implementation
 
-- [ ] Fix or replace ACP probe harness
+- [x] Fix or replace ACP probe harness
   - Acceptance criteria:
     - Uses persistent stdin/stdout pipes.
     - Uses NDJSON JSON-RPC framing.
@@ -45,7 +45,7 @@
     - Emits structured summaries instead of raw ACP payload dumps.
     - Redacts prompts, tokens, ACP payload contents, and sensitive stderr while preserving field names and protocol shape.
     - Passes synthetic self-tests for valid initialize, malformed JSON, unsupported/non-integer protocol version, stderr capture, and timeout before live Copilot CLI evidence is trusted.
-  - Evidence:
+  - Evidence: `scripts/probe-copilot-acp.ts` adds `AcpJsonRpcPeer` with persistent stdin/stdout NDJSON JSON-RPC, `clientCapabilities` initialize, protocol-version validation, redacted summaries, bounded stderr capture, and `copilot --version` capture. `bun run scripts/probe-copilot-acp.ts --self-test` produced 7/7 supported self-tests for valid initialize, malformed JSON, missing/non-integer/unsupported `protocolVersion`, stderr capture, and timeout.
 
 - [ ] Run real Copilot CLI discovery probes
   - Acceptance criteria:
@@ -120,7 +120,7 @@ If any check fails, follow the recovery flow:
 
 - [ ] Run lint/typecheck: `bun run check`
 - [ ] Run unit/integration tests: `bun run test`
-- [ ] Run targeted probe-harness tests: replace with exact `bun test ...` command before marking complete
+- [x] Run targeted probe-harness tests: `bun test tests/unit_tests/scripts/probe-copilot-acp.test.ts`
 - [ ] Capture redacted probe summary and timing evidence
 
 ### Review / Packaging
@@ -134,6 +134,12 @@ If any check fails, follow the recovery flow:
 
 - `command`: output excerpt
 - before/after: evidence
+- `bun run scripts/probe-copilot-acp.ts --self-test`: 7 results, all `status="supported"`; `copilotVersion="GitHub Copilot CLI 1.0.59..."`.
+- `bunx biome check scripts/probe-copilot-acp.ts tests/unit_tests/scripts/probe-copilot-acp.test.ts scripts/probe-copilot-cli.ts`: passed.
+- `bun test tests/unit_tests/scripts/probe-copilot-acp.test.ts`: 7 pass, 0 fail.
+- `bun run typecheck`: passed.
+- `bun run scripts/probe-copilot-acp.ts`: initialize smoke succeeded against `GitHub Copilot CLI 1.0.59...`; evidence redacted nested `authMethods._meta` command/args payloads.
+- Baseline note: `bun run check && bun run test` was red before probe-harness changes due unrelated Biome `useLiteralKeys` findings in existing files such as `scripts/config-codex.ts` and `src/backends/copilot-cli/backend.ts`.
 - Example format:
   - `bun test tests/unit_tests/<probe-test>.test.ts`: fake ACP initialize/session/prompt/cancel cases passed.
   - `bun run scripts/probe-copilot-acp.ts --discovery`: `copilotVersion=1.0.49`, `protocolVersion=2`, `authMethods=[]`, `agentCapabilities={methods:[initialize,session/new,session/prompt], extensions:<REDACTED:3_items>}`, `updateMethod=session/update`, `terminalResponse=session/prompt response`, `stopReasons=[end_turn,cancelled]`, `callbacks=[session/request_permission]`.
