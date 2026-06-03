@@ -184,6 +184,45 @@ Timing from this single discovery run:
 
 These timings are not ROI evidence yet. The ROI gate still requires the separate sample floors in `plan.md`: at least 5 process samples, 5 ACP warm-worker samples, and 3 ACP cold-worker samples, compared against recent historical `backend.turn.completed` p50/p90 evidence.
 
+### ACP behavior and ROI probe
+
+Command/action: `bun run scripts/probe-copilot-acp.ts --behavior-roi`
+
+Environment:
+
+- Date: 2026-06-03
+- Copilot CLI: `GitHub Copilot CLI 1.0.59`
+- Prompt for ROI samples: `Reply with the single word OK.`
+- Process samples: 5
+- ACP warm-worker samples: 5
+- ACP cold-worker samples: 3
+
+Behavior results:
+
+| Probe | Observation | Interpretation |
+|---|---|---|
+| Cancellation | Repeated `session/cancel` was sent during a streaming-style count prompt. The probe observed 5 chunks before cancel in the final sample and the terminal `session/prompt` response still returned `stopReason: "end_turn"` after ~4751ms. | ACP `session/cancel` drain-to-`cancelled` was not proven. A future ACP runner must preserve current cancel semantics with kill-and-replace unless a stronger cancellation probe later proves native cancel. |
+| Session isolation | Two ACP sessions with distinct temporary cwds were created in one worker. A nonce introduced in session A did not appear in session B's reply. | Minimal conversation/state isolation passed for the probe shape. This does not prove broad filesystem/tool isolation. |
+| Multiplexing | Two concurrent `session/prompt` calls on distinct sessions both fulfilled with `stopReason: "end_turn"`. | Basic same-worker concurrency did not fail in this sample, but first implementation should still keep one in-flight prompt per worker unless deeper multiplexing tests are added. |
+| Stalled/closed client | Closing the peer while a prompt was in flight rejected the pending request with `ACP peer closed`. | The harness can surface abandoned-client cleanup explicitly; production ACP shutdown still needs structured terminal handling. |
+| Replacement safety | Killing one worker rejected that worker's pending prompt with `ACP peer closed`; a sibling worker completed its own prompt with `stopReason: "end_turn"`. | Kill-and-replace can be scoped to the owning worker without necessarily killing unrelated workers. Production must still test stale-cancel/replacement races. |
+| Auth/failure surface | Running with a temporary `HOME` still allowed `initialize`; `session/new` returned a non-object/null result in the probe evidence. | Auth-required/fresh-home behavior needs explicit production handling; do not assume `authMethods` being advertised means normal session setup will succeed. |
+
+ROI results:
+
+| Metric | Process mode | ACP cold | ACP warm |
+|---|---:|---:|---:|
+| Samples | 5 | 3 | 5 |
+| First assistant text p50 | ~8303ms | ~7090ms | ~3163ms |
+| Terminal/total p50 | ~10281ms | ~7273ms | ~3354ms |
+
+Against the historical `backend.turn.completed` p50 of ~54000ms:
+
+- First-text warm continuation savings: ~5140ms, about 9.52% of historical p50, above the 5% threshold.
+- Terminal/total warm continuation savings: ~6927ms, about 12.83% of historical p50, above the 5% threshold.
+
+Interpretation: ACP should not be presented as a first-token latency fix. It may still be valuable for terminal completion latency because process mode continues running for several seconds after first stdout on the synthetic prompt, and Volare's backend turn is not terminal until the runner completes. Any future implementation plan must claim and test terminal-completion improvement separately from first-text improvement.
+
 ### agent-maestro findings
 
 The useful agent-maestro lesson is architectural: it avoids per-request CLI startup by living inside a long-lived VS Code extension host and using durable model handles.
@@ -265,6 +304,12 @@ What not to copy:
 - How much of the observed latency is CLI startup/auth/bootstrap vs model queueing/thinking/tool work?
 - How does a long-lived Copilot CLI ACP worker surface auth/token expiry, network failure, or upstream provider errors?
 - Does `--resume` or `--continue` help without creating cross-thread context leakage? This should not be used until isolation is proven.
+
+Updated after probes:
+
+- Prompt streaming and terminal response framing are now proven for the minimal text prompt path.
+- Native `session/cancel` drain-to-`cancelled` is not proven.
+- First-text and terminal-completion ROI are both above threshold on the corrected synthetic samples.
 
 ## Recommendation for Plan
 
