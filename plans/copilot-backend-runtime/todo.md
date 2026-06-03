@@ -159,13 +159,13 @@ If any check fails, follow the recovery flow:
 
 ### Runtime config and guards
 
-- [ ] Add ACP runtime config
+- [x] Add ACP runtime config
   - Acceptance criteria:
     - `VOLARE_COPILOT_RUNTIME_MODE` accepts only `process` or `acp`, defaults to `process`.
     - `VOLARE_COPILOT_ACP_MAX_WORKERS` defaults to `10` and is capped by `VOLARE_MAX_ACTIVE_SESSIONS`.
     - ACP mode rejects `VOLARE_COPILOT_MCP_MODE=unmediated`.
     - Startup logs selected runtime mode.
-  - Evidence:
+  - Evidence: Added `copilotRuntimeMode` and `copilotAcpMaxWorkers` parsing in `src/server/config.ts`, defaulting to `process` and effective cap `min(VOLARE_COPILOT_ACP_MAX_WORKERS, VOLARE_MAX_ACTIVE_SESSIONS)`. ACP mode now rejects `VOLARE_COPILOT_MCP_MODE=unmediated`, and runtime startup logs include selected runtime mode and ACP worker cap. `bun test tests/unit_tests/server/app.test.ts --timeout=30000` passed; `bun run typecheck` passed.
 
 ### Production ACP protocol
 

@@ -1416,6 +1416,12 @@ describe('server app', () => {
     expect(() => createServerRuntimeConfig({ VOLARE_COPILOT_MCP_MODE: 'auto' })).toThrow(
       'VOLARE_COPILOT_MCP_MODE must be disabled or unmediated',
     );
+    expect(() => createServerRuntimeConfig({ VOLARE_COPILOT_RUNTIME_MODE: 'auto' })).toThrow(
+      'VOLARE_COPILOT_RUNTIME_MODE must be process or acp',
+    );
+    expect(() => createServerRuntimeConfig({ VOLARE_COPILOT_ACP_MAX_WORKERS: '0' })).toThrow(
+      'VOLARE_COPILOT_ACP_MAX_WORKERS must be an integer',
+    );
     expect(() =>
       createServerRuntimeConfig({
         VOLARE_COPILOT_MCP_MODE: 'unmediated',
@@ -1423,6 +1429,15 @@ describe('server app', () => {
       }),
     ).toThrow(
       'VOLARE_COPILOT_MCP_MODE=unmediated requires VOLARE_COPILOT_PERMISSION_MODE to be web or full',
+    );
+    expect(() =>
+      createServerRuntimeConfig({
+        VOLARE_COPILOT_RUNTIME_MODE: 'acp',
+        VOLARE_COPILOT_MCP_MODE: 'unmediated',
+        VOLARE_COPILOT_PERMISSION_MODE: 'full',
+      }),
+    ).toThrow(
+      'VOLARE_COPILOT_RUNTIME_MODE=acp does not support VOLARE_COPILOT_MCP_MODE=unmediated',
     );
   });
 
@@ -1437,6 +1452,8 @@ describe('server app', () => {
         VOLARE_PROJECTLESS_WORKSPACE_ROOT: '/tmp/neutralctx',
         VOLARE_MAX_ACTIVE_SESSIONS: '10',
         VOLARE_EVENT_RETENTION_DAYS: '30',
+        VOLARE_COPILOT_RUNTIME_MODE: 'process',
+        VOLARE_COPILOT_ACP_MAX_WORKERS: '8',
         VOLARE_COPILOT_PERMISSION_MODE: 'full',
         VOLARE_COPILOT_MCP_MODE: 'unmediated',
       }),
@@ -1449,8 +1466,23 @@ describe('server app', () => {
       projectlessWorkspaceRoot: '/tmp/neutralctx',
       maxActiveSessions: 10,
       eventRetentionDays: 30,
+      copilotRuntimeMode: 'process',
+      copilotAcpMaxWorkers: 8,
       copilotPermissionMode: 'full',
       copilotMcpMode: 'unmediated',
+    });
+    expect(createServerRuntimeConfig({}).copilotRuntimeMode).toBe('process');
+    expect(createServerRuntimeConfig({}).copilotAcpMaxWorkers).toBe(10);
+    expect(
+      createServerRuntimeConfig({
+        VOLARE_COPILOT_RUNTIME_MODE: 'acp',
+        VOLARE_COPILOT_ACP_MAX_WORKERS: '20',
+        VOLARE_MAX_ACTIVE_SESSIONS: '3',
+      }),
+    ).toMatchObject({
+      copilotRuntimeMode: 'acp',
+      copilotAcpMaxWorkers: 3,
+      maxActiveSessions: 3,
     });
     expect(createServerRuntimeConfig({}).copilotPermissionMode).toBe('full');
     expect(createServerRuntimeConfig({}).copilotMcpMode).toBe('disabled');

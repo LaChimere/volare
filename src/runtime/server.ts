@@ -89,6 +89,8 @@ export async function startVolareRuntime(
       httpIdleTimeoutSeconds: config.httpIdleTimeoutSeconds,
       copilotPermissionMode: config.copilotPermissionMode,
       copilotMcpMode: config.copilotMcpMode,
+      copilotRuntimeMode: config.copilotRuntimeMode,
+      copilotAcpMaxWorkers: config.copilotAcpMaxWorkers,
       logLevel: config.logLevel,
     },
     'Volare starting',

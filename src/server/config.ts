@@ -12,6 +12,9 @@ import { VolareError } from '../core/errors';
 import type { LogLevel } from '../logging/logger';
 import { generateVolareApiKey, isValidVolareApiKey } from './api-key';
 
+export const COPILOT_RUNTIME_MODES = ['process', 'acp'] as const;
+export type CopilotRuntimeMode = (typeof COPILOT_RUNTIME_MODES)[number];
+
 export interface IServerRuntimeConfig {
   host: string;
   port: number;
@@ -26,6 +29,8 @@ export interface IServerRuntimeConfig {
   logLevel: LogLevel;
   maxActiveSessions: number;
   eventRetentionDays?: number;
+  copilotRuntimeMode: CopilotRuntimeMode;
+  copilotAcpMaxWorkers: number;
   copilotPermissionMode: CopilotCliPermissionMode;
   copilotMcpMode: CopilotMcpMode;
   defaultWorkspaceRoot?: string;
@@ -50,6 +55,8 @@ export interface IServerRuntimeEnv {
   VOLARE_LOG_LEVEL: string | undefined;
   VOLARE_MAX_ACTIVE_SESSIONS: string | undefined;
   VOLARE_EVENT_RETENTION_DAYS: string | undefined;
+  VOLARE_COPILOT_RUNTIME_MODE: string | undefined;
+  VOLARE_COPILOT_ACP_MAX_WORKERS: string | undefined;
   VOLARE_COPILOT_PERMISSION_MODE: string | undefined;
   VOLARE_COPILOT_MCP_MODE: string | undefined;
 }
@@ -85,7 +92,25 @@ export function createServerRuntimeConfig(
 
   const copilotPermissionMode = parseCopilotPermissionMode(env.VOLARE_COPILOT_PERMISSION_MODE);
   const copilotMcpMode = parseCopilotMcpMode(env.VOLARE_COPILOT_MCP_MODE);
-  validateCopilotMcpConfig(copilotMcpMode, copilotPermissionMode);
+  const copilotRuntimeMode = parseCopilotRuntimeMode(env.VOLARE_COPILOT_RUNTIME_MODE);
+  const maxActiveSessions = integerInRange(
+    'VOLARE_MAX_ACTIVE_SESSIONS',
+    env.VOLARE_MAX_ACTIVE_SESSIONS,
+    1,
+    1000,
+    10,
+  );
+  const copilotAcpMaxWorkers = Math.min(
+    integerInRange(
+      'VOLARE_COPILOT_ACP_MAX_WORKERS',
+      env.VOLARE_COPILOT_ACP_MAX_WORKERS,
+      1,
+      1000,
+      10,
+    ),
+    maxActiveSessions,
+  );
+  validateCopilotRuntimeConfig(copilotRuntimeMode, copilotMcpMode, copilotPermissionMode);
 
   return {
     host: env.VOLARE_HOST ?? '127.0.0.1',
@@ -123,15 +148,11 @@ export function createServerRuntimeConfig(
       0,
     ),
     logLevel: parseLogLevel(env.VOLARE_LOG_LEVEL),
+    copilotRuntimeMode,
+    copilotAcpMaxWorkers,
     copilotPermissionMode,
     copilotMcpMode,
-    maxActiveSessions: integerInRange(
-      'VOLARE_MAX_ACTIVE_SESSIONS',
-      env.VOLARE_MAX_ACTIVE_SESSIONS,
-      1,
-      1000,
-      10,
-    ),
+    maxActiveSessions,
     ...(eventRetentionDays ? { eventRetentionDays } : {}),
     ...(defaultWorkspaceRoot ? { defaultWorkspaceRoot } : {}),
     ...(allowedWorkspaceRoots ? { allowedWorkspaceRoots } : {}),
@@ -157,6 +178,8 @@ export function readServerRuntimeEnv(): IServerRuntimeEnv {
     VOLARE_LOG_LEVEL: Bun.env['VOLARE_LOG_LEVEL'],
     VOLARE_MAX_ACTIVE_SESSIONS: Bun.env['VOLARE_MAX_ACTIVE_SESSIONS'],
     VOLARE_EVENT_RETENTION_DAYS: Bun.env['VOLARE_EVENT_RETENTION_DAYS'],
+    VOLARE_COPILOT_RUNTIME_MODE: Bun.env['VOLARE_COPILOT_RUNTIME_MODE'],
+    VOLARE_COPILOT_ACP_MAX_WORKERS: Bun.env['VOLARE_COPILOT_ACP_MAX_WORKERS'],
     VOLARE_COPILOT_PERMISSION_MODE: Bun.env['VOLARE_COPILOT_PERMISSION_MODE'],
     VOLARE_COPILOT_MCP_MODE: Bun.env['VOLARE_COPILOT_MCP_MODE'],
   };
@@ -175,6 +198,18 @@ function parseLogLevel(value: string | undefined): LogLevel {
 
 function isLogLevel(value: string): value is LogLevel {
   return ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'].includes(value);
+}
+
+function parseCopilotRuntimeMode(value: string | undefined): CopilotRuntimeMode {
+  const mode = value?.trim() ?? 'process';
+  if (isCopilotRuntimeMode(mode)) {
+    return mode;
+  }
+  throw new VolareError('invalid_config', 'VOLARE_COPILOT_RUNTIME_MODE must be process or acp');
+}
+
+function isCopilotRuntimeMode(value: string): value is CopilotRuntimeMode {
+  return COPILOT_RUNTIME_MODES.includes(value as CopilotRuntimeMode);
 }
 
 function parseCopilotPermissionMode(value: string | undefined): CopilotCliPermissionMode {
@@ -196,7 +231,8 @@ function parseCopilotMcpMode(value: string | undefined): CopilotMcpMode {
   throw new VolareError('invalid_config', 'VOLARE_COPILOT_MCP_MODE must be disabled or unmediated');
 }
 
-function validateCopilotMcpConfig(
+function validateCopilotRuntimeConfig(
+  runtimeMode: CopilotRuntimeMode,
   mcpMode: CopilotMcpMode,
   permissionMode: CopilotCliPermissionMode,
 ): void {
@@ -204,6 +240,12 @@ function validateCopilotMcpConfig(
     throw new VolareError(
       'invalid_config',
       'VOLARE_COPILOT_MCP_MODE=unmediated requires VOLARE_COPILOT_PERMISSION_MODE to be web or full',
+    );
+  }
+  if (runtimeMode === 'acp' && mcpMode === 'unmediated') {
+    throw new VolareError(
+      'invalid_config',
+      'VOLARE_COPILOT_RUNTIME_MODE=acp does not support VOLARE_COPILOT_MCP_MODE=unmediated',
     );
   }
 }
