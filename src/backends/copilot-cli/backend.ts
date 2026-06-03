@@ -79,6 +79,7 @@ export class CopilotCliBackend implements IAgentBackend {
   readonly #logger: ILogger;
   readonly #workspaceRoots = new Map<string, string>();
   readonly #mcpMode: CopilotMcpMode;
+  #closing = false;
 
   constructor(options: ICopilotCliBackendOptions = {}) {
     this.#mcpMode = options.mcpMode ?? DEFAULT_COPILOT_MCP_MODE;
@@ -111,12 +112,18 @@ export class CopilotCliBackend implements IAgentBackend {
     workspace: IWorkspace,
     options: ICreateSessionOptions,
   ): Promise<IBackendSession> {
+    if (this.#closing) {
+      throw new VolareError('backend_closing', 'Backend is shutting down');
+    }
     const canonicalRoot = await canonicalizeWorkspaceRoot(workspace.rootPath);
     if (canonicalRoot !== workspace.rootPath) {
       throw new VolareError(
         'workspace_changed',
         'Workspace root changed before backend session creation',
       );
+    }
+    if (this.#closing) {
+      throw new VolareError('backend_closing', 'Backend is shutting down');
     }
     const backendSessionId = `copilot_cli_${options.bridgeSessionId}`;
     this.#workspaceRoots.set(backendSessionId, canonicalRoot);
@@ -297,6 +304,17 @@ export class CopilotCliBackend implements IAgentBackend {
         'backend session disposed',
       );
     }
+  }
+
+  async dispose(): Promise<void> {
+    this.#closing = true;
+    const backendSessionIds = [...this.#workspaceRoots.keys()];
+    await Promise.all(
+      backendSessionIds.map(async (backendSessionId) => {
+        await this.#runner.dispose?.(backendSessionId);
+        this.#workspaceRoots.delete(backendSessionId);
+      }),
+    );
   }
 }
 

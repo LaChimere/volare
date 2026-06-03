@@ -631,6 +631,26 @@ describe('CopilotCliBackend', () => {
 
       expect(runner.cancelled).toEqual([{ backendSessionId, forceAfterTimeout: true }]);
       expect(runner.disposed).toEqual([backendSessionId]);
+      const secondSession = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_2',
+        threadId: 'thread_2',
+      });
+      const thirdSession = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_3',
+        threadId: 'thread_3',
+      });
+      await backend.dispose();
+      expect(runner.disposed).toEqual([
+        backendSessionId,
+        secondSession.backendSessionId ?? 'missing_second_backend_session',
+        thirdSession.backendSessionId ?? 'missing_third_backend_session',
+      ]);
+      await expect(
+        backend.createSession(workspace, {
+          bridgeSessionId: 'bridge_session_4',
+          threadId: 'thread_4',
+        }),
+      ).rejects.toThrow('Backend is shutting down');
       await expect(
         collectEvents(
           backend.send(session, {

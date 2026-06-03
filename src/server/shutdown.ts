@@ -7,17 +7,20 @@ export interface IShutdownServer {
 export interface IShutdownControllerOptions {
   server: IShutdownServer;
   stateStore: IStateStore;
+  cleanup?: () => void | Promise<void>;
 }
 
 export class ShutdownController implements IShutdownController {
   readonly #server: IShutdownServer;
   readonly #stateStore: IStateStore;
+  readonly #cleanup: (() => void | Promise<void>) | undefined;
   #started = false;
   #result: Promise<IShutdownResult> | null = null;
 
   constructor(options: IShutdownControllerOptions) {
     this.#server = options.server;
     this.#stateStore = options.stateStore;
+    this.#cleanup = options.cleanup;
   }
 
   shutdown(): Promise<IShutdownResult> {
@@ -32,8 +35,19 @@ export class ShutdownController implements IShutdownController {
   async #shutdown(): Promise<IShutdownResult> {
     const errors: unknown[] = [];
     let result: IShutdownResult | undefined;
+    let gracefulStop: Promise<void> | undefined;
     try {
-      await this.#server.stop(false);
+      gracefulStop = Promise.resolve(this.#server.stop(false));
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      await this.#cleanup?.();
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      await gracefulStop;
     } catch (error) {
       errors.push(error);
     }
