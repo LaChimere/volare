@@ -53,14 +53,15 @@ export async function startVolareRuntime(
   const stateStore = new SQLiteStateStore(database);
   const eventJournal = new SQLiteEventJournal(database, undefined, logger);
   await stateStore.recoverStartupState();
+  const backend = new CopilotCliBackend({
+    runner: createCopilotPromptRunner(config, logger),
+    logger,
+    permissionMode: config.copilotPermissionMode,
+    mcpMode: config.copilotMcpMode,
+  });
   const sessionManager = new DurableSessionManager({
     store: stateStore,
-    backend: new CopilotCliBackend({
-      runner: createCopilotPromptRunner(config, logger),
-      logger,
-      permissionMode: config.copilotPermissionMode,
-      mcpMode: config.copilotMcpMode,
-    }),
+    backend,
     approvalProvider: new ApprovalProvider({
       store: stateStore,
       policy: new DefaultApprovalPolicy({ timeoutMs: config.approvalTimeoutMs }),
@@ -107,7 +108,7 @@ export async function startVolareRuntime(
     idleTimeout: config.httpIdleTimeoutSeconds,
     fetch: createApp({ config, stateStore, eventJournal, sessionManager, logger }).fetch,
   });
-  const shutdown = new ShutdownController({ server, stateStore });
+  const shutdown = new ShutdownController({ server, stateStore, cleanup: () => backend.dispose() });
   runtimeLogger.info(
     { event: 'runtime.listening', host: config.host, port: config.port },
     'Volare listening',
