@@ -664,7 +664,7 @@ describe('CopilotCliBackend', () => {
             model: 'copilot-agent',
           }),
         ),
-      ).rejects.toThrow('Backend session workspace was not found');
+      ).rejects.toThrow('Backend is shutting down');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
