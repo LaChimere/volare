@@ -58,6 +58,16 @@ function parseWrittenFrame(writable: CapturingWritable): Record<string, unknown>
   return JSON.parse(firstLine) as Record<string, unknown>;
 }
 
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (condition()) {
+      return;
+    }
+    await Bun.sleep(1);
+  }
+  throw new Error('condition was not met');
+}
+
 async function expectAcpError(promise: Promise<unknown>, code: string): Promise<void> {
   try {
     await promise;
@@ -193,6 +203,48 @@ describe('probe-copilot-acp harness', () => {
       quietPeer.close();
       quietStdout.close();
       await quietPeer.waitForReaders();
+    }
+  });
+
+  test('records and answers unsupported server-to-client requests explicitly', async () => {
+    const stdout = createControlledStream();
+    const writable = new CapturingWritable();
+    const peer = new AcpJsonRpcPeer({
+      stdin: writable,
+      stdout: stdout.stream,
+      requestTimeoutMs: 100,
+    });
+    try {
+      stdout.enqueue(
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 99,
+          method: 'session/request_permission',
+          params: { prompt: [{ type: 'text', text: 'approve this' }] },
+        })}\n`,
+      );
+      await waitFor(() => peer.serverRequestMethods.length > 0);
+
+      expect(peer.serverRequestMethods).toEqual(['session/request_permission']);
+      const response = writable
+        .text()
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { id?: unknown })
+        .find((frame) => frame.id === 99);
+      expect(response).toMatchObject({
+        jsonrpc: '2.0',
+        id: 99,
+        error: {
+          code: -32601,
+          message: 'Unsupported ACP client callback: session/request_permission',
+        },
+      });
+      expect(JSON.stringify(peer.messages)).not.toContain('approve this');
+    } finally {
+      peer.close();
+      stdout.close();
+      await peer.waitForReaders();
     }
   });
 

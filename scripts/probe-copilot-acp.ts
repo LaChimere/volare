@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 type ProbeStatus = 'supported' | 'unsupported' | 'unknown' | 'skipped' | 'failed';
 
 type JsonPrimitive = string | number | boolean | null;
@@ -55,6 +59,37 @@ export interface IAcpProbeReport {
   results: IAcpProbeResult[];
 }
 
+interface IAcpDiscoveryEvidence {
+  protocolVersion: number;
+  unsupportedProtocolVersion: JsonValue;
+  agentCapabilities: JsonValue;
+  authMethods: JsonValue;
+  sessionNew: {
+    resultShape: JsonValue;
+    sessionIdBytes: number;
+  };
+  prompt: {
+    terminalResponse: string;
+    stopReasons: string[];
+    updateMethods: string[];
+    updateKinds: string[];
+    callbackMethods: string[];
+    messageCount: number;
+  };
+  bindingMatrix: {
+    cwd: string;
+    model: string;
+    permissionMode: string;
+    mcpMode: string;
+    noCustomInstructions: string;
+  };
+  timingsMs: {
+    initialize: number;
+    sessionNew: number;
+    prompt: number;
+  };
+}
+
 interface IPendingRequest {
   method: string;
   resolve(response: IJsonRpcResponse): void;
@@ -85,6 +120,7 @@ export class AcpJsonRpcPeer {
   readonly #supportedProtocolVersions: readonly number[];
   readonly #pending = new Map<number, IPendingRequest>();
   readonly #messages: JsonValue[] = [];
+  readonly #serverRequestMethods = new Set<string>();
   readonly #diagnostics: string[] = [];
   readonly #maxDiagnosticBytes: number;
   #nextId = 1;
@@ -108,6 +144,10 @@ export class AcpJsonRpcPeer {
 
   get messages(): readonly JsonValue[] {
     return this.#messages;
+  }
+
+  get serverRequestMethods(): readonly string[] {
+    return [...this.#serverRequestMethods].sort();
   }
 
   async initialize(): Promise<IAcpInitializeSummary> {
@@ -252,6 +292,19 @@ export class AcpJsonRpcPeer {
 
     this.#messages.push(redactAcpFrame(frame));
     if (!isJsonRpcResponse(frame)) {
+      if (isJsonRpcRequest(frame)) {
+        this.#serverRequestMethods.add(frame.method);
+        void this.#writeFrame({
+          jsonrpc: '2.0',
+          id: frame.id,
+          error: {
+            code: -32601,
+            message: `Unsupported ACP client callback: ${frame.method}`,
+          },
+        }).catch((cause) => {
+          this.#diagnostics.push(redactDiagnosticText(toAcpError(cause, 'callback_error').message));
+        });
+      }
       return;
     }
 
@@ -456,6 +509,154 @@ async function probeInitialize(copilotPath: string): Promise<IAcpProbeResult> {
   }
 }
 
+async function probeDiscovery(copilotPath: string): Promise<IAcpProbeResult[]> {
+  const cwd = await mkdtemp(join(tmpdir(), 'volare-acp-discovery-'));
+  const proc = Bun.spawn(
+    [
+      copilotPath,
+      '--acp',
+      '--no-color',
+      '--no-custom-instructions',
+      '--disable-builtin-mcps',
+      '--log-level',
+      'error',
+    ],
+    {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        ...Bun.env,
+        NO_COLOR: '1',
+        CI: '1',
+      },
+    },
+  );
+  const peer = new AcpJsonRpcPeer({
+    stdin: proc.stdin,
+    stdout: proc.stdout,
+    stderr: proc.stderr,
+    requestTimeoutMs: 60_000,
+  });
+
+  try {
+    const initializeStartedAt = performance.now();
+    const initializeSummary = await peer.initialize();
+    const initializeMs = elapsedMs(initializeStartedAt);
+    const unsupportedProtocolVersion = await probeUnsupportedProtocolVersion(copilotPath);
+
+    const sessionStartedAt = performance.now();
+    const sessionResponse = await peer.request('session/new', {
+      cwd,
+      mcpServers: [],
+    });
+    const sessionNewMs = elapsedMs(sessionStartedAt);
+    const sessionId = extractSessionId(sessionResponse.result);
+
+    const promptStartedAt = performance.now();
+    const beforePromptMessages = peer.messages.length;
+    const promptResponse = await peer.request('session/prompt', {
+      sessionId,
+      prompt: [{ type: 'text', text: SAFE_SYNTHETIC_PROMPT }],
+    });
+    const promptMs = elapsedMs(promptStartedAt);
+    const promptMessages = peer.messages.slice(beforePromptMessages);
+    const evidence: IAcpDiscoveryEvidence = {
+      protocolVersion: initializeSummary.protocolVersion,
+      unsupportedProtocolVersion,
+      agentCapabilities: redactAcpFrame(initializeSummary.agentCapabilities),
+      authMethods: redactAcpFrame(initializeSummary.authMethods),
+      sessionNew: {
+        resultShape: redactSessionNewResult(sessionResponse.result),
+        sessionIdBytes: textEncoder.encode(sessionId).byteLength,
+      },
+      prompt: summarizePromptEvidence(promptResponse, promptMessages, peer.serverRequestMethods),
+      bindingMatrix: {
+        cwd: 'session/new.cwd',
+        model: hasConfigOption(sessionResponse.result, 'model')
+          ? 'session/new configOptions.id=model'
+          : 'not observed in initialize/session/new/session/prompt discovery',
+        permissionMode: hasConfigOption(sessionResponse.result, 'allow_all')
+          ? 'session/new configOptions.id=allow_all'
+          : 'worker startup flags; ACP config method not observed',
+        mcpMode: 'session/new.mcpServers=[] with --disable-builtin-mcps',
+        noCustomInstructions: 'worker startup flag --no-custom-instructions',
+      },
+      timingsMs: {
+        initialize: initializeMs,
+        sessionNew: sessionNewMs,
+        prompt: promptMs,
+      },
+    };
+
+    return [
+      {
+        name: 'ACP discovery',
+        status: 'supported',
+        evidence: JSON.stringify(evidence),
+      },
+    ];
+  } catch (cause) {
+    return [
+      {
+        name: 'ACP discovery',
+        status: 'failed',
+        evidence: `${cause instanceof Error ? cause.message : String(cause)}; stderr=${peer.diagnostics}`,
+      },
+    ];
+  } finally {
+    peer.close();
+    proc.kill('SIGTERM');
+    await Promise.race([proc.exited, Bun.sleep(1_000)]);
+    proc.kill('SIGKILL');
+    await rm(cwd, { recursive: true, force: true });
+  }
+}
+
+async function probeUnsupportedProtocolVersion(copilotPath: string): Promise<JsonValue> {
+  const proc = Bun.spawn(
+    [copilotPath, '--acp', '--no-color', '--no-custom-instructions', '--log-level', 'error'],
+    {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        ...Bun.env,
+        NO_COLOR: '1',
+        CI: '1',
+      },
+    },
+  );
+  const peer = new AcpJsonRpcPeer({
+    stdin: proc.stdin,
+    stdout: proc.stdout,
+    stderr: proc.stderr,
+    requestTimeoutMs: 15_000,
+    supportedProtocolVersions: [999],
+  });
+  try {
+    await peer.initialize();
+    return {
+      requestedProtocolVersion: 999,
+      outcome: 'accepted',
+      messages: [...peer.messages],
+    };
+  } catch (cause) {
+    return {
+      requestedProtocolVersion: 999,
+      outcome: cause instanceof AcpProbeError ? cause.code : 'failed',
+      message: cause instanceof Error ? cause.message : String(cause),
+      messages: [...peer.messages],
+      stderr: peer.diagnostics,
+    };
+  } finally {
+    peer.close();
+    proc.kill('SIGTERM');
+    await Promise.race([proc.exited, Bun.sleep(1_000)]);
+    proc.kill('SIGKILL');
+  }
+}
+
 async function captureCopilotVersion(copilotPath: string | null): Promise<string | null> {
   if (!copilotPath) {
     return null;
@@ -608,9 +809,21 @@ function isJsonRpcResponse(value: JsonValue): value is IJsonRpcResponse {
   if (!isJsonObject(value)) {
     return false;
   }
+
   const jsonrpc = getField(value, 'jsonrpc');
   const id = getField(value, 'id');
-  return jsonrpc === '2.0' && Number.isInteger(id);
+  const method = getField(value, 'method');
+  return jsonrpc === '2.0' && Number.isInteger(id) && method === undefined;
+}
+
+function isJsonRpcRequest(value: JsonValue): value is IJsonRpcRequest {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  const jsonrpc = getField(value, 'jsonrpc');
+  const id = getField(value, 'id');
+  const method = getField(value, 'method');
+  return jsonrpc === '2.0' && Number.isInteger(id) && typeof method === 'string';
 }
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -623,6 +836,153 @@ function isJsonPrimitive(value: unknown): value is JsonPrimitive {
 
 function getField(object: JsonObject, key: string): JsonValue | undefined {
   return object[key];
+}
+
+function extractSessionId(result: JsonValue | undefined): string {
+  if (!isJsonObject(result)) {
+    throw new AcpProbeError(
+      'session/new response is missing result object',
+      'missing_session_result',
+    );
+  }
+  const sessionId = getField(result, 'sessionId');
+  if (typeof sessionId !== 'string' || sessionId.length === 0) {
+    throw new AcpProbeError('session/new response is missing sessionId', 'missing_session_id');
+  }
+  return sessionId;
+}
+
+function redactSessionNewResult(result: JsonValue | undefined): JsonValue {
+  if (!isJsonObject(result)) {
+    return null;
+  }
+  return {
+    keys: Object.keys(result).sort(),
+    sessionId: summarizeSessionId(getField(result, 'sessionId')),
+    configOptions: summarizeConfigOptions(getField(result, 'configOptions')),
+    models: summarizeCatalog(getField(result, 'models'), 'availableModels', 'currentModelId'),
+    modes: summarizeCatalog(getField(result, 'modes'), 'availableModes', 'currentModeId'),
+  };
+}
+
+function summarizeSessionId(value: JsonValue | undefined): JsonValue {
+  return typeof value === 'string'
+    ? `<REDACTED:sessionId:${textEncoder.encode(value).byteLength}_bytes>`
+    : null;
+}
+
+function summarizeConfigOptions(value: JsonValue | undefined): JsonValue {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => {
+    if (!isJsonObject(item)) {
+      return null;
+    }
+    const id = getField(item, 'id');
+    const type = getField(item, 'type');
+    const category = getField(item, 'category');
+    const currentValue = getField(item, 'currentValue');
+    const options = getField(item, 'options');
+    return {
+      id: typeof id === 'string' ? id : '<unknown>',
+      type: typeof type === 'string' ? type : '<unknown>',
+      category: typeof category === 'string' ? category : '<unknown>',
+      currentValue:
+        typeof currentValue === 'string'
+          ? `<REDACTED:string:${textEncoder.encode(currentValue).byteLength}_bytes>`
+          : (currentValue ?? null),
+      optionCount: Array.isArray(options) ? options.length : 0,
+    };
+  });
+}
+
+function summarizeCatalog(
+  value: JsonValue | undefined,
+  listKey: string,
+  currentKey: string,
+): JsonValue {
+  if (!isJsonObject(value)) {
+    return null;
+  }
+
+  const list = getField(value, listKey);
+  const current = getField(value, currentKey);
+  return {
+    availableCount: Array.isArray(list) ? list.length : 0,
+    current:
+      typeof current === 'string'
+        ? `<REDACTED:string:${textEncoder.encode(current).byteLength}_bytes>`
+        : (current ?? null),
+  };
+}
+
+function hasConfigOption(result: JsonValue | undefined, optionId: string): boolean {
+  if (!isJsonObject(result)) {
+    return false;
+  }
+  const configOptions = getField(result, 'configOptions');
+  if (!Array.isArray(configOptions)) {
+    return false;
+  }
+  return configOptions.some((option) => {
+    if (!isJsonObject(option)) {
+      return false;
+    }
+    return getField(option, 'id') === optionId;
+  });
+}
+
+function summarizePromptEvidence(
+  promptResponse: IJsonRpcResponse,
+  promptMessages: readonly JsonValue[],
+  callbackMethods: readonly string[],
+): IAcpDiscoveryEvidence['prompt'] {
+  const updateMethods = new Set<string>();
+  const updateKinds = new Set<string>();
+  for (const message of promptMessages) {
+    if (!isJsonObject(message)) {
+      continue;
+    }
+    const method = getField(message, 'method');
+    if (typeof method === 'string') {
+      updateMethods.add(method);
+    }
+    const params = getField(message, 'params');
+    if (!isJsonObject(params)) {
+      continue;
+    }
+    const update = getField(params, 'update');
+    if (!isJsonObject(update)) {
+      continue;
+    }
+    const sessionUpdate = getField(update, 'sessionUpdate');
+    if (typeof sessionUpdate === 'string') {
+      updateKinds.add(sessionUpdate);
+    }
+  }
+
+  const stopReason = extractStopReason(promptResponse.result);
+  return {
+    terminalResponse: stopReason ? 'session/prompt response with stopReason' : 'missing stopReason',
+    stopReasons: stopReason ? [stopReason] : [],
+    updateMethods: [...updateMethods].sort(),
+    updateKinds: [...updateKinds].sort(),
+    callbackMethods: [...callbackMethods].sort(),
+    messageCount: promptMessages.length,
+  };
+}
+
+function extractStopReason(result: JsonValue | undefined): string | null {
+  if (!isJsonObject(result)) {
+    return null;
+  }
+  const stopReason = getField(result, 'stopReason');
+  return typeof stopReason === 'string' ? stopReason : null;
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
 }
 
 function redactValue(value: unknown, path: string[]): JsonValue {
@@ -694,15 +1054,25 @@ function toAcpError(cause: unknown, code: string): AcpProbeError {
 }
 
 async function main(): Promise<void> {
-  const mode = Bun.argv.includes('--self-test') ? 'self-test' : 'initialize';
+  const mode = Bun.argv.includes('--self-test')
+    ? 'self-test'
+    : Bun.argv.includes('--discovery')
+      ? 'discovery'
+      : 'initialize';
   const copilotPath = await findCommand('copilot');
   const copilotVersion = await captureCopilotVersion(copilotPath);
-  const results: IAcpProbeResult[] =
-    mode === 'self-test'
-      ? await runSelfTests()
-      : copilotPath
-        ? [await probeInitialize(copilotPath)]
-        : [{ name: 'copilot executable', status: 'unsupported', evidence: '`copilot` not found' }];
+  let results: IAcpProbeResult[];
+  if (mode === 'self-test') {
+    results = await runSelfTests();
+  } else if (!copilotPath) {
+    results = [
+      { name: 'copilot executable', status: 'unsupported', evidence: '`copilot` not found' },
+    ];
+  } else if (mode === 'discovery') {
+    results = await probeDiscovery(copilotPath);
+  } else {
+    results = [await probeInitialize(copilotPath)];
+  }
 
   const report: IAcpProbeReport = {
     generatedAt: new Date().toISOString(),
