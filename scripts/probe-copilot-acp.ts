@@ -123,6 +123,8 @@ export class AcpJsonRpcPeer {
   readonly #serverRequestMethods = new Set<string>();
   readonly #diagnostics: string[] = [];
   readonly #maxDiagnosticBytes: number;
+  #stdoutReader: { cancel(reason?: unknown): Promise<void> } | undefined;
+  #stderrReader: { cancel(reason?: unknown): Promise<void> } | undefined;
   #nextId = 1;
   #closed = false;
   #stdoutTask: Promise<void>;
@@ -188,6 +190,17 @@ export class AcpJsonRpcPeer {
     return await responsePromise;
   }
 
+  async notify(method: string, params?: JsonObject): Promise<void> {
+    if (this.#closed) {
+      throw new AcpProbeError('ACP peer is closed', 'peer_closed');
+    }
+    await this.#writeFrame({
+      jsonrpc: '2.0',
+      method,
+      ...(params === undefined ? {} : { params }),
+    });
+  }
+
   close(): void {
     if (this.#closed) {
       return;
@@ -195,6 +208,8 @@ export class AcpJsonRpcPeer {
     this.#closed = true;
     this.#stdin.end?.();
     this.#rejectPending(new AcpProbeError('ACP peer closed', 'peer_closed'));
+    void this.#stdoutReader?.cancel();
+    void this.#stderrReader?.cancel();
   }
 
   async waitForReaders(): Promise<void> {
@@ -213,6 +228,7 @@ export class AcpJsonRpcPeer {
     }
 
     const reader = stream.getReader();
+    this.#stdoutReader = reader;
     let buffer = '';
     try {
       while (true) {
@@ -225,9 +241,15 @@ export class AcpJsonRpcPeer {
       }
       buffer += textDecoder.decode();
       this.#consumeFinalLine(buffer);
+      if (!this.#closed && this.#pending.size > 0) {
+        this.#rejectPending(
+          new AcpProbeError('ACP stdout closed with pending requests', 'stdout_closed'),
+        );
+      }
     } catch (cause) {
       this.#rejectPending(toAcpError(cause, 'stdout_read_failed'));
     } finally {
+      this.#stdoutReader = undefined;
       reader.releaseLock();
     }
   }
@@ -238,6 +260,7 @@ export class AcpJsonRpcPeer {
     }
 
     const reader = stream.getReader();
+    this.#stderrReader = reader;
     let capturedBytes = 0;
     try {
       while (true) {
@@ -255,6 +278,7 @@ export class AcpJsonRpcPeer {
         this.#diagnostics.push(redactDiagnosticText(textDecoder.decode(chunk, { stream: true })));
       }
     } finally {
+      this.#stderrReader = undefined;
       reader.releaseLock();
     }
   }
@@ -445,9 +469,13 @@ export async function runSelfTests(): Promise<IAcpProbeResult[]> {
     {
       name: 'timeout',
       async run() {
-        await withScriptedPeer([], async (peer) => {
-          await expectRejects(peer.initialize(), 'request_timeout');
-        });
+        await withScriptedPeer(
+          [],
+          async (peer) => {
+            await expectRejects(peer.initialize(), 'request_timeout');
+          },
+          { keepStdoutOpen: true },
+        );
       },
     },
   ];
@@ -714,10 +742,12 @@ async function streamToText(stream: ReadableStream<Uint8Array> | null): Promise<
 async function withScriptedPeer(
   stdoutFrames: Array<JsonValue | string>,
   run: (peer: AcpJsonRpcPeer, writtenFrames: JsonObject[]) => Promise<void>,
-  options: { stderrLines?: string[] } = {},
+  options: { stderrLines?: string[]; keepStdoutOpen?: boolean } = {},
 ): Promise<void> {
+  const stdoutOptions = options.keepStdoutOpen ? { keepOpen: true } : {};
   const stdout = deferredStreamFromLines(
     stdoutFrames.map((frame) => (typeof frame === 'string' ? frame : JSON.stringify(frame))),
+    stdoutOptions,
   );
   const stderr = deferredStreamFromLines(options.stderrLines ?? []);
   const writable = new CapturingWritable(() => {
@@ -756,7 +786,10 @@ async function expectRejects(promise: Promise<unknown>, code: string): Promise<v
   throw new Error(`expected rejection with ${code}`);
 }
 
-function deferredStreamFromLines(lines: string[]): {
+function deferredStreamFromLines(
+  lines: string[],
+  options: { keepOpen?: boolean } = {},
+): {
   stream: ReadableStream<Uint8Array>;
   flush(): void;
 } {
@@ -780,7 +813,9 @@ function deferredStreamFromLines(lines: string[]): {
       for (const line of lines) {
         streamController.enqueue(textEncoder.encode(`${line}\n`));
       }
-      streamController.close();
+      if (!options.keepOpen) {
+        streamController.close();
+      }
     },
   };
 }
