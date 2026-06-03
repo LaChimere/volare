@@ -29,6 +29,7 @@ function createControlledStream(): {
   close(): void;
 } {
   let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+  let closed = false;
   return {
     stream: new ReadableStream<Uint8Array>({
       start(controller) {
@@ -36,16 +37,29 @@ function createControlledStream(): {
       },
     }),
     enqueue(text: string) {
+      if (closed) {
+        throw new Error('stream is already closed');
+      }
       if (!streamController) {
         throw new Error('stream controller not initialized');
       }
       streamController.enqueue(textEncoder.encode(text));
     },
     close() {
+      if (closed) {
+        return;
+      }
       if (!streamController) {
         throw new Error('stream controller not initialized');
       }
-      streamController.close();
+      closed = true;
+      try {
+        streamController.close();
+      } catch (error) {
+        if (!(error instanceof TypeError)) {
+          throw error;
+        }
+      }
     },
   };
 }
@@ -244,6 +258,148 @@ describe('probe-copilot-acp harness', () => {
     } finally {
       peer.close();
       stdout.close();
+      await peer.waitForReaders();
+    }
+  });
+
+  test('constructs session/new and session/prompt frames from observed ACP fixtures', async () => {
+    const stdout = createControlledStream();
+    const writable = new CapturingWritable();
+    const peer = new AcpJsonRpcPeer({
+      stdin: writable,
+      stdout: stdout.stream,
+      requestTimeoutMs: 100,
+    });
+    try {
+      const sessionNew = peer.request('session/new', {
+        cwd: '/tmp/volare-empty',
+        mcpServers: [],
+      });
+      await Bun.sleep(0);
+      expect(parseWrittenFrame(writable)).toMatchObject({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'session/new',
+        params: {
+          cwd: '/tmp/volare-empty',
+          mcpServers: [],
+        },
+      });
+      stdout.enqueue('{"jsonrpc":"2.0","id":1,"result":{"sessionId":"sess_123"}}\n');
+      await expect(sessionNew).resolves.toMatchObject({
+        id: 1,
+        result: { sessionId: 'sess_123' },
+      });
+
+      const prompt = peer.request('session/prompt', {
+        sessionId: 'sess_123',
+        prompt: [{ type: 'text', text: 'Reply with the single word OK.' }],
+      });
+      await Bun.sleep(0);
+      const promptFrame = writable
+        .text()
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { id?: unknown; method?: unknown })
+        .find((frame) => frame.id === 2);
+      expect(promptFrame).toMatchObject({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'session/prompt',
+        params: {
+          sessionId: 'sess_123',
+          prompt: [{ type: 'text', text: 'Reply with the single word OK.' }],
+        },
+      });
+      stdout.enqueue(
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'session/update',
+          params: {
+            sessionId: 'sess_123',
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: 'OK' },
+            },
+          },
+        })}\n`,
+      );
+      stdout.enqueue('{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}\n');
+      await expect(prompt).resolves.toMatchObject({
+        id: 2,
+        result: { stopReason: 'end_turn' },
+      });
+      expect(peer.messages).toContainEqual(
+        expect.objectContaining({
+          method: 'session/update',
+        }),
+      );
+      expect(JSON.stringify(peer.messages)).not.toContain('Reply with the single word OK.');
+    } finally {
+      peer.close();
+      stdout.close();
+      await peer.waitForReaders();
+    }
+  });
+
+  test('sends session/cancel notification and drains prompt response to cancelled', async () => {
+    const stdout = createControlledStream();
+    const writable = new CapturingWritable();
+    const peer = new AcpJsonRpcPeer({
+      stdin: writable,
+      stdout: stdout.stream,
+      requestTimeoutMs: 100,
+    });
+    try {
+      const prompt = peer.request('session/prompt', {
+        sessionId: 'sess_123',
+        prompt: [{ type: 'text', text: 'Reply slowly.' }],
+      });
+      await Bun.sleep(0);
+      await peer.notify('session/cancel', { sessionId: 'sess_123' });
+
+      const cancelFrame = writable
+        .text()
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { id?: unknown; method?: unknown })
+        .find((frame) => frame.method === 'session/cancel');
+      expect(cancelFrame).toMatchObject({
+        jsonrpc: '2.0',
+        method: 'session/cancel',
+        params: { sessionId: 'sess_123' },
+      });
+      expect(cancelFrame).not.toHaveProperty('id');
+
+      stdout.enqueue('{"jsonrpc":"2.0","id":1,"result":{"stopReason":"cancelled"}}\n');
+      await expect(prompt).resolves.toMatchObject({
+        id: 1,
+        result: { stopReason: 'cancelled' },
+      });
+    } finally {
+      peer.close();
+      stdout.close();
+      await peer.waitForReaders();
+    }
+  });
+
+  test('rejects pending requests when stdout closes unexpectedly', async () => {
+    const stdout = createControlledStream();
+    const peer = new AcpJsonRpcPeer({
+      stdin: new CapturingWritable(),
+      stdout: stdout.stream,
+      requestTimeoutMs: 100,
+    });
+    try {
+      const request = peer.request('session/new', {
+        cwd: '/tmp/volare-empty',
+        mcpServers: [],
+      });
+      await Bun.sleep(0);
+      stdout.close();
+      await expectAcpError(request, 'stdout_closed');
+    } finally {
+      peer.close();
       await peer.waitForReaders();
     }
   });
