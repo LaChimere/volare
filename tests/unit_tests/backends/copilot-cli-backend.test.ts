@@ -651,6 +651,9 @@ describe('CopilotCliBackend', () => {
           threadId: 'thread_4',
         }),
       ).rejects.toThrow('Backend is shutting down');
+      await expect(backend.resumeSession(secondSession)).rejects.toThrow(
+        'Backend is shutting down',
+      );
       await expect(
         collectEvents(
           backend.send(session, {

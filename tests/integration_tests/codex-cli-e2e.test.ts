@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { configureCodex } from '../../scripts/config-codex';
 import { DurableSessionManager } from '../../src/core/durable-session-manager';
 import type {
   AgentEvent,
@@ -302,16 +301,24 @@ async function configureCodexForE2E(
   options: { basePath?: '/openai/v1' | '/v1' } = {},
 ): Promise<void> {
   const configPath = join(codexHome, 'config.toml');
-  await configureCodex({
-    configPath,
-    baseUrl: `${baseUrl}${options.basePath ?? '/openai/v1'}`,
-    envKey: 'VOLARE_API_KEY',
-    backupSuffix: 'e2e',
-  });
-  const config = await readFile(configPath, 'utf8');
+  const profilePath = join(codexHome, 'volare.config.toml');
+  await writeFile(configPath, 'approval_policy = "never"\n');
   await writeFile(
-    configPath,
-    config.replace('requires_openai_auth = true', 'requires_openai_auth = false'),
+    profilePath,
+    [
+      'model_provider = "volare"',
+      'model = "gpt-5.5"',
+      'model_reasoning_effort = "high"',
+      '',
+      '[model_providers.volare]',
+      'name = "Volare"',
+      `base_url = "${baseUrl}${options.basePath ?? '/openai/v1'}"`,
+      'wire_api = "responses"',
+      'env_key = "VOLARE_API_KEY"',
+      'requires_openai_auth = false',
+      'supports_websockets = false',
+      '',
+    ].join('\n'),
   );
 }
 

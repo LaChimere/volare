@@ -10,7 +10,7 @@ export interface IForbiddenFixturePattern {
 export const COPILOT_FRAME_FORBIDDEN_PATTERNS: IForbiddenFixturePattern[] = [
   {
     name: 'absolute_path',
-    pattern: /(?::\s*"|^\s*"|[\[,]\s*")\/(?:Users|home|tmp|private|var|etc|opt|Volumes)\//,
+    pattern: /(?::\s*"|^\s*"|[[,]\s*")\/(?:Users|home|tmp|private|var|etc|opt|Volumes)\//,
   },
   { name: 'bearer_token', pattern: /Bearer\s+[A-Za-z0-9._~+/-]+=*/i },
   { name: 'jwt', pattern: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/ },
