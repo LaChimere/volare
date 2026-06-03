@@ -137,6 +137,9 @@ export class CopilotCliBackend implements IAgentBackend {
   }
 
   async resumeSession(session: IBackendSession): Promise<IBackendSession> {
+    if (this.#closing) {
+      throw new VolareError('backend_closing', 'Backend is shutting down');
+    }
     if (!session.backendSessionId) {
       throw new VolareError(
         'backend_session_not_active',

@@ -119,10 +119,10 @@ If any check fails, follow the recovery flow:
 
 ### Verification (Evidence)
 
-- [ ] Run lint/typecheck: `bun run check`
-- [ ] Run unit/integration tests: `bun run test`
+- [x] Run lint/typecheck: `bun run check`
+- [x] Run unit/integration tests: `bun run test`
 - [x] Run targeted probe-harness tests: `bun test tests/unit_tests/scripts/probe-copilot-acp.test.ts`
-- [ ] Capture redacted probe summary and timing evidence
+- [x] Capture redacted probe summary and timing evidence
 
 ### Review / Packaging
 
@@ -144,6 +144,9 @@ If any check fails, follow the recovery flow:
 - `bun run scripts/probe-copilot-acp.ts --self-test`: still 7/7 supported after adding notify/stdout-close lifecycle handling.
 - Milestone hardening: unsupported protocol probe now records `negotiated_to_1`; reverse request handling supports explicit `unsupported`, `allow`, `deny`, and `cancelled` policies for later behavior probes.
 - `bun run scripts/probe-copilot-acp.ts --behavior-roi`: supported; native cancel not proven (`end_turn` after cancel), minimal isolation passed, concurrent same-worker prompts fulfilled, sibling-worker replacement safety passed, first-text and terminal-completion ROI above threshold after content-byte first-text measurement fix (`~5140ms` / `~6927ms` savings).
+- Integrated runtime ROI via local `/openai/v1/responses`: process p50 first assistant SSE ~7177ms and total ~9408ms; ACP warm p50 first assistant SSE ~2795ms and total ~3038ms; warm ACP savings ~4382ms first-assistant and ~6370ms total, both above the 5% historical-backend-p50 threshold.
+- `bun run check`: passed after disabling Biome `useLiteralKeys`, which conflicts with this repo's TypeScript index-signature access patterns.
+- `bun run test`: passed, including Codex CLI e2e updated to use the current `volare.config.toml` profile-file behavior.
 - Baseline note: `bun run check && bun run test` was red before probe-harness changes due unrelated Biome `useLiteralKeys` findings in existing files such as `scripts/config-codex.ts` and `src/backends/copilot-cli/backend.ts`.
 - Example format:
   - `bun test tests/unit_tests/<probe-test>.test.ts`: fake ACP initialize/session/prompt/cancel cases passed.
@@ -209,9 +212,9 @@ If any check fails, follow the recovery flow:
     - Process mode remains default and existing tests remain behavior-compatible.
   - Evidence: `src/runtime/server.ts` now selects `AcpCopilotPromptRunner` only when `copilotRuntimeMode === 'acp'`, otherwise keeps `BunCopilotPromptRunner` as the default. Tests in `tests/unit_tests/runtime/server.test.ts` assert default process mode and explicit ACP runner creation. `bun test tests/unit_tests/runtime/server.test.ts tests/unit_tests/backends/acp-copilot-prompt-runner.test.ts` passed; `bun run typecheck` passed.
 
-- [ ] Update docs and remeasure integrated ROI
+- [x] Update docs and remeasure integrated ROI
   - Acceptance criteria:
     - `docs/configuration.md` and `docs/operations.md` describe ACP opt-in, rollback, unmediated MCP incompatibility, worker caps, and troubleshooting.
     - Integrated ACP runner ROI is remeasured with at least 5 process samples, 5 ACP warm samples, and 3 ACP cold samples.
     - Logs/metrics cover worker startup, handshake, session creation, first frame/text, prompt duration, stop reason, cancellation path, replacement reason, active workers, and cap exhaustion.
-  - Evidence: Documentation updates prepared for `docs/configuration.md`, `docs/operations.md`, and `docs/architecture.md` to describe ACP opt-in, rollback to process mode, unmediated MCP incompatibility, worker caps, and ACP log events. Integrated ACP runner ROI remains pending.
+  - Evidence: Documentation updates prepared for `docs/configuration.md`, `docs/operations.md`, and `docs/architecture.md` to describe ACP opt-in, rollback to process mode, unmediated MCP incompatibility, worker caps, and ACP log events. Integrated runtime ROI was remeasured through local `/openai/v1/responses` with 5 process samples, 3 ACP cold samples, and 5 ACP warm continuation samples. Process p50 first assistant SSE was ~7177ms and total ~9408ms; ACP warm p50 first assistant SSE was ~2795ms and total ~3038ms. Warm ACP savings were ~4382ms first-assistant and ~6370ms total, both above the 5% historical-backend-p50 threshold.
