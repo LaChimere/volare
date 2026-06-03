@@ -394,6 +394,8 @@ Minimum verification level for code changes: L2. Because this is performance-rel
 
 This design intentionally stops before ACP runtime implementation. The current `plan.md` and `todo.md` are probe-gate artifacts only: they may cover probe harness work, fake-ACP tests, real Copilot CLI probes, evidence capture, and gate decisions. Only if the probe gate passes should the slug create or update implementation planning with atomic ACP runner slices.
 
+2026-06-03 ACP discovery update: Copilot CLI 1.0.59 successfully handled `initialize`, `session/new`, and `session/prompt` over NDJSON JSON-RPC with minimal client capabilities. The observed update method was `session/update`, the terminal `session/prompt` response carried `stopReason: "end_turn"`, and `session/new` returned config options for `model` and `allow_all`. The probe also observed a redacted `copilot-login` terminal-auth method. This validates the basic prompt path but does not complete the cancellation, isolation, multiplexing, failure-mode, or ROI gates.
+
 ## Approval
 
 - [x] Design approved by: User

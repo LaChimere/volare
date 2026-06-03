@@ -28,6 +28,7 @@
 - Runtime/tool versions:
   - Bun project uses `bun@1.3.13` from `package.json`.
   - Local Copilot CLI help/version probe reported `GitHub Copilot CLI 1.0.49`.
+  - ACP discovery probe later reported `GitHub Copilot CLI 1.0.59`.
 - Commands run:
   - `copilot --help`
   - `copilot help commands`
@@ -118,6 +119,70 @@ Implication: any ACP implementation plan must be a real JSON-RPC peer, not a one
 
 The script is a good starting point, but before implementation it must be corrected or replaced with persistent-pipe ACP probes that answer ACP response streaming, request/session methods, cancellation semantics, response-boundary framing, capability negotiation, permission/auth behavior, stdout/stderr separation, protocol version handling, and ROI timing.
 
+### Observed ACP protocol fixtures
+
+Command/action: `bun run scripts/probe-copilot-acp.ts --discovery`
+
+Environment:
+
+- Date: 2026-06-03
+- Copilot CLI: `GitHub Copilot CLI 1.0.59`
+- Prompt: `Reply with the single word OK.`
+- cwd: temporary empty directory created by the probe
+- MCP servers: `[]`, with `--disable-builtin-mcps`
+- client capabilities: minimal `{}`; no terminal or filesystem capabilities advertised
+
+Observed initialize behavior:
+
+- ACP stdio accepted newline-delimited JSON-RPC.
+- `initialize` with `clientCapabilities` succeeded.
+- Negotiated `protocolVersion`: `1`.
+- Unsupported client protocol probe requested `999`; Copilot CLI responded with its supported version, which the probe recorded as client-side `unsupported_protocol_version`.
+- `agentCapabilities` summary:
+  - `loadSession: true`
+  - `mcpCapabilities.http: true`
+  - `mcpCapabilities.sse: true`
+  - `promptCapabilities.image: true`
+  - `promptCapabilities.audio: false`
+  - `promptCapabilities.embeddedContext: true`
+  - `sessionCapabilities.list: {}`
+- `authMethods`: one `copilot-login` terminal-auth method was advertised. Nested command/args payloads were redacted in probe evidence. In this logged-in local environment, `session/new` still succeeded without an explicit `authenticate` call, so implementation must handle or explicitly fail auth-required cases instead of assuming `authMethods` is empty.
+
+Observed `session/new` behavior:
+
+- Request shape used by the probe: `{ cwd, mcpServers: [] }`.
+- Response included `sessionId` plus `configOptions`, `models`, and `modes`.
+- `configOptions` exposed:
+  - `mode` with 3 options
+  - `model` with 22 options
+  - `reasoning_effort` with 3 options
+  - `allow_all` with 2 options
+- Binding matrix from this discovery:
+  - cwd: `session/new.cwd`
+  - model: `session/new configOptions.id=model`
+  - permission mode: `session/new configOptions.id=allow_all`
+  - MCP mode: `session/new.mcpServers=[]` plus worker startup `--disable-builtin-mcps`
+  - no-custom-instructions: worker startup flag `--no-custom-instructions`
+
+Observed `session/prompt` behavior:
+
+- Request shape used by the probe: one text `ContentBlock[]`.
+- Update notification method: `session/update`.
+- Update kinds observed: `agent_message_chunk`, `config_option_update`.
+- Terminal framing: the original `session/prompt` request resolved with a result containing `stopReason`.
+- Stop reason observed: `end_turn`.
+- Server-to-client callback methods observed during this minimal prompt: none.
+
+Timing from this single discovery run:
+
+| Segment | Duration |
+|---|---:|
+| initialize | ~646ms |
+| session/new | ~10482ms |
+| session/prompt | ~4349ms |
+
+These timings are not ROI evidence yet. The ROI gate still requires the separate sample floors in `plan.md`: at least 5 process samples, 5 ACP warm-worker samples, and 3 ACP cold-worker samples, compared against recent historical `backend.turn.completed` p50/p90 evidence.
+
 ### agent-maestro findings
 
 The useful agent-maestro lesson is architectural: it avoids per-request CLI startup by living inside a long-lived VS Code extension host and using durable model handles.
@@ -166,6 +231,12 @@ What not to copy:
 - Command/action: `copilot --help`, `copilot --acp --help`, `copilot help commands`, `copilot --version`
 - Result: help confirms `--acp`, non-interactive `--prompt`, interactive mode, stream/json output, resume/continue, and permission/MCP flags. Version is `GitHub Copilot CLI 1.0.49`.
 - Interpretation: ACP is the right first reusable-channel candidate; non-interactive `--prompt` remains the safe baseline.
+
+### Copilot CLI ACP discovery
+
+- Command/action: `bun run scripts/probe-copilot-acp.ts --discovery`
+- Result: real ACP discovery succeeded on Copilot CLI 1.0.59. `initialize`, `session/new`, and `session/prompt` worked with NDJSON JSON-RPC, minimal client capabilities, temporary cwd, empty MCP server list, and one text `ContentBlock`.
+- Interpretation: the core ACP prompt path is viable for further probe-gate work. Discovery also showed session-level config options for model and `allow_all`, so future implementation scoping should use observed config binding instead of assuming model/permission are only worker-startup concerns.
 
 ### agent-maestro source inspection
 
