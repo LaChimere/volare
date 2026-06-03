@@ -202,12 +202,12 @@ If any check fails, follow the recovery flow:
 
 ### Wiring, docs, and verification
 
-- [ ] Wire ACP mode into runtime
+- [x] Wire ACP mode into runtime
   - Acceptance criteria:
     - `src/runtime/server.ts` selects process vs ACP runner from config.
     - Explicit ACP startup/handshake failure surfaces structured errors; no silent fallback.
     - Process mode remains default and existing tests remain behavior-compatible.
-  - Evidence:
+  - Evidence: `src/runtime/server.ts` now selects `AcpCopilotPromptRunner` only when `copilotRuntimeMode === 'acp'`, otherwise keeps `BunCopilotPromptRunner` as the default. Tests in `tests/unit_tests/runtime/server.test.ts` assert default process mode and explicit ACP runner creation. `bun test tests/unit_tests/runtime/server.test.ts tests/unit_tests/backends/acp-copilot-prompt-runner.test.ts` passed; `bun run typecheck` passed.
 
 - [ ] Update docs and remeasure integrated ROI
   - Acceptance criteria:

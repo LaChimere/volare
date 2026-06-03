@@ -49,7 +49,7 @@ interface IActivePrompt {
 }
 
 const DEFAULT_ACP_MAX_WORKERS = 10;
-const DEFAULT_ACP_REQUEST_TIMEOUT_MS = 90_000;
+const DEFAULT_ACP_REQUEST_TIMEOUT_MS = 600_000;
 
 export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #command: string;
