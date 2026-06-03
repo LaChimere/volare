@@ -16,6 +16,89 @@ interface IJsonRpcRequest {
   params?: JsonObject;
 }
 
+async function waitForAgentChunkCount(
+  peer: AcpJsonRpcPeer,
+  startIndex: number,
+  count: number,
+  timeoutMs: number,
+): Promise<number> {
+  const startedAt = performance.now();
+  while (performance.now() - startedAt < timeoutMs) {
+    const observed = countAgentMessageChunks(peer.rawMessages.slice(startIndex));
+    if (observed >= count) {
+      return observed;
+    }
+    await Bun.sleep(25);
+  }
+  return countAgentMessageChunks(peer.rawMessages.slice(startIndex));
+}
+
+function countAgentMessageChunks(messages: readonly JsonValue[]): number {
+  return messages.filter((message) => {
+    if (!isJsonObject(message) || getField(message, 'method') !== 'session/update') {
+      return false;
+    }
+    const params = getField(message, 'params');
+    if (!isJsonObject(params)) {
+      return false;
+    }
+    const update = getField(params, 'update');
+    return isJsonObject(update) && getField(update, 'sessionUpdate') === 'agent_message_chunk';
+  }).length;
+}
+
+function extractProcessText(output: string): string {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const parts = lines.flatMap((line) => {
+    try {
+      return extractProcessTextFromValue(JSON.parse(line) as JsonValue, line);
+    } catch {
+      return line.startsWith('{') || line.startsWith('[') ? [] : [line];
+    }
+  });
+  return parts.join('');
+}
+
+function extractProcessTextFromValue(value: JsonValue, fallbackText?: string): string[] {
+  if (typeof value === 'string') {
+    return [value];
+  }
+  if (fallbackText !== undefined && (typeof value === 'number' || typeof value === 'boolean')) {
+    return [fallbackText];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((child) => extractProcessTextFromValue(child));
+  }
+  if (!isJsonObject(value)) {
+    return [];
+  }
+
+  const type = getField(value, 'type');
+  if (typeof type === 'string') {
+    if (type !== 'assistant.message_delta') {
+      return [];
+    }
+    const data = getField(value, 'data');
+    if (!isJsonObject(data)) {
+      return [];
+    }
+    const deltaContent = getField(data, 'deltaContent');
+    return typeof deltaContent === 'string' ? [deltaContent] : [];
+  }
+
+  for (const key of ['assistant_response', 'assistantResponse', 'delta', 'text', 'content']) {
+    const child = getField(value, key);
+    if (typeof child === 'string') {
+      return [child];
+    }
+  }
+
+  return [];
+}
+
 interface IJsonRpcResponse {
   [key: string]: JsonValue;
   jsonrpc: '2.0';
@@ -98,6 +181,16 @@ interface IAcpDiscoveryEvidence {
   };
 }
 
+interface IBehaviorRoiEvidence {
+  cancellation: JsonValue;
+  isolation: JsonValue;
+  multiplexing: JsonValue;
+  stalledClient: JsonValue;
+  replacementSafety: JsonValue;
+  failureSurface: JsonValue;
+  roi: JsonValue;
+}
+
 interface IPendingRequest {
   method: string;
   resolve(response: IJsonRpcResponse): void;
@@ -128,6 +221,7 @@ export class AcpJsonRpcPeer {
   readonly #supportedProtocolVersions: readonly number[];
   readonly #reverseRequestPolicy: Partial<Record<string, AcpReverseRequestPolicy>>;
   readonly #pending = new Map<number, IPendingRequest>();
+  readonly #rawMessages: JsonValue[] = [];
   readonly #messages: JsonValue[] = [];
   readonly #serverRequestRecords: IAcpReverseRequestRecord[] = [];
   readonly #diagnostics: string[] = [];
@@ -156,6 +250,10 @@ export class AcpJsonRpcPeer {
 
   get messages(): readonly JsonValue[] {
     return this.#messages;
+  }
+
+  get rawMessages(): readonly JsonValue[] {
+    return this.#rawMessages;
   }
 
   get serverRequestMethods(): readonly string[] {
@@ -328,6 +426,7 @@ export class AcpJsonRpcPeer {
       return;
     }
 
+    this.#rawMessages.push(frame);
     this.#messages.push(redactAcpFrame(frame));
     if (!isJsonRpcResponse(frame)) {
       if (isJsonRpcRequest(frame)) {
@@ -711,6 +810,591 @@ async function probeUnsupportedProtocolVersion(copilotPath: string): Promise<Jso
     await Promise.race([proc.exited, Bun.sleep(1_000)]);
     proc.kill('SIGKILL');
   }
+}
+
+async function probeBehaviorAndRoi(copilotPath: string): Promise<IAcpProbeResult[]> {
+  try {
+    const evidence: IBehaviorRoiEvidence = {
+      cancellation: await probeCancellationBehavior(copilotPath),
+      isolation: await probeIsolationBehavior(copilotPath),
+      multiplexing: await probeMultiplexingBehavior(copilotPath),
+      stalledClient: await probeStalledClientBehavior(copilotPath),
+      replacementSafety: await probeReplacementSafety(copilotPath),
+      failureSurface: await probeFailureSurface(copilotPath),
+      roi: await probeRoi(copilotPath),
+    };
+    return [
+      { name: 'ACP behavior and ROI', status: 'supported', evidence: JSON.stringify(evidence) },
+    ];
+  } catch (cause) {
+    return [
+      {
+        name: 'ACP behavior and ROI',
+        status: 'failed',
+        evidence: cause instanceof Error ? cause.message : String(cause),
+      },
+    ];
+  }
+}
+
+async function probeCancellationBehavior(copilotPath: string): Promise<JsonValue> {
+  const session = await createAcpProbeSession(copilotPath, 'cancel');
+  try {
+    const startedAt = performance.now();
+    const before = session.peer.rawMessages.length;
+    const prompt = session.peer.request('session/prompt', {
+      sessionId: session.sessionId,
+      prompt: [
+        {
+          type: 'text',
+          text: 'Count from 1 to 10000, one number per line, with no explanations.',
+        },
+      ],
+    });
+    const chunksBeforeCancel = await waitForAgentChunkCount(session.peer, before, 3, 10_000);
+    await session.peer.notify('session/cancel', { sessionId: session.sessionId });
+    await session.peer.notify('session/cancel', { sessionId: session.sessionId });
+    const response = await prompt;
+    return {
+      stopReason: extractStopReason(response.result),
+      elapsedMs: elapsedMs(startedAt),
+      repeatedCancelSent: true,
+      chunksBeforeCancel,
+      callbackRecords: summarizeReverseRecords(session.peer.serverRequestRecords),
+    };
+  } catch (cause) {
+    return {
+      error: cause instanceof Error ? cause.message : String(cause),
+      callbackRecords: summarizeReverseRecords(session.peer.serverRequestRecords),
+    };
+  } finally {
+    await session.dispose();
+  }
+}
+
+async function probeIsolationBehavior(copilotPath: string): Promise<JsonValue> {
+  const session = await createAcpProbeSession(copilotPath, 'isolation');
+  const secondCwd = await mkdtemp(join(tmpdir(), 'volare-acp-isolation-b-'));
+  const nonce = `VOLARE_NONCE_${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    const secondSession = await session.peer.request('session/new', {
+      cwd: secondCwd,
+      mcpServers: [],
+    });
+    const secondSessionId = extractSessionId(secondSession.result);
+    await runPromptAndSummarize(
+      session.peer,
+      session.sessionId,
+      `Remember this nonce for this session only: ${nonce}. Reply OK.`,
+    );
+    const second = await runPromptAndSummarize(
+      session.peer,
+      secondSessionId,
+      'If a nonce was provided earlier in this session, reply with it. Otherwise reply NONE.',
+    );
+    return {
+      distinctCwdSessionsCreated: true,
+      leakedNonce: second.agentText.includes(nonce),
+      secondReplyBytes: textEncoder.encode(second.agentText).byteLength,
+      secondStopReason: second.stopReason,
+      callbackRecords: summarizeReverseRecords(session.peer.serverRequestRecords),
+    };
+  } finally {
+    await rm(secondCwd, { recursive: true, force: true });
+    await session.dispose();
+  }
+}
+
+async function probeMultiplexingBehavior(copilotPath: string): Promise<JsonValue> {
+  const session = await createAcpProbeSession(copilotPath, 'multiplex');
+  const secondCwd = await mkdtemp(join(tmpdir(), 'volare-acp-multiplex-b-'));
+  try {
+    const secondSession = await session.peer.request('session/new', {
+      cwd: secondCwd,
+      mcpServers: [],
+    });
+    const secondSessionId = extractSessionId(secondSession.result);
+    const first = runPromptAndSummarize(
+      session.peer,
+      session.sessionId,
+      'Reply with exactly FIRST.',
+    );
+    const second = runPromptAndSummarize(
+      session.peer,
+      secondSessionId,
+      'Reply with exactly SECOND.',
+    );
+    const settled = await Promise.allSettled([first, second]);
+    return {
+      outcomes: settled.map((result) =>
+        result.status === 'fulfilled'
+          ? {
+              status: 'fulfilled',
+              stopReason: result.value.stopReason,
+              replyBytes: textEncoder.encode(result.value.agentText).byteLength,
+            }
+          : { status: 'rejected', reason: String(result.reason) },
+      ),
+      callbackRecords: summarizeReverseRecords(session.peer.serverRequestRecords),
+    };
+  } finally {
+    await rm(secondCwd, { recursive: true, force: true });
+    await session.dispose();
+  }
+}
+
+async function probeStalledClientBehavior(copilotPath: string): Promise<JsonValue> {
+  const session = await createAcpProbeSession(copilotPath, 'stalled');
+  try {
+    const prompt = session.peer.request('session/prompt', {
+      sessionId: session.sessionId,
+      prompt: [{ type: 'text', text: 'Reply with the single word OK after a short pause.' }],
+    });
+    const observed = prompt.then(
+      (response) => ({ status: 'fulfilled', stopReason: extractStopReason(response.result) }),
+      (error) => ({
+        status: 'rejected',
+        reason: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    await Bun.sleep(500);
+    session.peer.close();
+    await session.dispose();
+    const settled = await Promise.race([
+      observed,
+      Bun.sleep(1_000).then(() => ({ status: 'pending_after_close' })),
+    ]);
+    return settled;
+  } catch (cause) {
+    return { error: cause instanceof Error ? cause.message : String(cause) };
+  }
+}
+
+async function probeReplacementSafety(copilotPath: string): Promise<JsonValue> {
+  const first = await createAcpProbeSession(copilotPath, 'replace-a');
+  const second = await createAcpProbeSession(copilotPath, 'replace-b');
+  try {
+    const firstBefore = first.peer.rawMessages.length;
+    const firstPrompt = first.peer.request('session/prompt', {
+      sessionId: first.sessionId,
+      prompt: [{ type: 'text', text: 'Count from 1 to 10000, one number per line.' }],
+    });
+    const firstObserved = firstPrompt.then(
+      (response) => ({ status: 'fulfilled', stopReason: extractStopReason(response.result) }),
+      (error) => ({
+        status: 'rejected',
+        reason: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    const secondPrompt = runPromptAndSummarize(
+      second.peer,
+      second.sessionId,
+      'Reply with the single word OK.',
+    );
+    const firstChunksBeforeKill = await waitForAgentChunkCount(first.peer, firstBefore, 3, 10_000);
+    await first.dispose();
+    const firstOutcome = await Promise.race([
+      firstObserved,
+      Bun.sleep(1_000).then(() => ({ status: 'pending_after_worker_kill' })),
+    ]);
+    const secondOutcome = await secondPrompt;
+    return {
+      killedWorkerChunksBeforeKill: firstChunksBeforeKill,
+      killedWorkerPrompt: firstOutcome,
+      siblingWorkerStopReason: secondOutcome.stopReason,
+      siblingReplyBytes: textEncoder.encode(secondOutcome.agentText).byteLength,
+    };
+  } finally {
+    await first.dispose();
+    await second.dispose();
+  }
+}
+
+async function probeFailureSurface(copilotPath: string): Promise<JsonValue> {
+  const home = await mkdtemp(join(tmpdir(), 'volare-acp-auth-failure-'));
+  const proc = Bun.spawn(
+    [copilotPath, '--acp', '--no-color', '--no-custom-instructions', '--log-level', 'error'],
+    {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        ...Bun.env,
+        HOME: home,
+        XDG_CONFIG_HOME: join(home, '.config'),
+        NO_COLOR: '1',
+        CI: '1',
+      },
+    },
+  );
+  const peer = new AcpJsonRpcPeer({
+    stdin: proc.stdin,
+    stdout: proc.stdout,
+    stderr: proc.stderr,
+    requestTimeoutMs: 20_000,
+  });
+  try {
+    const initialize = await peer.initialize();
+    const session = await peer.request('session/new', {
+      cwd: home,
+      mcpServers: [],
+    });
+    return {
+      initialize: redactAcpFrame(initialize),
+      sessionNew: redactSessionNewResult(session.result),
+      stderr: peer.diagnostics,
+    };
+  } catch (cause) {
+    return {
+      error: cause instanceof Error ? cause.message : String(cause),
+      messages: [...peer.messages],
+      stderr: peer.diagnostics,
+    };
+  } finally {
+    peer.close();
+    proc.kill('SIGTERM');
+    await Promise.race([proc.exited, Bun.sleep(1_000)]);
+    proc.kill('SIGKILL');
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+async function probeRoi(copilotPath: string): Promise<JsonValue> {
+  const processSamples = await collectSamples(5, () => measureProcessPrompt(copilotPath));
+  const coldSamples = await collectSamples(3, () => measureAcpColdPrompt(copilotPath));
+  const warmSamples = await measureAcpWarmPrompts(copilotPath, 5);
+  const historicalBackendDurationP50Ms = 54_000;
+  const warmSavingsMs =
+    median(processSamples.map((sample) => sample.firstAssistantTextMs)) -
+    median(warmSamples.map((sample) => sample.firstAssistantTextMs));
+  const warmTerminalSavingsMs =
+    median(processSamples.map((sample) => sample.totalMs)) -
+    median(warmSamples.map((sample) => sample.totalMs));
+  return {
+    historicalBackendDuration: {
+      source: 'plans/codex-latency-observability/research.md',
+      p50Ms: historicalBackendDurationP50Ms,
+      p90Ms: 134_000,
+    },
+    process: summarizeTimingSamples(processSamples),
+    acpCold: summarizeTimingSamples(coldSamples),
+    acpWarm: summarizeTimingSamples(warmSamples),
+    estimatedWarmContinuationSavingsMs: Math.round(warmSavingsMs),
+    estimatedWarmTerminalSavingsMs: Math.round(warmTerminalSavingsMs),
+    savingsShareOfHistoricalP50: Number(
+      (warmSavingsMs / historicalBackendDurationP50Ms).toFixed(4),
+    ),
+    terminalSavingsShareOfHistoricalP50: Number(
+      (warmTerminalSavingsMs / historicalBackendDurationP50Ms).toFixed(4),
+    ),
+    firstTextThresholdPassed: warmSavingsMs / historicalBackendDurationP50Ms >= 0.05,
+    terminalThresholdPassed: warmTerminalSavingsMs / historicalBackendDurationP50Ms >= 0.05,
+  };
+}
+
+interface IAcpProbeSession {
+  peer: AcpJsonRpcPeer;
+  sessionId: string;
+  dispose(): Promise<void>;
+}
+
+interface IPromptSummary {
+  stopReason: string | null;
+  agentText: string;
+  firstAssistantTextMs: number | null;
+  totalMs: number;
+}
+
+interface ITimingSample {
+  firstStdoutMs?: number | null;
+  firstFrameMs?: number | null;
+  firstAssistantTextMs: number;
+  totalMs: number;
+}
+
+async function createAcpProbeSession(
+  copilotPath: string,
+  label: string,
+): Promise<IAcpProbeSession> {
+  const cwd = await mkdtemp(join(tmpdir(), `volare-acp-${label}-`));
+  const proc = Bun.spawn(
+    [
+      copilotPath,
+      '--acp',
+      '--no-color',
+      '--no-custom-instructions',
+      '--disable-builtin-mcps',
+      '--log-level',
+      'error',
+    ],
+    {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        ...Bun.env,
+        NO_COLOR: '1',
+        CI: '1',
+      },
+    },
+  );
+  const peer = new AcpJsonRpcPeer({
+    stdin: proc.stdin,
+    stdout: proc.stdout,
+    stderr: proc.stderr,
+    requestTimeoutMs: 90_000,
+    reverseRequestPolicy: {
+      'session/request_permission': 'deny',
+    },
+  });
+  await peer.initialize();
+  const session = await peer.request('session/new', { cwd, mcpServers: [] });
+  const sessionId = extractSessionId(session.result);
+  let disposed = false;
+  return {
+    peer,
+    sessionId,
+    async dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      peer.close();
+      proc.kill('SIGTERM');
+      await Promise.race([proc.exited, Bun.sleep(1_000)]);
+      proc.kill('SIGKILL');
+      await rm(cwd, { recursive: true, force: true });
+    },
+  };
+}
+
+async function runPromptAndSummarize(
+  peer: AcpJsonRpcPeer,
+  sessionId: string,
+  promptText: string,
+): Promise<IPromptSummary> {
+  const startedAt = performance.now();
+  const before = peer.rawMessages.length;
+  const prompt = peer.request('session/prompt', {
+    sessionId,
+    prompt: [{ type: 'text', text: promptText }],
+  });
+  const firstAssistantText = await waitForAssistantText(peer, before, 90_000);
+  const firstAssistantTextMs = firstAssistantText === null ? null : elapsedMs(startedAt);
+  const response = await prompt;
+  const messages = peer.rawMessages.slice(before);
+  return {
+    stopReason: extractStopReason(response.result),
+    agentText: extractAgentText(messages),
+    firstAssistantTextMs,
+    totalMs: elapsedMs(startedAt),
+  };
+}
+
+async function waitForAssistantText(
+  peer: AcpJsonRpcPeer,
+  startIndex: number,
+  timeoutMs: number,
+): Promise<string | null> {
+  const startedAt = performance.now();
+  while (performance.now() - startedAt < timeoutMs) {
+    const text = extractAgentText(peer.rawMessages.slice(startIndex));
+    if (text.length > 0) {
+      return text;
+    }
+    await Bun.sleep(25);
+  }
+  return null;
+}
+
+function extractAgentText(messages: readonly JsonValue[]): string {
+  const chunks: string[] = [];
+  for (const message of messages) {
+    if (!isJsonObject(message)) {
+      continue;
+    }
+    const method = getField(message, 'method');
+    if (method !== 'session/update') {
+      continue;
+    }
+    const params = getField(message, 'params');
+    if (!isJsonObject(params)) {
+      continue;
+    }
+    const update = getField(params, 'update');
+    if (!isJsonObject(update) || getField(update, 'sessionUpdate') !== 'agent_message_chunk') {
+      continue;
+    }
+    const content = getField(update, 'content');
+    if (!isJsonObject(content)) {
+      continue;
+    }
+    const text = getField(content, 'text');
+    if (typeof text === 'string') {
+      chunks.push(text);
+    }
+  }
+  return chunks.join('');
+}
+
+async function collectSamples(
+  count: number,
+  measure: () => Promise<ITimingSample>,
+): Promise<ITimingSample[]> {
+  const samples: ITimingSample[] = [];
+  for (let index = 0; index < count; index += 1) {
+    samples.push(await measure());
+  }
+  return samples;
+}
+
+async function measureProcessPrompt(copilotPath: string): Promise<ITimingSample> {
+  const startedAt = performance.now();
+  const proc = Bun.spawn(
+    [
+      copilotPath,
+      '--no-color',
+      '--no-custom-instructions',
+      '--disable-builtin-mcps',
+      '--log-level',
+      'error',
+      '--stream',
+      'on',
+      '--output-format',
+      'json',
+      '--prompt',
+      SAFE_SYNTHETIC_PROMPT,
+    ],
+    {
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        ...Bun.env,
+        NO_COLOR: '1',
+        CI: '1',
+      },
+    },
+  );
+  const reader = proc.stdout?.getReader();
+  let firstStdoutMs: number | null = null;
+  let firstAssistantTextMs: number | null = null;
+  let output = '';
+  if (reader) {
+    try {
+      while (true) {
+        const result = await Promise.race([
+          reader.read(),
+          Bun.sleep(90_000).then(() => ({ done: true, value: undefined })),
+        ]);
+        if (result.done) {
+          break;
+        }
+        if (firstStdoutMs === null) {
+          firstStdoutMs = elapsedMs(startedAt);
+        }
+        output += textDecoder.decode(result.value, { stream: true });
+        if (firstAssistantTextMs === null && extractProcessText(output).length > 0) {
+          firstAssistantTextMs = elapsedMs(startedAt);
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  await Promise.race([proc.exited, Bun.sleep(90_000)]);
+  proc.kill('SIGTERM');
+  return {
+    firstStdoutMs,
+    firstAssistantTextMs: firstAssistantTextMs ?? firstStdoutMs ?? elapsedMs(startedAt),
+    totalMs: elapsedMs(startedAt),
+  };
+}
+
+async function measureAcpColdPrompt(copilotPath: string): Promise<ITimingSample> {
+  const startedAt = performance.now();
+  const session = await createAcpProbeSession(copilotPath, 'roi-cold');
+  try {
+    const before = session.peer.rawMessages.length;
+    const prompt = session.peer.request('session/prompt', {
+      sessionId: session.sessionId,
+      prompt: [{ type: 'text', text: SAFE_SYNTHETIC_PROMPT }],
+    });
+    await waitForAssistantText(session.peer, before, 90_000);
+    const firstAssistantTextMs = elapsedMs(startedAt);
+    await prompt;
+    return {
+      firstFrameMs: firstAssistantTextMs,
+      firstAssistantTextMs,
+      totalMs: elapsedMs(startedAt),
+    };
+  } finally {
+    await session.dispose();
+  }
+}
+
+async function measureAcpWarmPrompts(copilotPath: string, count: number): Promise<ITimingSample[]> {
+  const session = await createAcpProbeSession(copilotPath, 'roi-warm');
+  try {
+    const samples: ITimingSample[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const startedAt = performance.now();
+      const summary = await runPromptAndSummarize(
+        session.peer,
+        session.sessionId,
+        SAFE_SYNTHETIC_PROMPT,
+      );
+      samples.push({
+        firstAssistantTextMs: summary.firstAssistantTextMs ?? summary.totalMs,
+        totalMs: elapsedMs(startedAt),
+      });
+    }
+    return samples;
+  } finally {
+    await session.dispose();
+  }
+}
+
+function summarizeTimingSamples(samples: ITimingSample[]): JsonValue {
+  const firstAssistantText = samples.map((sample) => sample.firstAssistantTextMs);
+  const total = samples.map((sample) => sample.totalMs);
+  return {
+    samples: samples.length,
+    firstAssistantTextMs: summarizeNumbers(firstAssistantText),
+    totalMs: summarizeNumbers(total),
+    firstStdoutMs: summarizeOptionalNumbers(samples.map((sample) => sample.firstStdoutMs)),
+    firstFrameMs: summarizeOptionalNumbers(samples.map((sample) => sample.firstFrameMs)),
+  };
+}
+
+function summarizeNumbers(values: number[]): JsonValue {
+  return {
+    p50: Math.round(median(values)),
+    p90: Math.round(percentile(values, 0.9)),
+    max: Math.round(Math.max(...values)),
+  };
+}
+
+function summarizeOptionalNumbers(values: Array<number | null | undefined>): JsonValue {
+  const present = values.filter((value): value is number => typeof value === 'number');
+  return present.length > 0 ? summarizeNumbers(present) : null;
+}
+
+function median(values: number[]): number {
+  return percentile(values, 0.5);
+}
+
+function percentile(values: number[], percentileValue: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted.length === 0) {
+    return 0;
+  }
+  const index = Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * percentileValue));
+  return sorted[index] ?? 0;
+}
+
+function summarizeReverseRecords(records: readonly IAcpReverseRequestRecord[]): JsonValue {
+  return records.map((record) => ({ method: record.method, policy: record.policy }));
 }
 
 export function classifyUnsupportedProtocolResponse(response: IJsonRpcResponse): JsonValue {
@@ -1236,7 +1920,9 @@ async function main(): Promise<void> {
     ? 'self-test'
     : Bun.argv.includes('--discovery')
       ? 'discovery'
-      : 'initialize';
+      : Bun.argv.includes('--behavior-roi')
+        ? 'behavior-roi'
+        : 'initialize';
   const copilotPath = await findCommand('copilot');
   const copilotVersion = await captureCopilotVersion(copilotPath);
   let results: IAcpProbeResult[];
@@ -1248,6 +1934,8 @@ async function main(): Promise<void> {
     ];
   } else if (mode === 'discovery') {
     results = await probeDiscovery(copilotPath);
+  } else if (mode === 'behavior-roi') {
+    results = await probeBehaviorAndRoi(copilotPath);
   } else {
     results = [await probeInitialize(copilotPath)];
   }
