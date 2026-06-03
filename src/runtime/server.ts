@@ -3,7 +3,12 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { DefaultApprovalPolicy } from '../approvals/policy';
 import { ApprovalProvider } from '../approvals/provider';
-import { CopilotCliBackend } from '../backends/copilot-cli/backend';
+import { AcpCopilotPromptRunner } from '../backends/copilot-cli/acp-runner';
+import {
+  BunCopilotPromptRunner,
+  CopilotCliBackend,
+  type ICopilotPromptRunner,
+} from '../backends/copilot-cli/backend';
 import { DurableSessionManager } from '../core/durable-session-manager';
 import { toVolareError } from '../core/errors';
 import { SQLiteEventJournal } from '../events/sqlite-event-journal';
@@ -51,6 +56,7 @@ export async function startVolareRuntime(
   const sessionManager = new DurableSessionManager({
     store: stateStore,
     backend: new CopilotCliBackend({
+      runner: createCopilotPromptRunner(config, logger),
       logger,
       permissionMode: config.copilotPermissionMode,
       mcpMode: config.copilotMcpMode,
@@ -107,6 +113,25 @@ export async function startVolareRuntime(
     'Volare listening',
   );
   return { config, server, shutdown };
+}
+
+export function createCopilotPromptRunner(
+  config: IServerRuntimeConfig,
+  logger = createLogger({ level: config.logLevel }),
+): ICopilotPromptRunner {
+  if (config.copilotRuntimeMode === 'acp') {
+    return new AcpCopilotPromptRunner({
+      logger,
+      permissionMode: config.copilotPermissionMode,
+      maxWorkers: config.copilotAcpMaxWorkers,
+    });
+  }
+  return new BunCopilotPromptRunner(
+    undefined,
+    'copilot',
+    config.copilotPermissionMode,
+    config.copilotMcpMode,
+  );
 }
 
 export function installRuntimeSignalHandlers(runtime: IVolareRuntime): void {
