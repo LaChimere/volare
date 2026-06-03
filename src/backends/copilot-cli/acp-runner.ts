@@ -149,7 +149,9 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         throw promptError;
       }
     } catch (error) {
-      await this.#replaceWorker(worker, 'prompt_error');
+      if (this.#workers.get(worker.backendSessionId) === worker) {
+        await this.#replaceWorker(worker, 'prompt_error');
+      }
       throw error;
     }
   }

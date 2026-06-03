@@ -20,10 +20,14 @@ class FakeAcpProcess {
   });
   readonly inputs: string[] = [];
   killed: Array<'SIGTERM' | 'SIGKILL'> = [];
+  ignoreSigterm = false;
   sessionId = `session_${Math.random().toString(36).slice(2)}`;
 
   kill(signal: 'SIGTERM' | 'SIGKILL'): void {
     this.killed.push(signal);
+    if (signal === 'SIGTERM' && this.ignoreSigterm) {
+      return;
+    }
     this.resolveExit(signal === 'SIGTERM' ? 143 : 137);
     this.stdout.close();
     this.stderr.close();
@@ -387,6 +391,59 @@ describe('AcpCopilotPromptRunner', () => {
     await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
     await expect(firstChunk).resolves.toBeInstanceOf(Error);
     expect(processes[0]?.killed).toContain('SIGTERM');
+  });
+
+  test('reports not_found when no ACP turn is active', async () => {
+    const runner = new AcpCopilotPromptRunner();
+
+    await expect(runner.cancel('missing')).resolves.toEqual({ status: 'not_found' });
+  });
+
+  test('force cancel times out and does not kill a replacement worker', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        if (processes.length === 0) {
+          proc.ignoreSigterm = true;
+          const originalHandle = proc.handleInput.bind(proc);
+          proc.handleInput = (input: string) => {
+            if (input.includes('session/prompt')) {
+              proc.inputs.push(input);
+              return;
+            }
+            originalHandle(input);
+          };
+        }
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+      requestTimeoutMs: 1_000,
+    });
+    const iterator = runner
+      .run('first prompt', { backendSessionId: 'backend_1', cwd: '/tmp' })
+      [Symbol.asyncIterator]();
+    const firstChunk = iterator.next().catch((error) => error);
+    await waitFor(() =>
+      processes.some((proc) => proc.inputs.join('\n').includes('session/prompt')),
+    );
+
+    const cancel = runner.cancel('backend_1', { timeoutMs: 5, forceAfterTimeout: true });
+    await Bun.sleep(0);
+    await expect(
+      collect(runner.run('replacement prompt', { backendSessionId: 'backend_1', cwd: '/tmp' })),
+    ).resolves.toEqual(['hello']);
+
+    await expect(cancel).resolves.toEqual({ status: 'timed_out' });
+    expect(processes[0]?.killed).toEqual(['SIGTERM', 'SIGKILL']);
+    expect(processes[1]?.killed).toEqual([]);
+    await expect(firstChunk).resolves.toBeInstanceOf(Error);
   });
 });
 

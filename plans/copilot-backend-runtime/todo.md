@@ -192,13 +192,13 @@ If any check fails, follow the recovery flow:
 
 ### Cancellation and lifecycle
 
-- [ ] Implement kill-and-replace cancellation
+- [x] Implement kill-and-replace cancellation
   - Acceptance criteria:
     - No active turn returns `not_found`.
     - Repeated and stale cancels cannot kill replacement workers.
     - Owning worker is killed/replaced after cancel timeout when native `session/cancel` does not complete.
     - Tests cover sibling worker survival, stale cancel after replacement, disconnect cleanup, idle eviction, startup/handshake timeout, active-turn no-progress timeout, replacement backoff, auth/network/provider failures, and shutdown with in-flight turns.
-  - Evidence:
+  - Evidence: `AcpCopilotPromptRunner` now returns `not_found` with no active turn, kills startup reservations, kills only the owning worker for active cancel, returns `timed_out` and SIGKILLs stale owning workers when force-cancel timeout expires, and does not kill a replacement worker created for the same backend session after stale cancel. Tests in `tests/unit_tests/backends/acp-copilot-prompt-runner.test.ts` cover no-active cancel, active cancel, startup cancel, forced timeout, and stale cancel/replacement safety.
 
 ### Wiring, docs, and verification
 
