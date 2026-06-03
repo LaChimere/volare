@@ -50,7 +50,7 @@ Out of scope for the current architecture:
 | HTTP app | `src/server/app.ts` | Bearer auth, routing, request logging, workspace resolution, SSE response streaming, health, metrics, and debug endpoints. |
 | Protocol adapter | `src/northbound/openai-responses/adapter.ts` | Parse OpenAI Responses requests, encode SSE/stored responses, expose Codex model metadata. |
 | Core runtime | `src/core/` | Protocol-neutral types, durable session manager, in-memory session manager, workspace resolver, errors, and usage estimation. |
-| Backend | `src/backends/copilot-cli/` | Spawn Copilot CLI, parse JSON/plain output, track/cancel processes, and frame backend prompts. |
+| Backend | `src/backends/copilot-cli/` | Frame backend prompts, run Copilot CLI through the default per-turn process runner or the opt-in ACP runner, parse output, and track/cancel backend work. |
 | State | `src/state/` | SQLite schema, durable workspaces, threads, turns, backend sessions, approvals, and startup recovery. |
 | Event journal | `src/events/` | Canonical/debug event persistence, redaction, replay, and retention pruning. |
 | CLI | `src/cli.ts` | Foreground/daemon startup, status, stop, logs, and Codex config commands. |
@@ -64,7 +64,7 @@ Out of scope for the current architecture:
    - otherwise the request uses the configured projectless workspace.
 4. `OpenAIResponsesAdapter.parseRequest()` converts the client body into protocol-neutral `IAgentRequestInput`.
 5. `DurableSessionManager` creates or resumes thread/session state and starts a turn.
-6. `CopilotCliBackend` frames a single prompt and runs `copilot --stream on --output-format json`.
+6. `CopilotCliBackend` frames a single prompt and runs the configured Copilot runner. The default runner starts `copilot --stream on --output-format json --prompt ...`; the opt-in ACP runner uses long-lived `copilot --acp` workers.
 7. Backend deltas become canonical `AgentEvent` values.
 8. Events are journaled, logged, and encoded back to the client as Responses SSE events.
 9. Terminal events complete, fail, cancel, or interrupt the turn and end the SSE stream with `[DONE]`.

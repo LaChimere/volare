@@ -64,6 +64,7 @@ Runtime logs are structured JSON lines. Important event names include:
 | `workspace.resolved`, `workspace.selected` | Workspace selection and projectless status. |
 | `turn.started`, `turn.audit`, `turn.stream.started`, `turn.stream.terminal`, `turn.stream.interrupted`, `turn.stream.failed` | Session manager turn lifecycle and per-accepted-turn capability audit. |
 | `backend.turn.started`, `backend.turn.completed`, `backend.turn.failed` | Copilot CLI backend lifecycle and summary metrics. |
+| `backend.acp.worker.created`, `backend.acp.worker.exited`, `backend.acp.worker.replaced`, `backend.acp.prompt.completed` | ACP runtime worker and prompt lifecycle events when `VOLARE_COPILOT_RUNTIME_MODE=acp` is enabled. |
 | `responses.stream.started`, `responses.stream.completed`, `responses.stream.failed`, `responses.stream.interrupted` | SSE lifecycle. Stream start logs include safe model and reasoning-effort metadata when the client sends it. |
 | `responses.metadata.reserved_keys_stripped` | Client metadata attempted to use reserved `volare` / `volare.*` keys; logs key paths only, never values. |
 | `journal.redaction_failed` | Redaction failed before event persistence. |
@@ -85,6 +86,7 @@ Core and backend summaries use separate counters:
 - `turn.stream.started` includes `activeTurnCount`. Terminal, interrupted, and failed stream logs include `canonicalEventCount`, which counts canonical `AgentEvent` records and is separate from SSE `sseFrameCount`.
 - `backend.turn.completed` and `backend.turn.failed` include `promptAssembleMs`, `deltaCount`, coarse `promptSizeBucket` and `historyMessagesBucket`, and assistant delta timing fields when observed. Successful completion logs also include grounding-adjacent fields such as `groundingDomain`, `needsSourceGrounding`, `groundingCitationLikeOutputCount`, `groundingEvaluatedByteCount`, `groundingTruncated`, and `groundingWarningCodes`. `durationMs` keeps the backend runner duration after prompt assembly; it does not include `promptAssembleMs`.
 - `firstAssistantDeltaMs` and `maxObservedInterDeltaGapMs` are pull-path observations from backend text deltas. They can include downstream backpressure, journaling, SSE encoding, or client pull delays, so treat them as local correlation fields rather than model-only latency. Cancelled backend failures omit non-comparable `maxObservedInterDeltaGapMs` because cancellation and backpressure can dominate the observed gap.
+- ACP runtime logs are present only when `VOLARE_COPILOT_RUNTIME_MODE=acp` is explicitly configured. Use `backend.acp.worker.created` to confirm worker startup, `backend.acp.prompt.completed` to inspect ACP `stopReason` and prompt duration, and `backend.acp.worker.replaced` / `backend.acp.worker.exited` to diagnose kill-and-replace cancellation or worker crashes. Roll back by setting `VOLARE_COPILOT_RUNTIME_MODE=process` and restarting Volare.
 - `backend.turn.failed.failureClass` uses low-cardinality classes such as `process_exit`, `stream_read_failure`, `cancelled`, `backend_ended_without_terminal`, and `unknown`. These logs use safe `errorCode`/`failureClass` fields and do not serialize raw causes, CLI stderr, prompts, or history.
 
 `firstStdoutMs` is not emitted yet. Capturing it accurately belongs inside the raw stdout runner, while the current backend boundary only observes parsed assistant deltas; adding it would require a broader runner API change. `journal.append.slow` is also deferred for now: the journal has per-append timing but no bounded per-turn slow-append aggregator or threshold configuration, and adding state only for this warning would be more design than the current log-first slice needs.
@@ -264,6 +266,17 @@ Volare may still be in projectless mode. Check logs for `projectless: true` and 
 ### Context usage shows approximate values
 
 Usage is estimated from prompt/output text because Copilot CLI does not currently expose authoritative token counts through this bridge. The wire fields remain standard OpenAI Responses usage fields.
+
+### ACP mode fails to start or behaves unexpectedly
+
+ACP mode is opt-in. First confirm the runtime mode in `runtime.starting`:
+
+```bash
+jq -c 'select(.event == "runtime.starting") | {copilotRuntimeMode, copilotAcpMaxWorkers, copilotMcpMode}' \
+  ~/.volare/logs/volare.log
+```
+
+If `VOLARE_COPILOT_MCP_MODE=unmediated` is set, ACP mode is rejected by configuration. Use `VOLARE_COPILOT_RUNTIME_MODE=process` for immediate rollback, or keep MCP mode disabled when testing ACP. ACP worker failures should surface as structured `backend.acp.*` or `backend.turn.failed` events without raw prompts or ACP payload dumps.
 
 ### Answers contain citations but no sources in metrics
 

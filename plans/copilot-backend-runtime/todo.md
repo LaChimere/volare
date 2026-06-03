@@ -214,4 +214,4 @@ If any check fails, follow the recovery flow:
     - `docs/configuration.md` and `docs/operations.md` describe ACP opt-in, rollback, unmediated MCP incompatibility, worker caps, and troubleshooting.
     - Integrated ACP runner ROI is remeasured with at least 5 process samples, 5 ACP warm samples, and 3 ACP cold samples.
     - Logs/metrics cover worker startup, handshake, session creation, first frame/text, prompt duration, stop reason, cancellation path, replacement reason, active workers, and cap exhaustion.
-  - Evidence:
+  - Evidence: Documentation updates prepared for `docs/configuration.md`, `docs/operations.md`, and `docs/architecture.md` to describe ACP opt-in, rollback to process mode, unmediated MCP incompatibility, worker caps, and ACP log events. Integrated ACP runner ROI remains pending.
