@@ -154,6 +154,9 @@ export class CopilotCliBackend implements IAgentBackend {
     request: IAgentRequest,
     signal?: AbortSignal,
   ): AsyncIterable<AgentEvent> {
+    if (this.#closing) {
+      throw new VolareError('backend_closing', 'Backend is shutting down');
+    }
     if (!session.backendSessionId) {
       throw new VolareError(
         'backend_session_not_active',
@@ -191,6 +194,9 @@ export class CopilotCliBackend implements IAgentBackend {
     });
     logger.info({ event: 'backend.turn.started' }, 'backend turn started');
     try {
+      if (this.#closing) {
+        throw new VolareError('backend_closing', 'Backend is shutting down');
+      }
       for await (const delta of this.#runner.run(promptText, {
         backendSessionId: session.backendSessionId,
         cwd,
