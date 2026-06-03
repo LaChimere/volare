@@ -137,7 +137,7 @@ Observed initialize behavior:
 - ACP stdio accepted newline-delimited JSON-RPC.
 - `initialize` with `clientCapabilities` succeeded.
 - Negotiated `protocolVersion`: `1`.
-- Unsupported client protocol probe requested `999`; Copilot CLI responded with its supported version, which the probe recorded as client-side `unsupported_protocol_version`.
+- Unsupported client protocol probe requested `999`; Copilot CLI responded with its supported version, so the probe classified the behavior as `negotiated_to_1`, not as a server-side rejection.
 - `agentCapabilities` summary:
   - `loadSession: true`
   - `mcpCapabilities.http: true`
@@ -172,6 +172,7 @@ Observed `session/prompt` behavior:
 - Terminal framing: the original `session/prompt` request resolved with a result containing `stopReason`.
 - Stop reason observed: `end_turn`.
 - Server-to-client callback methods observed during this minimal prompt: none.
+- Probe harness reverse-request policy is configurable. The default discovery policy records and rejects unsupported callbacks explicitly; behavior probes can use explicit `allow`, `deny`, or `cancelled` policies for `session/request_permission` so callback handling does not contaminate cancellation/isolation results.
 
 Timing from this single discovery run:
 
