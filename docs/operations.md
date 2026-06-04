@@ -278,6 +278,14 @@ jq -c 'select(.event == "runtime.starting") | {copilotRuntimeMode, copilotAcpMax
 
 If `VOLARE_COPILOT_MCP_MODE=unmediated` is set, ACP mode is rejected by configuration. Use `VOLARE_COPILOT_RUNTIME_MODE=process` for immediate rollback, or keep MCP mode disabled when testing ACP. ACP worker failures should surface as structured `backend.acp.*` or `backend.turn.failed` events without raw prompts or ACP payload dumps.
 
+If a stream fails with `Authentication required`, refresh the Copilot CLI login state and retry:
+
+```bash
+copilot login
+```
+
+Volare attempts ACP `authenticate` once and retries `session/new` once. It does not execute terminal-auth commands from ACP metadata, so persistent authentication failures require operator action rather than daemon-side credential handling.
+
 ### Answers contain citations but no sources in metrics
 
 Prompt grounding rules are not provenance. Volare can ask the backend to avoid unsupported citations, but it only counts source evidence when a Volare-observable producer emits it. Backend Python, certificate, fetch, browser, or tool-output problems are backend/tool-content failures unless Volare itself fails transport, parsing, auth, journaling, or SSE encoding.
