@@ -3,8 +3,10 @@ import { describe, expect, test } from 'bun:test';
 import {
   AcpJsonRpcPeer,
   AcpProtocolError,
+  isAcpAuthRequiredError,
   parseAcpInitializeResponse,
   parseAcpSessionNewResponse,
+  selectAcpAuthMethod,
 } from '../../../src/backends/copilot-cli/acp';
 
 const textDecoder = new TextDecoder();
@@ -231,6 +233,65 @@ describe('AcpJsonRpcPeer', () => {
         '{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"auth required"}}\n',
       );
       await expectAcpError(request, 'acp_response_error');
+    } finally {
+      peer.close();
+      stdout.close();
+      await peer.waitForReaders();
+    }
+  });
+
+  test('authenticates with a selected auth method', async () => {
+    expect(selectAcpAuthMethod([{ id: 'copilot-login', name: 'Copilot' }])).toEqual({
+      methodId: 'copilot-login',
+    });
+    expect(selectAcpAuthMethod([])).toBeNull();
+
+    const stdout = createControlledStream();
+    const stdin = new CapturingWritable();
+    const peer = new AcpJsonRpcPeer({
+      stdin,
+      stdout: stdout.stream,
+      requestTimeoutMs: 100,
+    });
+    try {
+      const auth = peer.authenticate('copilot-login');
+      await Bun.sleep(0);
+      expect(JSON.parse(stdin.text()) as unknown).toMatchObject({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'authenticate',
+        params: { methodId: 'copilot-login' },
+      });
+      stdout.enqueue('{"jsonrpc":"2.0","id":1,"result":{}}\n');
+      await expect(auth).resolves.toBeUndefined();
+    } finally {
+      peer.close();
+      stdout.close();
+      await peer.waitForReaders();
+    }
+  });
+
+  test('classifies ACP authentication-required errors', async () => {
+    const stdout = createControlledStream();
+    const peer = new AcpJsonRpcPeer({
+      stdin: new CapturingWritable(),
+      stdout: stdout.stream,
+      requestTimeoutMs: 100,
+    });
+    try {
+      const request = peer.request('session/new');
+      await Bun.sleep(0);
+      stdout.enqueue(
+        '{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"Authentication required"}}\n',
+      );
+      let caught: unknown;
+      try {
+        await request;
+      } catch (error) {
+        caught = error;
+      }
+      expect(isAcpAuthRequiredError(caught)).toBe(true);
+      expect(isAcpAuthRequiredError(new Error('Authentication required'))).toBe(false);
     } finally {
       peer.close();
       stdout.close();
