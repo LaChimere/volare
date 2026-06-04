@@ -22,6 +22,10 @@ class FakeAcpProcess {
   killed: Array<'SIGTERM' | 'SIGKILL'> = [];
   ignoreSigterm = false;
   sessionId = `session_${Math.random().toString(36).slice(2)}`;
+  authMethods: unknown[] = [];
+  sessionNewAuthFailuresRemaining = 0;
+  authenticateShouldFail = false;
+  authenticateCalls = 0;
 
   kill(signal: 'SIGTERM' | 'SIGKILL'): void {
     this.killed.push(signal);
@@ -38,8 +42,32 @@ class FakeAcpProcess {
     for (const line of input.trim().split('\n').filter(Boolean)) {
       const frame = JSON.parse(line) as { id?: number; method?: string; params?: unknown };
       if (frame.method === 'initialize') {
-        this.send({ jsonrpc: '2.0', id: frame.id, result: { protocolVersion: 1 } });
+        this.send({
+          jsonrpc: '2.0',
+          id: frame.id,
+          result: { protocolVersion: 1, authMethods: this.authMethods },
+        });
+      } else if (frame.method === 'authenticate') {
+        this.authenticateCalls += 1;
+        if (this.authenticateShouldFail) {
+          this.send({
+            jsonrpc: '2.0',
+            id: frame.id,
+            error: { code: -32001, message: 'Authentication failed' },
+          });
+        } else {
+          this.send({ jsonrpc: '2.0', id: frame.id, result: {} });
+        }
       } else if (frame.method === 'session/new') {
+        if (this.sessionNewAuthFailuresRemaining > 0) {
+          this.sessionNewAuthFailuresRemaining -= 1;
+          this.send({
+            jsonrpc: '2.0',
+            id: frame.id,
+            error: { code: -32001, message: 'Authentication required' },
+          });
+          continue;
+        }
         this.send({ jsonrpc: '2.0', id: frame.id, result: { sessionId: this.sessionId } });
       } else if (frame.method === 'session/prompt') {
         this.send({
@@ -238,6 +266,104 @@ describe('AcpCopilotPromptRunner', () => {
     await expect(
       collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })),
     ).rejects.toThrow('auth required');
+    expect(processes[0]?.killed).toContain('SIGTERM');
+  });
+
+  test('authenticates once and retries session/new when auth is required', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.authMethods = [{ id: 'copilot-login' }];
+        proc.sessionNewAuthFailuresRemaining = 1;
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+
+    await expect(
+      collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })),
+    ).resolves.toEqual(['hello']);
+    expect(processes[0]?.authenticateCalls).toBe(1);
+  });
+
+  test('cleans up and reports auth failures clearly', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.authMethods = [{ id: 'copilot-login' }];
+        proc.sessionNewAuthFailuresRemaining = 1;
+        proc.authenticateShouldFail = true;
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+
+    await expect(
+      collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })),
+    ).rejects.toThrow('ACP authentication failed');
+    expect(processes[0]?.killed).toContain('SIGTERM');
+  });
+
+  test('does not loop when authentication retry still cannot create a session', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.authMethods = [{ id: 'copilot-login' }];
+        proc.sessionNewAuthFailuresRemaining = 2;
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+
+    await expect(
+      collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })),
+    ).rejects.toThrow('ACP authentication is required');
+    expect(processes[0]?.authenticateCalls).toBe(1);
+    expect(processes[0]?.killed).toContain('SIGTERM');
+  });
+
+  test('reports missing auth methods without retry loops', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.sessionNewAuthFailuresRemaining = 1;
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+
+    await expect(
+      collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })),
+    ).rejects.toThrow('did not advertise a usable auth method');
+    expect(processes[0]?.authenticateCalls).toBe(0);
     expect(processes[0]?.killed).toContain('SIGTERM');
   });
 

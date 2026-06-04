@@ -5,9 +5,11 @@ import {
   AcpJsonRpcPeer,
   type AcpPermissionPolicy,
   type IAcpWritable,
+  isAcpAuthRequiredError,
   type JsonObject,
   type JsonValue,
   parseAcpSessionNewResponse,
+  selectAcpAuthMethod,
 } from './acp';
 import {
   type CopilotCliPermissionMode,
@@ -270,21 +272,15 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       if (this.#cancelledCreations.has(backendSessionId)) {
         throw new VolareError('backend_cancelled', 'ACP worker startup was cancelled');
       }
-      await peer.initialize();
+      const initializeSummary = await peer.initialize();
       if (this.#cancelledCreations.has(backendSessionId)) {
         throw new VolareError('backend_cancelled', 'ACP worker startup was cancelled');
       }
-      const session = parseAcpSessionNewResponse(
-        (
-          await peer.request('session/new', {
-            cwd,
-            mcpServers: [],
-          })
-        ).result,
-      );
+      const session = await this.#createAcpSession(peer, initializeSummary.authMethods, cwd);
       if (this.#cancelledCreations.has(backendSessionId)) {
         throw new VolareError('backend_cancelled', 'ACP worker startup was cancelled');
       }
+
       worker = {
         backendSessionId,
         cwd,
@@ -332,6 +328,58 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     } finally {
       this.#startupKillers.delete(backendSessionId);
     }
+  }
+
+  async #createAcpSession(
+    peer: AcpJsonRpcPeer,
+    authMethods: JsonValue,
+    cwd: string,
+  ): Promise<{ sessionId: string }> {
+    try {
+      return parseAcpSessionNewResponse(await this.#requestAcpSessionNew(peer, cwd));
+    } catch (error) {
+      if (!isAcpAuthRequiredError(error)) {
+        throw error;
+      }
+      const authMethod = selectAcpAuthMethod(authMethods);
+      if (!authMethod) {
+        throw new VolareError(
+          'backend_auth_method_missing',
+          'ACP authentication is required, but Copilot CLI did not advertise a usable auth method. Run `copilot login` and retry.',
+          { cause: error },
+        );
+      }
+      try {
+        await peer.authenticate(authMethod.methodId);
+      } catch (authError) {
+        throw new VolareError(
+          'backend_auth_failed',
+          'ACP authentication failed. Run `copilot login` and retry.',
+          { cause: authError },
+        );
+      }
+      try {
+        return parseAcpSessionNewResponse(await this.#requestAcpSessionNew(peer, cwd));
+      } catch (retryError) {
+        if (isAcpAuthRequiredError(retryError)) {
+          throw new VolareError(
+            'backend_auth_required',
+            'ACP authentication is required. Run `copilot login` and retry.',
+            { cause: retryError },
+          );
+        }
+        throw retryError;
+      }
+    }
+  }
+
+  async #requestAcpSessionNew(peer: AcpJsonRpcPeer, cwd: string): Promise<JsonValue | undefined> {
+    return (
+      await peer.request('session/new', {
+        cwd,
+        mcpServers: [],
+      })
+    ).result;
   }
 
   async #replaceWorker(worker: IAcpWorker, reason: string): Promise<void> {
