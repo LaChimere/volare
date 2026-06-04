@@ -46,6 +46,8 @@ By default, Volare invokes Copilot CLI with `--disable-builtin-mcps`. `VOLARE_CO
 
 `VOLARE_COPILOT_RUNTIME_MODE=acp` is opt-in and experimental. It keeps Volare's HTTP/API surface unchanged, but runs turns through long-lived Copilot CLI ACP workers instead of starting one `copilot --prompt` process per turn. Keep `process` mode for the stable rollback path. ACP mode rejects `VOLARE_COPILOT_MCP_MODE=unmediated`; use `VOLARE_COPILOT_RUNTIME_MODE=process` if you intentionally need unmediated Copilot MCP passthrough.
 
+ACP mode relies on the local Copilot CLI authentication state. If Copilot CLI reports that authentication is required during ACP session setup, Volare calls ACP `authenticate` once with the advertised auth method and retries session creation once. Volare never executes terminal-auth commands embedded in ACP metadata and does not store Copilot credentials; if authentication still fails, run `copilot login` locally and retry.
+
 ## CLI flags
 
 Package usage:
