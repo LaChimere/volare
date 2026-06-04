@@ -67,6 +67,19 @@ function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDepend
       codexConfig: { configPath: '/tmp/config.toml', changed: true },
     }),
     updatePackage: async () => ({ latestVersion: '0.3.4' }),
+    checkPythonCertificates: async () => ({
+      pythonExecutable: '/usr/bin/python3',
+      pythonVersion: '3.11.0',
+      opensslVersion: 'OpenSSL test',
+      defaultCertFile: '/tmp/cert.pem',
+      certifiPath: '/tmp/certifi.pem',
+      sslCertFileEnv: '/tmp/cert.pem',
+      requestsCaBundleEnv: '/tmp/cert.pem',
+      curlCaBundleEnv: '/tmp/cert.pem',
+      pypiHttpsOk: true,
+      secHttpsOk: true,
+      errors: [],
+    }),
     ...overrides,
   };
 }
@@ -330,6 +343,47 @@ describe('Volare CLI', () => {
     expect(stdout.text()).toContain('Codex config needs Volare repair: /tmp/codex.toml');
     expect(stdout.text()).toContain('managed-block-missing');
     expect(stdout.text()).not.toContain('replace-with-at-least-16-characters');
+  });
+
+  test('runs certificate doctor with safe diagnostics', async () => {
+    const { io, stdout } = memoryIo();
+
+    const exitCode = await runCli(['doctor', 'certs'], testDependencies(), io);
+
+    expect(exitCode).toBe(0);
+    expect(stdout.text()).toContain('Python certificate diagnostics:');
+    expect(stdout.text()).toContain('python: /usr/bin/python3');
+    expect(stdout.text()).toContain('pypi HTTPS: ok');
+    expect(stdout.text()).toContain('SEC HTTPS: ok');
+    expect(stdout.text()).not.toContain('VOLARE_API_KEY');
+  });
+
+  test('certificate doctor exits nonzero when an HTTPS smoke check fails', async () => {
+    const { io, stdout } = memoryIo();
+
+    const exitCode = await runCli(
+      ['doctor', 'certs'],
+      testDependencies({
+        checkPythonCertificates: async () => ({
+          pythonExecutable: undefined,
+          pythonVersion: undefined,
+          opensslVersion: undefined,
+          defaultCertFile: undefined,
+          certifiPath: '/tmp/certifi.pem',
+          sslCertFileEnv: undefined,
+          requestsCaBundleEnv: undefined,
+          curlCaBundleEnv: undefined,
+          pypiHttpsOk: true,
+          secHttpsOk: false,
+          errors: ['python3: unavailable'],
+        }),
+      }),
+      io,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stdout.text()).toContain('SEC HTTPS: failed');
+    expect(stdout.text()).toContain('python3: unavailable');
   });
 
   test('runs daemon start without starting the foreground runtime', async () => {

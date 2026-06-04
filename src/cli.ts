@@ -45,6 +45,7 @@ export type ICliCommand =
     }
   | { type: 'config-codex'; options: ICodexConfigOptions }
   | { type: 'config-codex-doctor'; options: ICodexConfigOptions }
+  | { type: 'doctor-certs' }
   | { type: 'status' }
   | { type: 'stop' }
   | { type: 'logs' };
@@ -75,6 +76,21 @@ export interface ICliDependencies {
   readPersistentEnv: () => Promise<Partial<IServerRuntimeEnv>>;
   setupVolare: (options: ISetupOptions) => Promise<ISetupResult>;
   updatePackage: () => Promise<IUpdateResult>;
+  checkPythonCertificates: () => Promise<IPythonCertificateDiagnostic>;
+}
+
+export interface IPythonCertificateDiagnostic {
+  pythonExecutable: string | undefined;
+  pythonVersion: string | undefined;
+  opensslVersion: string | undefined;
+  defaultCertFile: string | undefined;
+  certifiPath: string | undefined;
+  sslCertFileEnv: string | undefined;
+  requestsCaBundleEnv: string | undefined;
+  curlCaBundleEnv: string | undefined;
+  pypiHttpsOk: boolean;
+  secHttpsOk: boolean;
+  errors: string[];
 }
 
 export interface ISetupOptions {
@@ -250,6 +266,27 @@ export async function runCli(
         );
         return 1;
       }
+      case 'doctor-certs': {
+        const result = await dependencies.checkPythonCertificates();
+        await writeLine(io.stdout, 'Python certificate diagnostics:');
+        await writeLine(io.stdout, `python: ${result.pythonExecutable ?? 'unknown'}`);
+        await writeLine(io.stdout, `version: ${result.pythonVersion ?? 'unknown'}`);
+        await writeLine(io.stdout, `openssl: ${result.opensslVersion ?? 'unknown'}`);
+        await writeLine(io.stdout, `default cert file: ${result.defaultCertFile ?? 'unknown'}`);
+        await writeLine(io.stdout, `certifi: ${result.certifiPath ?? 'missing'}`);
+        await writeLine(io.stdout, `SSL_CERT_FILE: ${result.sslCertFileEnv ?? 'unset'}`);
+        await writeLine(io.stdout, `REQUESTS_CA_BUNDLE: ${result.requestsCaBundleEnv ?? 'unset'}`);
+        await writeLine(io.stdout, `CURL_CA_BUNDLE: ${result.curlCaBundleEnv ?? 'unset'}`);
+        await writeLine(io.stdout, `pypi HTTPS: ${result.pypiHttpsOk ? 'ok' : 'failed'}`);
+        await writeLine(io.stdout, `SEC HTTPS: ${result.secHttpsOk ? 'ok' : 'failed'}`);
+        if (result.errors.length > 0) {
+          await writeLine(io.stdout, 'errors:');
+          for (const error of result.errors) {
+            await writeLine(io.stdout, `- ${error}`);
+          }
+        }
+        return result.pypiHttpsOk && result.secHttpsOk && result.certifiPath ? 0 : 1;
+      }
       case 'status': {
         const status = await dependencies.getDaemonStatus();
         if (status.running) {
@@ -306,6 +343,9 @@ export function parseCli(argv: string[]): ICliCommand {
   if (command === 'config') {
     return parseConfig(rest);
   }
+  if (command === 'doctor') {
+    return parseDoctor(rest);
+  }
   if (command === 'status') {
     assertNoArgs(rest, 'status');
     return { type: 'status' };
@@ -319,8 +359,17 @@ export function parseCli(argv: string[]): ICliCommand {
     return { type: 'logs' };
   }
   throw new CliUsageError(
-    `Unknown command: ${command}. Expected one of: setup, start, config, status, stop, logs, update, help, version.`,
+    `Unknown command: ${command}. Expected one of: setup, start, config, doctor, status, stop, logs, update, help, version.`,
   );
+}
+
+function parseDoctor(args: string[]): Extract<ICliCommand, { type: 'doctor-certs' }> {
+  const [target, ...rest] = args;
+  if (target !== 'certs') {
+    throw new CliUsageError('doctor target must be certs');
+  }
+  assertNoArgs(rest, 'doctor certs');
+  return { type: 'doctor-certs' };
 }
 
 function parseSetup(args: string[]): ISetupOptions {
@@ -563,6 +612,7 @@ function defaultDependencies(): ICliDependencies {
     readPersistentEnv: readPersistentRuntimeEnv,
     setupVolare,
     updatePackage,
+    checkPythonCertificates,
   };
 }
 
@@ -822,6 +872,76 @@ async function updatePackage(): Promise<IUpdateResult> {
   return { latestVersion };
 }
 
+async function checkPythonCertificates(): Promise<IPythonCertificateDiagnostic> {
+  const script = `
+import json, os, ssl, sys, urllib.error, urllib.request
+result = {
+  "pythonExecutable": sys.executable,
+  "pythonVersion": sys.version.splitlines()[0],
+  "opensslVersion": ssl.OPENSSL_VERSION,
+  "defaultCertFile": ssl.get_default_verify_paths().cafile or ssl.get_default_verify_paths().openssl_cafile,
+  "sslCertFileEnv": os.environ.get("SSL_CERT_FILE"),
+  "requestsCaBundleEnv": os.environ.get("REQUESTS_CA_BUNDLE"),
+  "curlCaBundleEnv": os.environ.get("CURL_CA_BUNDLE"),
+  "certifiPath": None,
+  "pypiHttpsOk": False,
+  "secHttpsOk": False,
+  "errors": [],
+}
+try:
+  import certifi
+  result["certifiPath"] = certifi.where()
+except Exception as exc:
+  result["errors"].append("certifi: " + repr(exc))
+def smoke(name, url):
+  try:
+    req = urllib.request.Request(url, headers={"User-Agent": "volare-cert-doctor/1.0"})
+    with urllib.request.urlopen(req, timeout=10) as response:
+      result[name] = 200 <= response.status < 500
+  except urllib.error.HTTPError as exc:
+    result[name] = 400 <= exc.code < 500
+  except Exception as exc:
+    result["errors"].append(url + ": " + repr(exc))
+smoke("pypiHttpsOk", "https://pypi.org/simple/pip/")
+smoke("secHttpsOk", "https://www.sec.gov/")
+print(json.dumps(result))
+`;
+  let output: string;
+  try {
+    output = await runCommandWithAllowedExitCodes('python3', ['-c', script], [0]);
+  } catch (error) {
+    return {
+      pythonExecutable: undefined,
+      pythonVersion: undefined,
+      opensslVersion: undefined,
+      defaultCertFile: undefined,
+      certifiPath: undefined,
+      sslCertFileEnv: process.env['SSL_CERT_FILE'],
+      requestsCaBundleEnv: process.env['REQUESTS_CA_BUNDLE'],
+      curlCaBundleEnv: process.env['CURL_CA_BUNDLE'],
+      pypiHttpsOk: false,
+      secHttpsOk: false,
+      errors: [`python3: ${errorMessage(error)}`],
+    };
+  }
+  const parsed = JSON.parse(output) as Partial<IPythonCertificateDiagnostic>;
+  return {
+    pythonExecutable: parsed.pythonExecutable,
+    pythonVersion: parsed.pythonVersion,
+    opensslVersion: parsed.opensslVersion,
+    defaultCertFile: parsed.defaultCertFile,
+    certifiPath: parsed.certifiPath,
+    sslCertFileEnv: parsed.sslCertFileEnv,
+    requestsCaBundleEnv: parsed.requestsCaBundleEnv,
+    curlCaBundleEnv: parsed.curlCaBundleEnv,
+    pypiHttpsOk: parsed.pypiHttpsOk === true,
+    secHttpsOk: parsed.secHttpsOk === true,
+    errors: Array.isArray(parsed.errors)
+      ? parsed.errors.filter((item): item is string => typeof item === 'string')
+      : [],
+  };
+}
+
 async function runCommand(
   command: string,
   args: string[],
@@ -1034,6 +1154,7 @@ Usage:
   volare config codex [options]
   volare config codex doctor [options]
   volare config codex repair [options]
+  volare doctor certs
   volare status
   volare stop
   volare logs
@@ -1066,6 +1187,10 @@ Config options:
       --base-url <url>                 Volare OpenAI Responses base URL
       --env-key <name>                 Codex env_key for the Volare API token
       --reasoning-effort <effort>      Codex reasoning effort (low, medium, high, xhigh)
+
+Doctor:
+  volare doctor certs checks the local Python certificate chain used by
+  Python-backed tools and reports safe, non-secret diagnostics.
 
 Update:
   volare update clears Bun's global package cache, resolves ${PACKAGE_NAME}@latest,
