@@ -49,6 +49,10 @@ export interface IAcpSessionSummary {
   sessionId: string;
 }
 
+export interface IAcpAuthMethodSummary {
+  methodId: string;
+}
+
 interface IPendingRequest {
   method: string;
   resolve(response: IJsonRpcResponse): void;
@@ -106,6 +110,16 @@ export class AcpJsonRpcPeer {
       clientCapabilities: {},
     });
     return parseAcpInitializeResponse(response.result, this.#supportedProtocolVersions);
+  }
+
+  async authenticate(methodId: string): Promise<void> {
+    const response = await this.request('authenticate', { methodId });
+    if (response.result !== undefined && !isJsonObject(response.result)) {
+      throw new AcpProtocolError(
+        'acp_authenticate_invalid',
+        'ACP authenticate result must be an object or empty',
+      );
+    }
   }
 
   async request(method: string, params?: JsonObject): Promise<IJsonRpcResponse> {
@@ -338,6 +352,36 @@ export function parseAcpSessionNewResponse(result: JsonValue | undefined): IAcpS
     );
   }
   return { sessionId };
+}
+
+export function selectAcpAuthMethod(authMethods: JsonValue): IAcpAuthMethodSummary | null {
+  if (!Array.isArray(authMethods)) {
+    return null;
+  }
+  for (const method of authMethods) {
+    if (!isJsonObject(method)) {
+      continue;
+    }
+    const id = getField(method, 'id');
+    if (typeof id === 'string' && id.length > 0) {
+      return { methodId: id };
+    }
+  }
+  return null;
+}
+
+export function isAcpAuthRequiredError(error: unknown): boolean {
+  if (!(error instanceof AcpProtocolError)) {
+    return false;
+  }
+  if (error.code === 'backend_auth_required') {
+    return true;
+  }
+  if (error.code !== 'acp_response_error') {
+    return false;
+  }
+  const causeText = JSON.stringify(error.cause ?? {});
+  return /auth(?:entication)?[_ -]?required/i.test(`${error.message}\n${causeText}`);
 }
 
 function permissionResponseFrame(
