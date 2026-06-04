@@ -32,6 +32,7 @@ export interface IAcpCopilotPromptRunnerOptions {
   maxWorkers?: number;
   requestTimeoutMs?: number;
   logger?: ILogger;
+  childProcessEnv?: Record<string, string>;
   spawn?: (args: string[], options: { cwd: string }) => IAcpProcess;
 }
 
@@ -59,6 +60,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #maxWorkers: number;
   readonly #requestTimeoutMs: number;
   readonly #logger: ILogger;
+  readonly #childProcessEnv: Record<string, string>;
   readonly #spawn: (args: string[], options: { cwd: string }) => IAcpProcess;
   readonly #workers = new Map<string, IAcpWorker>();
   readonly #creatingWorkers = new Map<string, Promise<IAcpWorker>>();
@@ -71,6 +73,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     this.#permissionMode = options.permissionMode ?? DEFAULT_COPILOT_CLI_PERMISSION_MODE;
     this.#maxWorkers = options.maxWorkers ?? DEFAULT_ACP_MAX_WORKERS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_ACP_REQUEST_TIMEOUT_MS;
+    this.#childProcessEnv = options.childProcessEnv ?? {};
     this.#logger = (options.logger ?? new NoopLogger()).child({
       component: 'backend',
       backend: 'copilot-cli',
@@ -86,6 +89,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
           stderr: 'pipe',
           env: {
             ...Bun.env,
+            ...this.#childProcessEnv,
             NO_COLOR: '1',
             CI: '1',
           },

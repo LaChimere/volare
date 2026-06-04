@@ -879,6 +879,36 @@ printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
     }
   });
 
+  test('passes configured certificate environment to Copilot subprocesses', async () => {
+    const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const bin = await installFakeCopilot(
+      'child-env',
+      `#!/bin/sh
+printf '%s\\n' "$SSL_CERT_FILE" "$REQUESTS_CA_BUNDLE" "$CURL_CA_BUNDLE" > "$PWD/env.txt"
+printf '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}\\n'
+`,
+    );
+    try {
+      const runner = new BunCopilotPromptRunner(undefined, bin, 'web', 'disabled', {
+        SSL_CERT_FILE: '/tmp/cacert.pem',
+        REQUESTS_CA_BUNDLE: '/tmp/cacert.pem',
+        CURL_CA_BUNDLE: '/tmp/cacert.pem',
+      });
+      for await (const _chunk of runner.run('hello', {
+        backendSessionId: 'backend_session_env',
+        cwd: workspace,
+      })) {
+        // consume
+      }
+      await expect(readFile(path.join(workspace, 'env.txt'), 'utf8')).resolves.toBe(
+        '/tmp/cacert.pem\n/tmp/cacert.pem\n/tmp/cacert.pem\n',
+      );
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(path.dirname(bin), { recursive: true, force: true });
+    }
+  });
+
   test('terminates the Copilot process when output parsing fails', async () => {
     const workspace = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
     const bin = await installFakeCopilot(

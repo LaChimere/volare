@@ -1456,6 +1456,9 @@ describe('server app', () => {
         VOLARE_COPILOT_ACP_MAX_WORKERS: '8',
         VOLARE_COPILOT_PERMISSION_MODE: 'full',
         VOLARE_COPILOT_MCP_MODE: 'unmediated',
+        SSL_CERT_FILE: '/tmp/cacert.pem',
+        REQUESTS_CA_BUNDLE: '/tmp/cacert.pem',
+        CURL_CA_BUNDLE: '/tmp/cacert.pem',
       }),
     ).toMatchObject({
       approvalTimeoutMs: 60_000,
@@ -1470,6 +1473,11 @@ describe('server app', () => {
       copilotAcpMaxWorkers: 8,
       copilotPermissionMode: 'full',
       copilotMcpMode: 'unmediated',
+      childProcessEnv: {
+        SSL_CERT_FILE: '/tmp/cacert.pem',
+        REQUESTS_CA_BUNDLE: '/tmp/cacert.pem',
+        CURL_CA_BUNDLE: '/tmp/cacert.pem',
+      },
     });
     expect(createServerRuntimeConfig({}).copilotRuntimeMode).toBe('process');
     expect(createServerRuntimeConfig({}).copilotAcpMaxWorkers).toBe(10);
