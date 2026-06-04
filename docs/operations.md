@@ -267,6 +267,32 @@ Volare may still be in projectless mode. Check logs for `projectless: true` and 
 
 Usage is estimated from prompt/output text because Copilot CLI does not currently expose authoritative token counts through this bridge. The wire fields remain standard OpenAI Responses usage fields.
 
+### Python reports certificate chain verification failures
+
+If agent output mentions `CERTIFICATE_VERIFY_FAILED`, `unable to get local issuer certificate`, or `本机 Python 的证书链校验失败`, check the local Python trust store:
+
+```bash
+bunx @lachimere/volare doctor certs
+```
+
+On macOS python.org Framework Python installs, the usual root cause is a missing OpenSSL CA bundle at Python's default `cert.pem` path. The safe repair is to install or update `certifi`, point Python's `cert.pem` at `certifi.where()`, and optionally persist the CA path for Volare-launched child processes:
+
+```bash
+python3 -m pip install --upgrade certifi
+CERTIFI_PATH="$(python3 -c 'import certifi; print(certifi.where())')"
+PYTHON_CERT_FILE="$(python3 -c 'import ssl; print(ssl.get_default_verify_paths().openssl_cafile)')"
+mkdir -p "$(dirname "$PYTHON_CERT_FILE")"
+ln -sf "$CERTIFI_PATH" "$PYTHON_CERT_FILE"
+
+cat >> ~/.volare/env <<EOF
+export SSL_CERT_FILE="$CERTIFI_PATH"
+export REQUESTS_CA_BUNDLE="$CERTIFI_PATH"
+export CURL_CA_BUNDLE="$CERTIFI_PATH"
+EOF
+```
+
+Do not disable TLS verification with `PYTHONHTTPSVERIFY=0`, `verify=False`, or `--insecure`. `curl` may work while Python fails because curl and python.org Python can use different CA stores; treat curl fallback as a temporary workaround, not a fix.
+
 ### ACP mode fails to start or behaves unexpectedly
 
 ACP mode is opt-in. First confirm the runtime mode in `runtime.starting`:

@@ -39,8 +39,13 @@ If `VOLARE_API_KEY` is not set and no persisted token exists, the server generat
 | `VOLARE_COPILOT_ACP_MAX_WORKERS` | `10` | Maximum live ACP workers when ACP mode is enabled. The effective cap is no greater than `VOLARE_MAX_ACTIVE_SESSIONS`. |
 | `VOLARE_COPILOT_PERMISSION_MODE` | `full` | Copilot CLI permission mode: `full` passes Copilot CLI `--allow-all`, `web` allows public URL fetches only, and `restricted` passes no non-interactive grants. |
 | `VOLARE_COPILOT_MCP_MODE` | `disabled` | Copilot builtin MCP capability mode: `disabled` passes `--disable-builtin-mcps`; `unmediated` omits that flag and is valid only with permission mode `web` or `full`. |
+| `SSL_CERT_FILE` | unset | Optional CA bundle path inherited by Copilot backend child processes and Python-backed tools. |
+| `REQUESTS_CA_BUNDLE` | unset | Optional Requests-compatible CA bundle path inherited by child processes. |
+| `CURL_CA_BUNDLE` | unset | Optional curl-compatible CA bundle path inherited by child processes. |
 
 Persisted setup values are loaded first, process environment variables override persisted values, and CLI flags override both. Daemon mode passes CLI flags to the child process as environment overrides.
+
+When these CA bundle variables are saved in `~/.volare/env`, Volare preserves them when setup rewrites the API key and passes them to Copilot backend child processes. This is useful for python.org Framework Python installs whose OpenSSL cert path does not point at a valid CA bundle.
 
 By default, Volare invokes Copilot CLI with `--disable-builtin-mcps`. `VOLARE_COPILOT_PERMISSION_MODE` controls the non-interactive permission flags Volare passes to Copilot CLI; it does not make Volare a source-retrieval system or a mediator for Copilot-internal MCP tools. `VOLARE_COPILOT_MCP_MODE=unmediated` is explicit local-developer risk acceptance: Copilot internal MCP actions are not evaluated by Volare approvals or persisted as bridge-owned tool events.
 
