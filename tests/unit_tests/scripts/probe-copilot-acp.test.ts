@@ -98,7 +98,7 @@ describe('probe-copilot-acp harness', () => {
   test('self-tests cover initialize, protocol version failures, stderr, and timeout', async () => {
     const results = await runSelfTests();
 
-    expect(results).toHaveLength(7);
+    expect(results).toHaveLength(8);
     expect(results.map((result) => result.name)).toEqual([
       'valid initialize',
       'malformed JSON',
@@ -107,6 +107,7 @@ describe('probe-copilot-acp harness', () => {
       'unsupported protocolVersion',
       'stderr capture',
       'timeout',
+      'json-rpc error response',
     ]);
     expect(results.every((result) => result.status === 'supported')).toBe(true);
   });

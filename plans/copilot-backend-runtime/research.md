@@ -311,6 +311,26 @@ Updated after probes:
 - Native `session/cancel` drain-to-`cancelled` is not proven.
 - First-text and terminal-completion ROI are both above threshold on the corrected synthetic samples.
 
+### ACP authentication probe
+
+Command/action: `bun run scripts/probe-copilot-acp.ts --auth`
+
+Environment:
+
+- Date: 2026-06-04
+- Copilot CLI: `GitHub Copilot CLI 1.0.59`
+- cwd: temporary empty directory created by the probe
+- MCP servers: `[]`, with `--disable-builtin-mcps`
+
+Observed behavior:
+
+- `initialize` advertised one redacted `copilot-login` auth method.
+- The probe selected that method ID and called ACP `authenticate`.
+- `authenticate` returned success without Volare executing any `_meta.terminal-auth.command`.
+- `session/new` succeeded after authentication.
+
+Interpretation: the production ACP runner can implement a non-interactive protocol-level recovery path for `session/new` authentication failures: call `authenticate(methodId)` once using an advertised auth method, retry `session/new` once, then fail with an explicit operator-facing auth error if the retry still fails.
+
 ## Recommendation for Plan
 
 - Proposed direction: design a probe-gated ACP runtime path with current per-turn process mode as the default and rollback baseline.

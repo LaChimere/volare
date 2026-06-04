@@ -181,6 +181,15 @@ interface IAcpDiscoveryEvidence {
   };
 }
 
+interface IAcpAuthProbeEvidence {
+  authMethods: JsonValue;
+  selectedMethodId: JsonValue;
+  authenticateOutcome: string;
+  sessionNewOutcome: string;
+  sessionNew: JsonValue;
+  stderr: string;
+}
+
 interface IBehaviorRoiEvidence {
   cancellation: JsonValue;
   isolation: JsonValue;
@@ -445,6 +454,10 @@ export class AcpJsonRpcPeer {
     }
     this.#pending.delete(frame.id);
     clearTimeout(pending.timeout);
+    if (frame.error) {
+      pending.reject(jsonRpcResponseError(pending.method, frame.error));
+      return;
+    }
     pending.resolve(frame);
   }
 
@@ -603,6 +616,17 @@ export async function runSelfTests(): Promise<IAcpProbeResult[]> {
         );
       },
     },
+    {
+      name: 'json-rpc error response',
+      async run() {
+        await withScriptedPeer(
+          [{ jsonrpc: '2.0', id: 1, error: { code: -32001, message: 'auth required' } }],
+          async (peer) => {
+            await expectRejects(peer.request('session/new'), 'response_error');
+          },
+        );
+      },
+    },
   ];
 
   for (const testCase of cases) {
@@ -753,6 +777,113 @@ async function probeDiscovery(copilotPath: string): Promise<IAcpProbeResult[]> {
     return [
       {
         name: 'ACP discovery',
+        status: 'failed',
+        evidence: `${cause instanceof Error ? cause.message : String(cause)}; stderr=${peer.diagnostics}`,
+      },
+    ];
+  } finally {
+    peer.close();
+    proc.kill('SIGTERM');
+    await Promise.race([proc.exited, Bun.sleep(1_000)]);
+    proc.kill('SIGKILL');
+    await rm(cwd, { recursive: true, force: true });
+  }
+}
+
+async function probeAuthentication(copilotPath: string): Promise<IAcpProbeResult[]> {
+  const cwd = await mkdtemp(join(tmpdir(), 'volare-acp-auth-'));
+  const proc = Bun.spawn(
+    [
+      copilotPath,
+      '--acp',
+      '--no-color',
+      '--no-custom-instructions',
+      '--disable-builtin-mcps',
+      '--log-level',
+      'error',
+    ],
+    {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        ...Bun.env,
+        NO_COLOR: '1',
+        CI: '1',
+      },
+    },
+  );
+  const peer = new AcpJsonRpcPeer({
+    stdin: proc.stdin,
+    stdout: proc.stdout,
+    stderr: proc.stderr,
+    requestTimeoutMs: 60_000,
+  });
+
+  try {
+    const initializeSummary = await peer.initialize();
+    const methodId = firstAuthMethodId(initializeSummary.authMethods);
+    if (!methodId) {
+      return [
+        {
+          name: 'ACP authenticate',
+          status: 'unsupported',
+          evidence: JSON.stringify({
+            authMethods: redactAcpFrame(initializeSummary.authMethods),
+            selectedMethodId: null,
+            authenticateOutcome: 'auth_method_missing',
+            sessionNewOutcome: 'skipped',
+            sessionNew: null,
+            stderr: peer.diagnostics,
+          } satisfies IAcpAuthProbeEvidence),
+        },
+      ];
+    }
+
+    let authenticateOutcome = 'authenticate_succeeded';
+    try {
+      await peer.request('authenticate', { methodId });
+    } catch (cause) {
+      authenticateOutcome =
+        cause instanceof Error ? `authenticate_failed:${cause.message}` : 'authenticate_failed';
+    }
+
+    let sessionNewOutcome = 'session_new_skipped';
+    let sessionNew: JsonValue = null;
+    if (authenticateOutcome === 'authenticate_succeeded') {
+      try {
+        const sessionResponse = await peer.request('session/new', { cwd, mcpServers: [] });
+        sessionNewOutcome = 'session_new_succeeded';
+        sessionNew = redactSessionNewResult(sessionResponse.result);
+      } catch (cause) {
+        sessionNewOutcome =
+          cause instanceof Error ? `session_new_failed:${cause.message}` : 'session_new_failed';
+      }
+    }
+
+    const evidence: IAcpAuthProbeEvidence = {
+      authMethods: redactAcpFrame(initializeSummary.authMethods),
+      selectedMethodId: `<REDACTED:string:${textEncoder.encode(methodId).byteLength}_bytes>`,
+      authenticateOutcome,
+      sessionNewOutcome,
+      sessionNew,
+      stderr: peer.diagnostics,
+    };
+    return [
+      {
+        name: 'ACP authenticate',
+        status:
+          authenticateOutcome === 'authenticate_succeeded' &&
+          sessionNewOutcome === 'session_new_succeeded'
+            ? 'supported'
+            : 'unknown',
+        evidence: JSON.stringify(evidence),
+      },
+    ];
+  } catch (cause) {
+    return [
+      {
+        name: 'ACP authenticate',
         status: 'failed',
         evidence: `${cause instanceof Error ? cause.message : String(cause)}; stderr=${peer.diagnostics}`,
       },
@@ -1660,6 +1791,14 @@ function unsupportedCallbackResponse(request: IJsonRpcRequest): IJsonRpcResponse
   };
 }
 
+function jsonRpcResponseError(method: string, error: JsonObject): AcpProbeError {
+  const message = getField(error, 'message');
+  return new AcpProbeError(
+    `ACP ${method} failed: ${typeof message === 'string' ? message : 'JSON-RPC error'}`,
+    'response_error',
+  );
+}
+
 function selectPermissionOption(
   params: JsonObject | undefined,
   policy: Extract<AcpReverseRequestPolicy, 'allow' | 'deny'>,
@@ -1712,6 +1851,22 @@ function extractSessionId(result: JsonValue | undefined): string {
     throw new AcpProbeError('session/new response is missing sessionId', 'missing_session_id');
   }
   return sessionId;
+}
+
+function firstAuthMethodId(authMethods: JsonValue): string | null {
+  if (!Array.isArray(authMethods)) {
+    return null;
+  }
+  for (const method of authMethods) {
+    if (!isJsonObject(method)) {
+      continue;
+    }
+    const id = getField(method, 'id');
+    if (typeof id === 'string' && id.length > 0) {
+      return id;
+    }
+  }
+  return null;
 }
 
 function redactSessionNewResult(result: JsonValue | undefined): JsonValue {
@@ -1922,7 +2077,9 @@ async function main(): Promise<void> {
       ? 'discovery'
       : Bun.argv.includes('--behavior-roi')
         ? 'behavior-roi'
-        : 'initialize';
+        : Bun.argv.includes('--auth')
+          ? 'auth'
+          : 'initialize';
   const copilotPath = await findCommand('copilot');
   const copilotVersion = await captureCopilotVersion(copilotPath);
   let results: IAcpProbeResult[];
@@ -1936,6 +2093,8 @@ async function main(): Promise<void> {
     results = await probeDiscovery(copilotPath);
   } else if (mode === 'behavior-roi') {
     results = await probeBehaviorAndRoi(copilotPath);
+  } else if (mode === 'auth') {
+    results = await probeAuthentication(copilotPath);
   } else {
     results = [await probeInitialize(copilotPath)];
   }
