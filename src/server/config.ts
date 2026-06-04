@@ -33,6 +33,7 @@ export interface IServerRuntimeConfig {
   copilotAcpMaxWorkers: number;
   copilotPermissionMode: CopilotCliPermissionMode;
   copilotMcpMode: CopilotMcpMode;
+  childProcessEnv: Record<string, string>;
   defaultWorkspaceRoot?: string;
   allowedWorkspaceRoots?: string[];
   projectlessWorkspaceRoot: string;
@@ -59,6 +60,9 @@ export interface IServerRuntimeEnv {
   VOLARE_COPILOT_ACP_MAX_WORKERS: string | undefined;
   VOLARE_COPILOT_PERMISSION_MODE: string | undefined;
   VOLARE_COPILOT_MCP_MODE: string | undefined;
+  SSL_CERT_FILE: string | undefined;
+  REQUESTS_CA_BUNDLE: string | undefined;
+  CURL_CA_BUNDLE: string | undefined;
 }
 
 export function createServerRuntimeConfig(
@@ -152,6 +156,7 @@ export function createServerRuntimeConfig(
     copilotAcpMaxWorkers,
     copilotPermissionMode,
     copilotMcpMode,
+    childProcessEnv: pickChildProcessEnv(env),
     maxActiveSessions,
     ...(eventRetentionDays ? { eventRetentionDays } : {}),
     ...(defaultWorkspaceRoot ? { defaultWorkspaceRoot } : {}),
@@ -182,6 +187,9 @@ export function readServerRuntimeEnv(): IServerRuntimeEnv {
     VOLARE_COPILOT_ACP_MAX_WORKERS: Bun.env['VOLARE_COPILOT_ACP_MAX_WORKERS'],
     VOLARE_COPILOT_PERMISSION_MODE: Bun.env['VOLARE_COPILOT_PERMISSION_MODE'],
     VOLARE_COPILOT_MCP_MODE: Bun.env['VOLARE_COPILOT_MCP_MODE'],
+    SSL_CERT_FILE: Bun.env['SSL_CERT_FILE'],
+    REQUESTS_CA_BUNDLE: Bun.env['REQUESTS_CA_BUNDLE'],
+    CURL_CA_BUNDLE: Bun.env['CURL_CA_BUNDLE'],
   };
 }
 
@@ -198,6 +206,17 @@ function parseLogLevel(value: string | undefined): LogLevel {
 
 function isLogLevel(value: string): value is LogLevel {
   return ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'].includes(value);
+}
+
+function pickChildProcessEnv(env: Partial<IServerRuntimeEnv>): Record<string, string> {
+  const output: Record<string, string> = {};
+  for (const key of ['SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'] as const) {
+    const value = env[key]?.trim();
+    if (value) {
+      output[key] = value;
+    }
+  }
+  return output;
 }
 
 function parseCopilotRuntimeMode(value: string | undefined): CopilotRuntimeMode {

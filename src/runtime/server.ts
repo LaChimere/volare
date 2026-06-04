@@ -38,11 +38,9 @@ export interface IVolareRuntime {
 export async function startVolareRuntime(
   options: IVolareRuntimeOptions = {},
 ): Promise<IVolareRuntime> {
-  const config = createServerRuntimeConfig({
-    ...(await readPersistentRuntimeEnv()),
-    ...readServerRuntimeEnv(),
-    ...options.env,
-  });
+  const config = createServerRuntimeConfig(
+    mergeRuntimeEnv(await readPersistentRuntimeEnv(), readServerRuntimeEnv(), options.env ?? {}),
+  );
   const logger = createLogger({ level: config.logLevel });
   const runtimeLogger = logger.child({ component: 'runtime' });
   if (config.stateDatabasePath !== ':memory:') {
@@ -58,6 +56,7 @@ export async function startVolareRuntime(
     logger,
     permissionMode: config.copilotPermissionMode,
     mcpMode: config.copilotMcpMode,
+    childProcessEnv: config.childProcessEnv,
   });
   const sessionManager = new DurableSessionManager({
     store: stateStore,
@@ -116,6 +115,22 @@ export async function startVolareRuntime(
   return { config, server, shutdown };
 }
 
+export function mergeRuntimeEnv(
+  ...sources: Array<Partial<IServerRuntimeEnv>>
+): Partial<IServerRuntimeEnv> {
+  const output: Partial<IServerRuntimeEnv> = {};
+  for (const source of sources) {
+    for (const [key, value] of Object.entries(source) as Array<
+      [keyof IServerRuntimeEnv, string | undefined]
+    >) {
+      if (value !== undefined) {
+        output[key] = value;
+      }
+    }
+  }
+  return output;
+}
+
 export function createCopilotPromptRunner(
   config: IServerRuntimeConfig,
   logger = createLogger({ level: config.logLevel }),
@@ -125,6 +140,7 @@ export function createCopilotPromptRunner(
       logger,
       permissionMode: config.copilotPermissionMode,
       maxWorkers: config.copilotAcpMaxWorkers,
+      childProcessEnv: config.childProcessEnv,
     });
   }
   return new BunCopilotPromptRunner(
@@ -132,6 +148,7 @@ export function createCopilotPromptRunner(
     'copilot',
     config.copilotPermissionMode,
     config.copilotMcpMode,
+    config.childProcessEnv,
   );
 }
 

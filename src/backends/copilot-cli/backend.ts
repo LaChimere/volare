@@ -71,6 +71,7 @@ export interface ICopilotCliBackendOptions {
   permissionMode?: CopilotCliPermissionMode;
   mcpMode?: CopilotMcpMode;
   command?: string;
+  childProcessEnv?: Record<string, string>;
 }
 
 export class CopilotCliBackend implements IAgentBackend {
@@ -90,6 +91,7 @@ export class CopilotCliBackend implements IAgentBackend {
         options.command ?? 'copilot',
         options.permissionMode,
         this.#mcpMode,
+        options.childProcessEnv,
       );
     this.#logger = (options.logger ?? new NoopLogger()).child({
       component: 'backend',
@@ -424,17 +426,20 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #command: string;
   readonly #permissionMode: CopilotCliPermissionMode;
   readonly #mcpMode: CopilotMcpMode;
+  readonly #childProcessEnv: Record<string, string>;
 
   constructor(
     identityValidator: IProcessIdentityValidator = new DefaultProcessIdentityValidator(),
     command = 'copilot',
     permissionMode: CopilotCliPermissionMode = DEFAULT_COPILOT_CLI_PERMISSION_MODE,
     mcpMode: CopilotMcpMode = DEFAULT_COPILOT_MCP_MODE,
+    childProcessEnv: Record<string, string> = {},
   ) {
     this.#identityValidator = identityValidator;
     this.#command = command;
     this.#permissionMode = permissionMode;
     this.#mcpMode = mcpMode;
+    this.#childProcessEnv = childProcessEnv;
   }
 
   async *run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string> {
@@ -459,6 +464,10 @@ export class BunCopilotPromptRunner implements ICopilotPromptRunner {
         stdin: 'ignore',
         stdout: 'pipe',
         stderr: 'pipe',
+        env: {
+          ...Bun.env,
+          ...this.#childProcessEnv,
+        },
       },
     );
     const tracked = this.#trackProcess(options.backendSessionId, proc);
