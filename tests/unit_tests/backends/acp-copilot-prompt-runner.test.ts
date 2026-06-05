@@ -28,6 +28,7 @@ class FakeAcpProcess {
   authenticateCalls = 0;
   promptMode: 'normal' | 'cancelled-on-cancel' | 'end-turn-on-cancel' | 'never' = 'normal';
   pendingPromptId: number | undefined;
+  restoreNormalAfterCancel = true;
 
   kill(signal: 'SIGTERM' | 'SIGKILL'): void {
     this.killed.push(signal);
@@ -108,6 +109,9 @@ class FakeAcpProcess {
             id: this.pendingPromptId,
             result: { stopReason },
           });
+          if (stopReason === 'cancelled' && this.restoreNormalAfterCancel) {
+            this.promptMode = 'normal';
+          }
         }
       }
     }
@@ -282,7 +286,7 @@ describe('AcpCopilotPromptRunner', () => {
     expect(proc.killed).toEqual(['SIGTERM']);
   });
 
-  test('native cancel waits for cancelled stopReason before cleanup', async () => {
+  test('native cancel reuses worker after cancelled stopReason and verification', async () => {
     const processes: FakeAcpProcess[] = [];
     const runner = new AcpCopilotPromptRunner({
       cancelStrategy: 'native',
@@ -311,8 +315,12 @@ describe('AcpCopilotPromptRunner', () => {
 
     const proc = processes[0];
     expect(proc?.inputs.join('\n')).toContain('session/cancel');
-    expect(proc?.killed).toEqual(['SIGTERM']);
+    expect(proc?.killed).toEqual([]);
     await expect(firstChunk).resolves.toBeInstanceOf(Error);
+    await expect(
+      collect(runner.run('next prompt', { backendSessionId: 'backend_1', cwd: '/tmp' })),
+    ).resolves.toEqual(['hello']);
+    expect(processes).toHaveLength(1);
   });
 
   test('native cancel falls back to kill on wrong stopReason', async () => {
@@ -343,6 +351,40 @@ describe('AcpCopilotPromptRunner', () => {
     await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
 
     expect(processes[0]?.inputs.join('\n')).toContain('session/cancel');
+    expect(processes[0]?.killed).toEqual(['SIGTERM']);
+    await expect(firstChunk).resolves.toBeInstanceOf(Error);
+  });
+
+  test('native cancel falls back when reuse verification does not settle', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      cancelStrategy: 'native',
+      nativeCancelWaitMs: 1,
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.promptMode = 'cancelled-on-cancel';
+        proc.restoreNormalAfterCancel = false;
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+      requestTimeoutMs: 1_000,
+    });
+    const iterator = runner
+      .run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })
+      [Symbol.asyncIterator]();
+    const firstChunk = iterator.next().catch((error) => error);
+    await waitFor(() =>
+      processes.some((proc) => proc.inputs.join('\n').includes('session/prompt')),
+    );
+
+    await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
+
     expect(processes[0]?.killed).toEqual(['SIGTERM']);
     await expect(firstChunk).resolves.toBeInstanceOf(Error);
   });

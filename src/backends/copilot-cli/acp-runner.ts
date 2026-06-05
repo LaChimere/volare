@@ -51,6 +51,7 @@ interface IAcpWorker {
   peer: AcpJsonRpcPeer;
   sessionId: string;
   active: IActivePrompt | null;
+  cancellation: Promise<ICancelResult> | null;
   generation: number;
   idleSinceMs: number;
 }
@@ -60,7 +61,7 @@ interface IActivePrompt {
   queue: TextQueue;
   acceptingDeltas: boolean;
   promptResult?: Promise<string>;
-  cancellation?: Promise<ICancelResult>;
+  cancelManaged: boolean;
 }
 
 const DEFAULT_ACP_MAX_WORKERS = 10;
@@ -123,7 +124,12 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
 
     const queue = new TextQueue();
     const generation = worker.generation;
-    const active: IActivePrompt = { generation, queue, acceptingDeltas: true };
+    const active: IActivePrompt = {
+      generation,
+      queue,
+      acceptingDeltas: true,
+      cancelManaged: false,
+    };
     worker.active = active;
     worker.idleSinceMs = 0;
     const abortError = new VolareError('backend_cancelled', 'ACP prompt was aborted');
@@ -184,7 +190,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         throw promptError;
       }
     } catch (error) {
-      if (this.#workers.get(worker.backendSessionId) === worker) {
+      if (!active.cancelManaged && this.#workers.get(worker.backendSessionId) === worker) {
         await this.#replaceWorker(worker, 'prompt_error');
       }
       throw error;
@@ -206,6 +212,9 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     );
     const worker = this.#workers.get(backendSessionId);
     const creating = this.#creatingWorkers.get(backendSessionId);
+    if (worker?.cancellation) {
+      return await worker.cancellation;
+    }
     if (!worker && creating) {
       this.#cancelledCreations.add(backendSessionId);
       this.#startupKillers.get(backendSessionId)?.();
@@ -214,9 +223,6 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     }
     if (!worker?.active) {
       return { status: 'not_found' };
-    }
-    if (worker.active.cancellation) {
-      return await worker.active.cancellation;
     }
     let cancellation: Promise<ICancelResult>;
     switch (this.#cancelStrategy) {
@@ -230,8 +236,14 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         cancellation = this.#cancelNativeTerminal(worker, worker.active, options);
         break;
     }
-    worker.active.cancellation = cancellation;
-    return await cancellation;
+    worker.cancellation = cancellation;
+    try {
+      return await cancellation;
+    } finally {
+      if (worker.cancellation === cancellation) {
+        worker.cancellation = null;
+      }
+    }
   }
 
   async #cancelKill(
@@ -313,6 +325,14 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         stopReason: settled.stopReason,
       });
     }
+    const reuse = await this.#verifyNativeCancelReuse(worker);
+    if (!reuse.reusable) {
+      return await this.#fallbackKillAfterNative(worker, active, options, {
+        reason: reuse.reason,
+        ...(reuse.stopReason === undefined ? {} : { stopReason: reuse.stopReason }),
+        ...(reuse.cause === undefined ? {} : { cause: reuse.cause }),
+      });
+    }
     this.#logger.info(
       {
         event: 'backend.acp.cancel.native_succeeded',
@@ -320,35 +340,53 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         generation: active.generation,
         stopReason: settled.stopReason,
         nativeDurationMs: elapsedMs(startedAt),
-        workerReused: false,
+        workerReused: true,
       },
       'ACP native cancel completed',
     );
-    this.#workers.delete(worker.backendSessionId);
+    worker.active = null;
+    worker.idleSinceMs = Date.now();
+    active.cancelManaged = true;
     active.queue.fail(new VolareError('backend_cancelled', 'ACP prompt was cancelled'));
-    worker.peer.close();
-    worker.proc.kill('SIGTERM');
-    if (!options.forceAfterTimeout) {
-      return { status: 'cancelled' };
-    }
-    const exited = await Promise.race([
-      worker.proc.exited.then(() => true),
-      Bun.sleep(options.timeoutMs).then(() => false),
+    return { status: 'cancelled' };
+  }
+
+  async #verifyNativeCancelReuse(
+    worker: IAcpWorker,
+  ): Promise<
+    { reusable: true } | { reusable: false; reason: string; stopReason?: string; cause?: unknown }
+  > {
+    const verification = worker.peer
+      .request('session/prompt', {
+        sessionId: worker.sessionId,
+        prompt: [{ type: 'text', text: 'Reply with the single word AFTER.' }],
+      })
+      .then((response) => parseStopReason(response.result));
+    const result = await Promise.race([
+      verification.then(
+        (stopReason) => ({ type: 'settled' as const, stopReason }),
+        (error) => ({ type: 'failed' as const, error }),
+      ),
+      Bun.sleep(this.#nativeCancelWaitMs).then(() => ({ type: 'timeout' as const })),
     ]);
-    if (exited) {
-      return { status: 'cancelled' };
+    if (result.type === 'timeout') {
+      return { reusable: false, reason: 'reuse_verification_timeout' };
     }
-    worker.proc.kill('SIGKILL');
-    this.#logger.warn(
-      {
-        event: 'backend.acp.cancel.timed_out',
-        backendSessionId: worker.backendSessionId,
-        generation: active.generation,
-        strategy: 'native',
-      },
-      'ACP native cancel cleanup timed out',
-    );
-    return { status: 'timed_out' };
+    if (result.type === 'failed') {
+      return {
+        reusable: false,
+        reason: 'reuse_verification_failed',
+        cause: result.error,
+      };
+    }
+    if (result.stopReason !== 'end_turn') {
+      return {
+        reusable: false,
+        reason: 'reuse_verification_wrong_stop_reason',
+        stopReason: result.stopReason,
+      };
+    }
+    return { reusable: true };
   }
 
   async #fallbackKillAfterNative(
@@ -472,6 +510,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         peer,
         sessionId: session.sessionId,
         active: null,
+        cancellation: null,
         generation: this.#nextGeneration,
         idleSinceMs: Date.now(),
       };
