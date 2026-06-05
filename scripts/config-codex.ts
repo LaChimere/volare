@@ -9,8 +9,14 @@ const DEFAULT_ENV_KEY = 'VOLARE_API_KEY';
 const MANAGED_BLOCK_START = '# >>> volare managed';
 const MANAGED_BLOCK_END = '# <<< volare managed';
 const DEFAULT_BACKUP_LIMIT = 10;
+const PROFILE_FILE_MIN_VERSION = {
+  major: 0,
+  minor: 134,
+  patch: 0,
+};
 
 export type ICodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+export type CodexProfileMode = 'profile-file' | 'legacy-single-file';
 export type ICodexConfigIssueSeverity = 'warning' | 'error';
 
 export interface ICodexConfigIssue {
@@ -38,6 +44,16 @@ export interface ICodexConfigInspection {
   configPath: string;
   healthy: boolean;
   issues: ICodexConfigIssue[];
+}
+
+export function detectCodexProfileModeFromVersion(versionText: string): CodexProfileMode {
+  const version = firstSemanticVersion(versionText);
+  if (!version) {
+    return 'profile-file';
+  }
+  return compareSemanticVersion(version, PROFILE_FILE_MIN_VERSION) >= 0
+    ? 'profile-file'
+    : 'legacy-single-file';
 }
 
 export async function configureCodex(
@@ -470,6 +486,28 @@ function validateReasoningEffort(value: string): ICodexReasoningEffort {
     return value;
   }
   throw new Error('Volare Codex reasoning effort must be one of: low, medium, high, xhigh');
+}
+
+function firstSemanticVersion(
+  text: string,
+): { major: number; minor: number; patch: number } | undefined {
+  const match = text.match(/\b(\d+)\.(\d+)\.(\d+)\b/);
+  const [, major, minor, patch] = match ?? [];
+  if (major === undefined || minor === undefined || patch === undefined) {
+    return undefined;
+  }
+  return {
+    major: Number.parseInt(major, 10),
+    minor: Number.parseInt(minor, 10),
+    patch: Number.parseInt(patch, 10),
+  };
+}
+
+function compareSemanticVersion(
+  left: { major: number; minor: number; patch: number },
+  right: { major: number; minor: number; patch: number },
+): number {
+  return left.major - right.major || left.minor - right.minor || left.patch - right.patch;
 }
 
 function escapeRegExp(value: string): string {
