@@ -3,6 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 type ProbeStatus = 'supported' | 'unsupported' | 'unknown' | 'skipped' | 'failed';
+export type AcpCancelCapability =
+  | 'native-reusable'
+  | 'native-terminal-only'
+  | 'unsupported'
+  | 'unknown';
 
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -198,6 +203,18 @@ interface IBehaviorRoiEvidence {
   replacementSafety: JsonValue;
   failureSurface: JsonValue;
   roi: JsonValue;
+}
+
+export interface IAcpCancelProbeEvidence {
+  terminalObserved: boolean;
+  stopReason: string | null;
+  cancelToTerminalMs: number | null;
+  chunksBeforeCancel: number;
+  chunksAfterCancel: number;
+  followUpStopReason: string | null;
+  followUpTextBytes: number | null;
+  followUpLeakDetected: boolean | null;
+  error?: string;
 }
 
 interface IPendingRequest {
@@ -966,6 +983,119 @@ async function probeBehaviorAndRoi(copilotPath: string): Promise<IAcpProbeResult
       },
     ];
   }
+}
+
+async function probeCancelCapability(copilotPath: string): Promise<IAcpProbeResult[]> {
+  const evidence = await probeCancelCapabilityEvidence(copilotPath);
+  const capability = classifyAcpCancelCapability(evidence);
+  const status: ProbeStatus =
+    capability === 'native-reusable'
+      ? 'supported'
+      : capability === 'unsupported'
+        ? 'unsupported'
+        : 'unknown';
+  return [
+    {
+      name: 'ACP cancellation capability',
+      status,
+      evidence: JSON.stringify({ capability, ...evidence }),
+    },
+  ];
+}
+
+async function probeCancelCapabilityEvidence(
+  copilotPath: string,
+): Promise<IAcpCancelProbeEvidence> {
+  const session = await createAcpProbeSession(copilotPath, 'cancel-capability');
+  try {
+    const promptStartIndex = session.peer.rawMessages.length;
+    const prompt = session.peer.request('session/prompt', {
+      sessionId: session.sessionId,
+      prompt: [
+        {
+          type: 'text',
+          text: 'Count from 1 to 10000, one number per line, with no explanations.',
+        },
+      ],
+    });
+    const chunksBeforeCancel = await waitForAgentChunkCount(
+      session.peer,
+      promptStartIndex,
+      3,
+      10_000,
+    );
+    const cancelSentAt = performance.now();
+    const messagesAtCancel = session.peer.rawMessages.length;
+    await session.peer.notify('session/cancel', { sessionId: session.sessionId });
+    let stopReason: string | null = null;
+    let error: string | undefined;
+    try {
+      const response = await prompt;
+      stopReason = extractStopReason(response.result);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    }
+    const cancelToTerminalMs = error ? null : elapsedMs(cancelSentAt);
+    const chunksAfterCancel = countAgentMessageChunks(
+      session.peer.rawMessages.slice(messagesAtCancel),
+    );
+    let followUpStopReason: string | null = null;
+    let followUpTextBytes: number | null = null;
+    let followUpLeakDetected: boolean | null = null;
+    if (stopReason === 'cancelled') {
+      const followUp = await runPromptAndSummarize(
+        session.peer,
+        session.sessionId,
+        'Reply with the single word AFTER.',
+      );
+      followUpStopReason = followUp.stopReason;
+      followUpTextBytes = textEncoder.encode(followUp.agentText).byteLength;
+      followUpLeakDetected = !/\bAFTER\b/i.test(followUp.agentText);
+    }
+    return {
+      terminalObserved: error === undefined,
+      stopReason,
+      cancelToTerminalMs,
+      chunksBeforeCancel,
+      chunksAfterCancel,
+      followUpStopReason,
+      followUpTextBytes,
+      followUpLeakDetected,
+      ...(error === undefined ? {} : { error }),
+    };
+  } catch (cause) {
+    return {
+      terminalObserved: false,
+      stopReason: null,
+      cancelToTerminalMs: null,
+      chunksBeforeCancel: 0,
+      chunksAfterCancel: 0,
+      followUpStopReason: null,
+      followUpTextBytes: null,
+      followUpLeakDetected: null,
+      error: cause instanceof Error ? cause.message : String(cause),
+    };
+  } finally {
+    await session.dispose();
+  }
+}
+
+export function classifyAcpCancelCapability(
+  evidence: Pick<
+    IAcpCancelProbeEvidence,
+    'terminalObserved' | 'stopReason' | 'followUpStopReason' | 'followUpLeakDetected' | 'error'
+  >,
+): AcpCancelCapability {
+  if (!evidence.terminalObserved) {
+    return evidence.error ? 'unsupported' : 'unknown';
+  }
+  if (evidence.stopReason !== 'cancelled') {
+    return 'unsupported';
+  }
+  if (evidence.followUpStopReason === 'end_turn' && evidence.followUpLeakDetected === false) {
+    return 'native-reusable';
+  }
+  return 'native-terminal-only';
 }
 
 async function probeCancellationBehavior(copilotPath: string): Promise<JsonValue> {
@@ -2079,7 +2209,9 @@ async function main(): Promise<void> {
         ? 'behavior-roi'
         : Bun.argv.includes('--auth')
           ? 'auth'
-          : 'initialize';
+          : Bun.argv.includes('--cancel')
+            ? 'cancel'
+            : 'initialize';
   const copilotPath = await findCommand('copilot');
   const copilotVersion = await captureCopilotVersion(copilotPath);
   let results: IAcpProbeResult[];
@@ -2095,6 +2227,8 @@ async function main(): Promise<void> {
     results = await probeBehaviorAndRoi(copilotPath);
   } else if (mode === 'auth') {
     results = await probeAuthentication(copilotPath);
+  } else if (mode === 'cancel') {
+    results = await probeCancelCapability(copilotPath);
   } else {
     results = [await probeInitialize(copilotPath)];
   }
