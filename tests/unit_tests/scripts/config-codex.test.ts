@@ -8,6 +8,7 @@ import {
   buildCodexProfileConfig,
   configureCodex,
   detectCodexProfileModeFromVersion,
+  detectInstalledCodexProfileMode,
   inspectCodexConfigText,
 } from '../../../scripts/config-codex';
 
@@ -17,6 +18,12 @@ describe('config-codex script', () => {
     expect(detectCodexProfileModeFromVersion('codex 0.134.0')).toBe('profile-file');
     expect(detectCodexProfileModeFromVersion('codex 0.133.0')).toBe('legacy-single-file');
     expect(detectCodexProfileModeFromVersion('custom codex build')).toBe('profile-file');
+  });
+
+  test('falls back to profile-file mode when Codex version probing is unavailable', async () => {
+    await expect(detectInstalledCodexProfileMode('/definitely/missing/codex')).resolves.toBe(
+      'profile-file',
+    );
   });
 
   test('builds modern Codex base config while preserving unrelated sections', () => {
@@ -40,7 +47,7 @@ describe('config-codex script', () => {
     expect(config).toContain('model_reasoning_effort = "high"');
     expect(config).toContain('[model_providers.other]');
     expect(config).toContain('[profiles.other]');
-    expect(config).not.toContain('[model_providers.volare]');
+    expect(config).toContain('[model_providers.volare]');
     expect(config).not.toContain('[profiles.volare]');
     expect(config).not.toContain('# >>> volare managed');
     expect(Bun.TOML.parse(config)).toBeTruthy();
@@ -110,7 +117,7 @@ describe('config-codex script', () => {
     );
 
     expect(config).not.toContain('profile = "volare"');
-    expect(config).not.toContain('[model_providers.volare]');
+    expect(config.match(/\[model_providers\.volare\]/g)).toHaveLength(1);
     expect(config).not.toContain('[profiles.volare]');
     expect(config).not.toContain('Old Volare');
     expect(config).not.toContain('requires_openai_auth = false');
@@ -137,7 +144,7 @@ describe('config-codex script', () => {
     });
 
     expect(secondBase).toBe(firstBase);
-    expect(secondBase.match(/\[model_providers\.volare\]/g)).toBeNull();
+    expect(secondBase.match(/\[model_providers\.volare\]/g)).toHaveLength(1);
     expect(secondBase.match(/\[profiles\.volare\]/g)).toBeNull();
     expect(secondBase.match(/model_reasoning_effort = "xhigh"/g)).toHaveLength(1);
     expect(secondProfile).toBe(firstProfile);
@@ -185,7 +192,7 @@ describe('config-codex script', () => {
     expect(config).not.toContain('[model_providers.agent-loom]');
     expect(config).not.toContain('[profiles.agent-loom]');
     expect(config).toContain('[model_providers.other]');
-    expect(config).not.toContain('[model_providers.volare]');
+    expect(config).toContain('[model_providers.volare]');
   });
 
   test('reports modern doctor issues without config values that could contain secrets', () => {
@@ -204,7 +211,6 @@ describe('config-codex script', () => {
     expect(inspection.profileMode).toBe('profile-file');
     expect(inspection.issues.map((issue) => issue.code)).toContain('missing-profile-config');
     expect(inspection.issues.map((issue) => issue.code)).toContain('legacy-base-profile-selector');
-    expect(inspection.issues.map((issue) => issue.code)).toContain('legacy-base-volare-provider');
     expect(inspection.issues.map((issue) => issue.code)).toContain('top-level-model-drift');
     expect(JSON.stringify(inspection)).not.toContain('SENSITIVE_VOLARE_TOKEN_NAME');
   });

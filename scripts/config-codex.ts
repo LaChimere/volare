@@ -28,6 +28,7 @@ export interface ICodexConfigIssue {
 export interface ICodexConfigOptions {
   configPath?: string;
   profileConfigPath?: string;
+  codexCommand?: string;
   baseUrl?: string;
   envKey?: string;
   reasoningEffort?: ICodexReasoningEffort;
@@ -64,11 +65,41 @@ export function detectCodexProfileModeFromVersion(versionText: string): CodexPro
     : 'legacy-single-file';
 }
 
+export async function detectInstalledCodexProfileMode(
+  codexCommand = 'codex',
+): Promise<CodexProfileMode> {
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn([codexCommand, '--version'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+  } catch {
+    return 'profile-file';
+  }
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    readPipeText(proc.stdout),
+    readPipeText(proc.stderr),
+  ]);
+  if (exitCode !== 0) {
+    return 'profile-file';
+  }
+  return detectCodexProfileModeFromVersion(`${stdout}\n${stderr}`);
+}
+
+async function resolveProfileMode(options: {
+  profileMode?: CodexProfileMode;
+  codexCommand?: string;
+}): Promise<CodexProfileMode> {
+  return options.profileMode ?? (await detectInstalledCodexProfileMode(options.codexCommand));
+}
+
 export async function configureCodex(
   options: ICodexConfigOptions = {},
 ): Promise<ICodexConfigResult> {
   const configPath = options.configPath ?? defaultConfigPath();
-  const profileMode = options.profileMode ?? 'profile-file';
+  const profileMode = await resolveProfileMode(options);
   const existing = await readTextIfExists(configPath);
   const resolvedOptions = resolveConfigOptions(options);
 
@@ -217,12 +248,13 @@ ${profileProviderBlock(resolvedOptions)}`;
 function buildModernBaseConfig(
   existing: string,
   options: {
+    baseUrl?: string;
+    envKey?: string;
     reasoningEffort?: ICodexReasoningEffort;
+    requiresOpenAIAuth?: boolean;
   } = {},
 ): string {
-  const reasoningEffort = validateReasoningEffort(
-    options.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
-  );
+  const resolvedOptions = resolveConfigOptions(options);
   const managedBlockResult = removeManagedBlock(existing);
   if (managedBlockResult.unbalancedStart) {
     throw new Error(
@@ -243,9 +275,11 @@ function buildModernBaseConfig(
   const withDefaults = setTopLevelKeys(withoutLegacyProfileSelector, [
     ['model_provider', DEFAULT_PROFILE],
     ['model', DEFAULT_MODEL],
-    ['model_reasoning_effort', reasoningEffort],
+    ['model_reasoning_effort', resolvedOptions.reasoningEffort],
   ]);
-  return `${trimTrailingWhitespace(withDefaults)}\n`;
+  return `${trimTrailingWhitespace(withDefaults)}
+
+${profileProviderBlock(resolvedOptions)}`;
 }
 
 function buildLegacySingleFileConfig(
@@ -302,7 +336,7 @@ export async function inspectCodexConfig(
   options: ICodexConfigOptions = {},
 ): Promise<ICodexConfigInspection> {
   const configPath = options.configPath ?? defaultConfigPath();
-  const profileMode = options.profileMode ?? 'profile-file';
+  const profileMode = await resolveProfileMode(options);
   const existing = await readTextIfExists(configPath);
   if (profileMode === 'legacy-single-file') {
     return {
@@ -416,14 +450,6 @@ function inspectProfileFileCodexConfigText(
       code: 'legacy-base-profile-selector',
       severity: 'warning',
       message: 'Found legacy top-level profile selector in the Codex base config.',
-    });
-  }
-
-  if (hasSection(outsideManagedBlock, `[model_providers.${DEFAULT_PROFILE}]`)) {
-    issues.push({
-      code: 'legacy-base-volare-provider',
-      severity: 'warning',
-      message: 'Found a legacy Volare provider section in the Codex base config.',
     });
   }
 
@@ -887,6 +913,12 @@ function escapeRegExp(value: string): string {
 async function readTextIfExists(path: string): Promise<string> {
   const file = Bun.file(path);
   return (await file.exists()) ? await file.text() : '';
+}
+
+async function readPipeText(
+  pipe: ReadableStream<Uint8Array> | number | undefined,
+): Promise<string> {
+  return pipe instanceof ReadableStream ? await new Response(pipe).text() : '';
 }
 
 function defaultConfigPath(): string {
