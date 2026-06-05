@@ -11,7 +11,7 @@ bunx @lachimere/volare setup
 bunx @lachimere/volare start -d
 ```
 
-The setup command generates or reuses `VOLARE_API_KEY`, saves it under `~/.volare/env`, updates the macOS GUI environment for Codex Desktop, and writes Codex config. Restart Codex Desktop after setup so it can read the saved token. If setup generates a new token while the daemon is already running, restart the daemon before reconnecting Codex Desktop. It updates `~/.codex/config.toml`, preserves unrelated settings, and writes backups under `~/.codex/backups/volare/` before changing an existing file.
+The setup command generates or reuses `VOLARE_API_KEY`, saves it under `~/.volare/env`, updates the macOS GUI environment for Codex Desktop, and writes Codex config. Restart Codex Desktop after setup so it can read the saved token. If setup generates a new token while the daemon is already running, restart the daemon before reconnecting Codex Desktop. Current Codex uses `~/.codex/config.toml` plus the `~/.codex/volare.config.toml` profile overlay; Volare preserves unrelated settings and writes backups under `~/.codex/backups/volare/` before changing an existing file.
 
 Optional flags are available for non-default installs:
 
@@ -28,15 +28,15 @@ bunx @lachimere/volare config codex \
   --reasoning-effort high
 ```
 
-It writes the equivalent top-level defaults and Volare-managed provider/profile block:
+It writes Volare defaults and provider metadata to the base config, plus a matching `volare.config.toml` profile overlay for `codex --profile volare`:
+
+`~/.codex/config.toml`:
 
 ```toml
-profile = "volare"
 model_provider = "volare"
 model = "gpt-5.5"
 model_reasoning_effort = "high"
 
-# >>> volare managed
 [model_providers.volare]
 name = "Volare"
 base_url = "http://127.0.0.1:8000/openai/v1"
@@ -44,21 +44,31 @@ wire_api = "responses"
 env_key = "VOLARE_API_KEY"
 requires_openai_auth = true
 supports_websockets = false
+```
 
-[profiles.volare]
+`~/.codex/volare.config.toml`:
+
+```toml
 model_provider = "volare"
 model = "gpt-5.5"
 model_reasoning_effort = "high"
-# <<< volare managed
+
+[model_providers.volare]
+name = "Volare"
+base_url = "http://127.0.0.1:8000/openai/v1"
+wire_api = "responses"
+env_key = "VOLARE_API_KEY"
+requires_openai_auth = true
+supports_websockets = false
 ```
 
-Codex CLI and Desktop share this config. The top-level `profile`, `model_provider`, `model`, and `model_reasoning_effort` entries keep commands such as `codex exec resume --last` on Volare with the expected default model and reasoning effort even when a subcommand does not accept `--profile`.
+Codex CLI and Desktop share this config. The top-level `model_provider`, `model`, `model_reasoning_effort`, and provider metadata keep commands such as `codex exec resume --last` on Volare with the expected default model and reasoning effort even when a subcommand does not accept `--profile`. Current Codex also loads `volare.config.toml` when commands pass `--profile volare`. Older Codex builds that require the legacy single-file profile layout can be configured with `--profile-mode legacy-single-file`.
 
 `requires_openai_auth = true` keeps Codex/Desktop aware of the signed-in ChatGPT account while `env_key = "VOLARE_API_KEY"` still authenticates requests to the local Volare server. This lets Desktop expose ChatGPT-backed plugin browsing and installation while using Volare as the active model provider.
 
 ## Config hygiene
 
-Volare owns only the bounded block between `# >>> volare managed` and `# <<< volare managed`, plus the top-level defaults that select the Volare profile. Re-running `volare setup` or `volare config codex repair` replaces that block in place, removes known Volare-owned legacy `agent-loom` sections, and leaves unrelated Codex settings such as projects, MCP servers, marketplaces, and other providers untouched.
+Volare owns the Volare provider/default fields in the base config and the `volare.config.toml` overlay. Re-running `volare setup` or `volare config codex repair` updates both files in place, removes known Volare-owned legacy `agent-loom` sections and obsolete `[profiles.volare]` state from modern configs, and leaves unrelated Codex settings such as projects, MCP servers, marketplaces, and other providers untouched.
 
 Use doctor mode when Codex behavior looks inconsistent or repeated setup runs have left old config behind:
 
@@ -67,7 +77,7 @@ bunx @lachimere/volare config codex doctor
 bunx @lachimere/volare config codex repair
 ```
 
-Doctor output reports issue codes and non-secret messages only; it does not print tokens, environment values, or the full config file. It also reports cases that repair cannot safely rewrite, such as an unclosed Volare managed block or unrelated TOML syntax/duplicate-section errors that would still be invalid after Volare repair. Repair keeps the latest Volare backups in `backups/volare/` next to the selected config file, so the default path is `~/.codex/backups/volare/config-<timestamp>.toml`.
+Doctor output reports issue codes and non-secret messages only; it does not print tokens, environment values, or the full config file. It also reports cases that repair cannot safely rewrite, such as an unclosed legacy Volare managed block or unrelated TOML syntax/duplicate-section errors that would still be invalid after Volare repair. Repair keeps the latest Volare backups in `backups/volare/` next to the selected config file, so the default paths include `~/.codex/backups/volare/config-<timestamp>.toml` and `~/.codex/backups/volare/volare.config-<timestamp>.toml`.
 
 ## Model catalog
 

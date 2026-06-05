@@ -251,13 +251,13 @@ The command clears Bun's global install/bunx cache and resolves `@lachimere/vola
 
 ### Codex config appears stale or inconsistent
 
-Check the Volare-owned Codex provider/profile block without printing tokens or the full config:
+Check the Volare-owned Codex provider/profile-file config without printing tokens or the full config:
 
 ```bash
 bunx @lachimere/volare config codex doctor
 ```
 
-If doctor reports drift, run `bunx @lachimere/volare config codex repair` to rewrite only Volare-owned Codex config. Repair preserves unrelated Codex settings and writes backups under `backups/volare/` next to the selected Codex config file.
+If doctor reports drift, run `bunx @lachimere/volare config codex repair` to rewrite only Volare-owned Codex config. Modern repair preserves unrelated Codex settings while updating both `config.toml` and `volare.config.toml`, and writes backups under `backups/volare/` next to the selected Codex config file.
 
 ### Context appears to mention an unexpected Codex/Desktop path
 
