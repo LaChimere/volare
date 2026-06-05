@@ -33,6 +33,7 @@ export interface IAcpCopilotPromptRunnerOptions {
   requestTimeoutMs?: number;
   idleTimeoutMs?: number;
   cancelStrategy?: AcpCancelStrategy;
+  nativeCancelSupport?: AcpNativeCancelSupport;
   nativeCancelWaitMs?: number;
   logger?: ILogger;
   childProcessEnv?: Record<string, string>;
@@ -41,7 +42,13 @@ export interface IAcpCopilotPromptRunnerOptions {
 
 export const ACP_CANCEL_STRATEGIES = ['kill', 'native', 'auto'] as const;
 export type AcpCancelStrategy = (typeof ACP_CANCEL_STRATEGIES)[number];
+export type AcpNativeCancelSupport =
+  | 'native-reusable'
+  | 'native-terminal-only'
+  | 'unsupported'
+  | 'unknown';
 export const DEFAULT_ACP_CANCEL_STRATEGY: AcpCancelStrategy = 'kill';
+export const DEFAULT_ACP_NATIVE_CANCEL_SUPPORT: AcpNativeCancelSupport = 'unknown';
 export const DEFAULT_ACP_NATIVE_CANCEL_WAIT_MS = 5000;
 
 interface IAcpWorker {
@@ -75,6 +82,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #requestTimeoutMs: number;
   readonly #idleTimeoutMs: number;
   readonly #cancelStrategy: AcpCancelStrategy;
+  #nativeCancelSupport: AcpNativeCancelSupport;
   readonly #nativeCancelWaitMs: number;
   readonly #logger: ILogger;
   readonly #childProcessEnv: Record<string, string>;
@@ -92,6 +100,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_ACP_REQUEST_TIMEOUT_MS;
     this.#idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_ACP_IDLE_TIMEOUT_MS;
     this.#cancelStrategy = options.cancelStrategy ?? DEFAULT_ACP_CANCEL_STRATEGY;
+    this.#nativeCancelSupport = options.nativeCancelSupport ?? DEFAULT_ACP_NATIVE_CANCEL_SUPPORT;
     this.#nativeCancelWaitMs = options.nativeCancelWaitMs ?? DEFAULT_ACP_NATIVE_CANCEL_WAIT_MS;
     this.#childProcessEnv = options.childProcessEnv ?? {};
     this.#logger = (options.logger ?? new NoopLogger()).child({
@@ -230,7 +239,10 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         cancellation = this.#cancelKill(worker, worker.active, options);
         break;
       case 'auto':
-        cancellation = this.#cancelKill(worker, worker.active, options);
+        cancellation =
+          this.#nativeCancelSupport === 'native-reusable'
+            ? this.#cancelNativeTerminal(worker, worker.active, options)
+            : this.#cancelKill(worker, worker.active, options);
         break;
       case 'native':
         cancellation = this.#cancelNativeTerminal(worker, worker.active, options);
@@ -350,6 +362,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     }
     worker.idleSinceMs = Date.now();
     active.cancelManaged = true;
+    this.#nativeCancelSupport = 'native-reusable';
     active.queue.fail(new VolareError('backend_cancelled', 'ACP prompt was cancelled'));
     return { status: 'cancelled' };
   }
