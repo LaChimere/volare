@@ -298,11 +298,13 @@ describe('config-codex script', () => {
     try {
       const first = await configureCodex({
         configPath,
+        profileMode: 'profile-file',
         backupSuffix: 'test',
         requiresOpenAIAuth: false,
       });
       const second = await configureCodex({
         configPath,
+        profileMode: 'profile-file',
         backupSuffix: 'test-again',
         requiresOpenAIAuth: false,
       });
@@ -341,10 +343,14 @@ describe('config-codex script', () => {
     const profileConfigPath = join(root, 'volare.config.toml');
 
     try {
-      await configureCodex({ configPath });
+      await configureCodex({ configPath, profileMode: 'profile-file' });
       const oldProfile = 'model_provider = "old"\n';
       await writeFile(profileConfigPath, oldProfile);
-      const result = await configureCodex({ configPath, backupSuffix: 'profile' });
+      const result = await configureCodex({
+        configPath,
+        profileMode: 'profile-file',
+        backupSuffix: 'profile',
+      });
 
       expect(result).toMatchObject({
         configPath,
@@ -407,13 +413,28 @@ describe('config-codex script', () => {
     await writeFile(configPath, 'model = "first"\n');
 
     try {
-      await configureCodex({ configPath, backupSuffix: '001', backupLimit: 2 });
+      await configureCodex({
+        configPath,
+        profileMode: 'profile-file',
+        backupSuffix: '001',
+        backupLimit: 2,
+      });
       await writeFile(configPath, 'model = "second"\n');
       await writeFile(profileConfigPath, 'model_provider = "second"\n');
-      await configureCodex({ configPath, backupSuffix: '002', backupLimit: 2 });
+      await configureCodex({
+        configPath,
+        profileMode: 'profile-file',
+        backupSuffix: '002',
+        backupLimit: 2,
+      });
       await writeFile(configPath, 'model = "third"\n');
       await writeFile(profileConfigPath, 'model_provider = "third"\n');
-      await configureCodex({ configPath, backupSuffix: '003', backupLimit: 2 });
+      await configureCodex({
+        configPath,
+        profileMode: 'profile-file',
+        backupSuffix: '003',
+        backupLimit: 2,
+      });
 
       const backupDir = join(root, 'backups', 'volare');
       await expect(readFile(join(backupDir, 'config-001.toml'), 'utf8')).rejects.toThrow();
