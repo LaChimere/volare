@@ -58,6 +58,7 @@ interface IAcpWorker {
 interface IActivePrompt {
   generation: number;
   queue: TextQueue;
+  acceptingDeltas: boolean;
 }
 
 const DEFAULT_ACP_MAX_WORKERS = 10;
@@ -120,7 +121,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
 
     const queue = new TextQueue();
     const generation = worker.generation;
-    worker.active = { generation, queue };
+    worker.active = { generation, queue, acceptingDeltas: true };
     worker.idleSinceMs = 0;
     const abortError = new VolareError('backend_cancelled', 'ACP prompt was aborted');
     const abort = () => {
@@ -220,6 +221,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   ): Promise<ICancelResult> {
     const activeGeneration = active.generation;
     this.#workers.delete(worker.backendSessionId);
+    this.#stopAcceptingDeltas(active);
     active.queue.fail(new VolareError('backend_cancelled', 'ACP prompt was cancelled'));
     await worker.peer
       .notify('session/cancel', { sessionId: worker.sessionId })
@@ -262,6 +264,10 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     worker.proc.kill('SIGKILL');
   }
 
+  #stopAcceptingDeltas(active: IActivePrompt): void {
+    active.acceptingDeltas = false;
+  }
+
   async #getOrCreateWorker(backendSessionId: string, cwd: string): Promise<IAcpWorker> {
     await this.#evictIdleWorkers();
     const existing = this.#workers.get(backendSessionId);
@@ -301,11 +307,15 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       requestTimeoutMs: this.#requestTimeoutMs,
       permissionPolicy: permissionPolicy(this.#permissionMode),
       onNotification: (frame) => {
-        if (!worker?.active) {
+        if (!worker) {
+          return;
+        }
+        const active = worker.active;
+        if (!active?.acceptingDeltas) {
           return;
         }
         for (const text of extractTextDeltas(frame, worker.sessionId)) {
-          worker.active.queue.push(text);
+          active.queue.push(text);
         }
       },
     });
