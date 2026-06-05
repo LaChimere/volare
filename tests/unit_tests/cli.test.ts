@@ -29,9 +29,14 @@ function memoryIo(): { io: ICliIo; stdout: MemoryWriter; stderr: MemoryWriter } 
 
 function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDependencies {
   return {
-    configureCodex: async () => ({ configPath: '/tmp/config.toml', changed: false }),
+    configureCodex: async () => ({
+      configPath: '/tmp/config.toml',
+      profileMode: 'profile-file',
+      changed: false,
+    }),
     inspectCodexConfig: async () => ({
       configPath: '/tmp/config.toml',
+      profileMode: 'profile-file',
       healthy: true,
       issues: [],
     }),
@@ -64,7 +69,7 @@ function testDependencies(overrides: Partial<ICliDependencies> = {}): ICliDepend
       apiKeySource: 'generated',
       envPath: '/tmp/volare/env',
       daemonRunning: false,
-      codexConfig: { configPath: '/tmp/config.toml', changed: true },
+      codexConfig: { configPath: '/tmp/config.toml', profileMode: 'profile-file', changed: true },
     }),
     updatePackage: async () => ({ latestVersion: '0.3.4' }),
     checkPythonCertificates: async () => ({
@@ -134,8 +139,11 @@ describe('Volare CLI', () => {
             daemonRunning: false,
             codexConfig: {
               configPath: '/tmp/codex.toml',
+              profileMode: 'profile-file',
               changed: true,
+              profileConfigPath: '/tmp/volare.config.toml',
               backupPath: '/tmp/codex.toml.volare-backup-test',
+              profileBackupPath: '/tmp/volare.config.toml.volare-backup-test',
             },
             macosEnvironment: {
               launchAgentPath: '/tmp/LaunchAgents/com.lachimere.volare.env.plist',
@@ -159,6 +167,9 @@ describe('Volare CLI', () => {
     expect(stdout.text()).toContain('Volare setup complete.');
     expect(stdout.text()).toContain('API token: generated and saved to /tmp/volare/env');
     expect(stdout.text()).toContain('Configured Codex: /tmp/codex.toml');
+    expect(stdout.text()).toContain('Codex profile mode: profile-file');
+    expect(stdout.text()).toContain('Codex profile config: /tmp/volare.config.toml');
+    expect(stdout.text()).toContain('Profile backup written: /tmp/volare.config.toml');
     expect(stdout.text()).toContain('Restart Codex Desktop after setup');
     expect(stdout.text()).not.toContain('replace-with-at-least-16-characters');
   });
@@ -191,6 +202,8 @@ describe('Volare CLI', () => {
         '--no-codex',
         '--no-macos-env',
         '--reasoning-effort=xhigh',
+        '--codex-profile-mode',
+        'legacy-single-file',
       ]),
     ).toEqual({
       type: 'setup',
@@ -199,6 +212,7 @@ describe('Volare CLI', () => {
         configureCodex: false,
         macosEnvironment: false,
         reasoningEffort: 'xhigh',
+        codexProfileMode: 'legacy-single-file',
       },
     });
   });
@@ -272,11 +286,18 @@ describe('Volare CLI', () => {
         'CUSTOM_VOLARE_API_KEY',
         '--reasoning-effort',
         'xhigh',
+        '--profile-mode',
+        'legacy-single-file',
       ],
       testDependencies({
         configureCodex: async (options) => {
           calls.push(options);
-          return { configPath: '/tmp/codex.toml', changed: true, backupPath: '/tmp/backup' };
+          return {
+            configPath: '/tmp/codex.toml',
+            profileMode: 'legacy-single-file',
+            changed: true,
+            backupPath: '/tmp/backup',
+          };
         },
       }),
       io,
@@ -289,9 +310,11 @@ describe('Volare CLI', () => {
         baseUrl: 'http://127.0.0.1:8765/openai/v1',
         envKey: 'CUSTOM_VOLARE_API_KEY',
         reasoningEffort: 'xhigh',
+        profileMode: 'legacy-single-file',
       },
     ]);
     expect(stdout.text()).toContain('Configured Codex for Volare: /tmp/codex.toml');
+    expect(stdout.text()).toContain('Codex profile mode: legacy-single-file');
     expect(stdout.text()).toContain('Backup written: /tmp/backup');
   });
 
@@ -303,7 +326,12 @@ describe('Volare CLI', () => {
       testDependencies({
         configureCodex: async (options) => {
           calls.push(options);
-          return { configPath: '/tmp/codex.toml', changed: false };
+          return {
+            configPath: '/tmp/codex.toml',
+            profileMode: 'profile-file',
+            changed: false,
+            profileConfigPath: '/tmp/volare.config.toml',
+          };
         },
       }),
       io,
@@ -312,6 +340,8 @@ describe('Volare CLI', () => {
     expect(exitCode).toBe(0);
     expect(calls).toEqual([{ configPath: '/tmp/codex.toml' }]);
     expect(stdout.text()).toContain('Codex is already configured for Volare: /tmp/codex.toml');
+    expect(stdout.text()).toContain('Codex profile mode: profile-file');
+    expect(stdout.text()).toContain('Codex profile config: /tmp/volare.config.toml');
   });
 
   test('runs config codex doctor without printing secret-like values', async () => {
@@ -324,6 +354,8 @@ describe('Volare CLI', () => {
           calls.push(options);
           return {
             configPath: '/tmp/codex.toml',
+            profileMode: 'profile-file',
+            profileConfigPath: '/tmp/volare.config.toml',
             healthy: false,
             issues: [
               {
@@ -341,6 +373,8 @@ describe('Volare CLI', () => {
     expect(exitCode).toBe(1);
     expect(calls).toEqual([{ configPath: '/tmp/codex.toml' }]);
     expect(stdout.text()).toContain('Codex config needs Volare repair: /tmp/codex.toml');
+    expect(stdout.text()).toContain('Codex profile mode: profile-file');
+    expect(stdout.text()).toContain('Codex profile config: /tmp/volare.config.toml');
     expect(stdout.text()).toContain('managed-block-missing');
     expect(stdout.text()).not.toContain('replace-with-at-least-16-characters');
   });

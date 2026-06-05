@@ -1,5 +1,5 @@
 import { mkdir, readdir, rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 const DEFAULT_PROFILE = 'volare';
 const DEFAULT_MODEL = 'gpt-5.5';
@@ -27,23 +27,31 @@ export interface ICodexConfigIssue {
 
 export interface ICodexConfigOptions {
   configPath?: string;
+  profileConfigPath?: string;
   baseUrl?: string;
   envKey?: string;
   reasoningEffort?: ICodexReasoningEffort;
+  requiresOpenAIAuth?: boolean;
+  profileMode?: CodexProfileMode;
   backupSuffix?: string;
   backupLimit?: number;
 }
 
 export interface ICodexConfigResult {
   configPath: string;
+  profileMode: CodexProfileMode;
   changed: boolean;
   backupPath?: string;
+  profileConfigPath?: string;
+  profileBackupPath?: string;
 }
 
 export interface ICodexConfigInspection {
   configPath: string;
+  profileMode: CodexProfileMode;
   healthy: boolean;
   issues: ICodexConfigIssue[];
+  profileConfigPath?: string;
 }
 
 export function detectCodexProfileModeFromVersion(versionText: string): CodexProfileMode {
@@ -60,46 +68,196 @@ export async function configureCodex(
   options: ICodexConfigOptions = {},
 ): Promise<ICodexConfigResult> {
   const configPath = options.configPath ?? defaultConfigPath();
+  const profileMode = options.profileMode ?? 'profile-file';
   const existing = await readTextIfExists(configPath);
-  const next = buildCodexConfig(existing, {
-    baseUrl: options.baseUrl ?? DEFAULT_BASE_URL,
-    envKey: options.envKey ?? DEFAULT_ENV_KEY,
-    reasoningEffort: options.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
-  });
-  validateGeneratedToml(next);
+  const resolvedOptions = resolveConfigOptions(options);
 
-  if (existing === next) {
-    return { configPath, changed: false };
+  if (profileMode === 'legacy-single-file') {
+    const next = buildCodexConfig(existing, {
+      ...resolvedOptions,
+      profileMode,
+    });
+    validateGeneratedToml(next, 'Generated Codex config must be valid TOML');
+
+    if (existing === next) {
+      return { configPath, profileMode, changed: false };
+    }
+
+    await mkdir(dirname(configPath), { recursive: true });
+    const backupPath =
+      existing.length > 0 ? backupPathFor(configPath, options, 'config') : undefined;
+    if (backupPath) {
+      await mkdir(dirname(backupPath), { recursive: true });
+      await Bun.write(backupPath, existing);
+    }
+    await Bun.write(configPath, next);
+    if (backupPath) {
+      await pruneBackups(
+        dirname(backupPath),
+        options.backupLimit ?? DEFAULT_BACKUP_LIMIT,
+        'config',
+      );
+    }
+    return {
+      configPath,
+      profileMode,
+      changed: true,
+      ...(backupPath ? { backupPath } : {}),
+    };
+  }
+
+  const profileConfigPath = options.profileConfigPath ?? defaultProfileConfigPath(configPath);
+  const existingProfile = await readTextIfExists(profileConfigPath);
+  const nextBase = buildCodexConfig(existing, {
+    ...resolvedOptions,
+    profileMode,
+  });
+  const nextProfile = buildCodexProfileConfig(existingProfile, resolvedOptions);
+  validateGeneratedToml(nextBase, 'Generated Codex base config must be valid TOML');
+  validateGeneratedToml(nextProfile, 'Generated Codex profile config must be valid TOML');
+
+  const baseChanged = existing !== nextBase;
+  const profileChanged = existingProfile !== nextProfile;
+  if (!baseChanged && !profileChanged) {
+    return { configPath, profileMode, changed: false, profileConfigPath };
   }
 
   await mkdir(dirname(configPath), { recursive: true });
-  const backupPath = existing.length > 0 ? backupPathFor(configPath, options) : undefined;
+  await mkdir(dirname(profileConfigPath), { recursive: true });
+  const backupPath =
+    baseChanged && existing.length > 0 ? backupPathFor(configPath, options, 'config') : undefined;
+  const profileBackupPath =
+    profileChanged && existingProfile.length > 0
+      ? backupPathFor(profileConfigPath, options, backupPrefixFor(profileConfigPath))
+      : undefined;
   if (backupPath) {
     await mkdir(dirname(backupPath), { recursive: true });
     await Bun.write(backupPath, existing);
-    await pruneBackups(dirname(backupPath), options.backupLimit ?? DEFAULT_BACKUP_LIMIT);
   }
-  await Bun.write(configPath, next);
+  if (profileBackupPath) {
+    await mkdir(dirname(profileBackupPath), { recursive: true });
+    await Bun.write(profileBackupPath, existingProfile);
+  }
+  if (profileChanged) {
+    await Bun.write(profileConfigPath, nextProfile);
+  }
+  if (baseChanged) {
+    await Bun.write(configPath, nextBase);
+  }
+  if (backupPath) {
+    await pruneBackups(dirname(backupPath), options.backupLimit ?? DEFAULT_BACKUP_LIMIT, 'config');
+  }
+  if (profileBackupPath) {
+    await pruneBackups(
+      dirname(profileBackupPath),
+      options.backupLimit ?? DEFAULT_BACKUP_LIMIT,
+      backupPrefixFor(profileConfigPath),
+    );
+  }
   return {
     configPath,
+    profileMode,
     changed: true,
+    profileConfigPath,
     ...(backupPath ? { backupPath } : {}),
+    ...(profileBackupPath ? { profileBackupPath } : {}),
   };
 }
 
-export function buildCodexConfig(
+interface IResolvedCodexConfigOptions {
+  baseUrl: string;
+  envKey: string;
+  reasoningEffort: ICodexReasoningEffort;
+  requiresOpenAIAuth: boolean;
+}
+
+function resolveConfigOptions(options: {
+  baseUrl?: string;
+  envKey?: string;
+  reasoningEffort?: ICodexReasoningEffort;
+  requiresOpenAIAuth?: boolean;
+}): IResolvedCodexConfigOptions {
+  return {
+    baseUrl: validateBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL),
+    envKey: validateEnvKey(options.envKey ?? DEFAULT_ENV_KEY),
+    reasoningEffort: validateReasoningEffort(options.reasoningEffort ?? DEFAULT_REASONING_EFFORT),
+    requiresOpenAIAuth: options.requiresOpenAIAuth ?? true,
+  };
+}
+
+export function buildCodexProfileConfig(
   existing: string,
   options: {
     baseUrl?: string;
     envKey?: string;
     reasoningEffort?: ICodexReasoningEffort;
+    requiresOpenAIAuth?: boolean;
   } = {},
 ): string {
-  const baseUrl = validateBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
-  const envKey = validateEnvKey(options.envKey ?? DEFAULT_ENV_KEY);
+  const resolvedOptions = resolveConfigOptions(options);
+  const withoutVolareSections = removeSection(
+    removeSection(existing, `[model_providers.${DEFAULT_PROFILE}]`),
+    `[profiles.${DEFAULT_PROFILE}]`,
+  );
+  const withoutLegacyProfileSelector = removeTopLevelKeyIfValue(
+    withoutVolareSections,
+    'profile',
+    DEFAULT_PROFILE,
+  );
+  const withDefaults = setTopLevelKeys(withoutLegacyProfileSelector, [
+    ['model_provider', DEFAULT_PROFILE],
+    ['model', DEFAULT_MODEL],
+    ['model_reasoning_effort', resolvedOptions.reasoningEffort],
+  ]);
+  return `${trimTrailingWhitespace(withDefaults)}
+
+${profileProviderBlock(resolvedOptions)}`;
+}
+
+function buildModernBaseConfig(
+  existing: string,
+  options: {
+    reasoningEffort?: ICodexReasoningEffort;
+  } = {},
+): string {
   const reasoningEffort = validateReasoningEffort(
     options.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
   );
+  const managedBlockResult = removeManagedBlock(existing);
+  if (managedBlockResult.unbalancedStart) {
+    throw new Error(
+      'Volare managed Codex config block is missing its end marker; run "volare config codex doctor" and fix the config before repair.',
+    );
+  }
+  const withoutManagedSections = removeLegacyVolareSections(
+    removeSection(
+      removeSection(managedBlockResult.content, `[model_providers.${DEFAULT_PROFILE}]`),
+      `[profiles.${DEFAULT_PROFILE}]`,
+    ),
+  );
+  const withoutLegacyProfileSelector = removeTopLevelKeyIfValue(
+    withoutManagedSections,
+    'profile',
+    DEFAULT_PROFILE,
+  );
+  const withDefaults = setTopLevelKeys(withoutLegacyProfileSelector, [
+    ['model_provider', DEFAULT_PROFILE],
+    ['model', DEFAULT_MODEL],
+    ['model_reasoning_effort', reasoningEffort],
+  ]);
+  return `${trimTrailingWhitespace(withDefaults)}\n`;
+}
+
+function buildLegacySingleFileConfig(
+  existing: string,
+  options: {
+    baseUrl?: string;
+    envKey?: string;
+    reasoningEffort?: ICodexReasoningEffort;
+    requiresOpenAIAuth?: boolean;
+  } = {},
+): string {
+  const resolvedOptions = resolveConfigOptions(options);
   const managedBlockResult = removeManagedBlock(existing);
   if (managedBlockResult.unbalancedStart) {
     throw new Error(
@@ -117,21 +275,51 @@ export function buildCodexConfig(
     ['profile', DEFAULT_PROFILE],
     ['model_provider', DEFAULT_PROFILE],
     ['model', DEFAULT_MODEL],
-    ['model_reasoning_effort', reasoningEffort],
+    ['model_reasoning_effort', resolvedOptions.reasoningEffort],
   ]);
   return `${trimTrailingWhitespace(withDefaults)}
 
-${managedBlock({ baseUrl, envKey, reasoningEffort })}`;
+${legacyManagedBlock(resolvedOptions)}`;
+}
+
+export function buildCodexConfig(
+  existing: string,
+  options: {
+    baseUrl?: string;
+    envKey?: string;
+    reasoningEffort?: ICodexReasoningEffort;
+    requiresOpenAIAuth?: boolean;
+    profileMode?: CodexProfileMode;
+  } = {},
+): string {
+  if ((options.profileMode ?? 'profile-file') === 'legacy-single-file') {
+    return buildLegacySingleFileConfig(existing, options);
+  }
+  return buildModernBaseConfig(existing, options);
 }
 
 export async function inspectCodexConfig(
   options: ICodexConfigOptions = {},
 ): Promise<ICodexConfigInspection> {
   const configPath = options.configPath ?? defaultConfigPath();
+  const profileMode = options.profileMode ?? 'profile-file';
   const existing = await readTextIfExists(configPath);
+  if (profileMode === 'legacy-single-file') {
+    return {
+      configPath,
+      ...inspectCodexConfigText(existing, options),
+    };
+  }
+  const profileConfigPath = options.profileConfigPath ?? defaultProfileConfigPath(configPath);
+  const profileConfigText = await readTextIfExists(profileConfigPath);
   return {
     configPath,
-    ...inspectCodexConfigText(existing, options),
+    profileConfigPath,
+    ...inspectCodexConfigText(existing, {
+      ...options,
+      profileMode,
+      profileConfigText,
+    }),
   };
 }
 
@@ -141,6 +329,160 @@ export function inspectCodexConfigText(
     baseUrl?: string;
     envKey?: string;
     reasoningEffort?: ICodexReasoningEffort;
+    requiresOpenAIAuth?: boolean;
+    profileMode?: CodexProfileMode;
+    profileConfigText?: string;
+  } = {},
+): Omit<ICodexConfigInspection, 'configPath'> {
+  if ((options.profileMode ?? 'profile-file') === 'legacy-single-file') {
+    return inspectLegacyCodexConfigText(existing, options);
+  }
+  return inspectProfileFileCodexConfigText(existing, options);
+}
+
+function inspectProfileFileCodexConfigText(
+  existing: string,
+  options: {
+    baseUrl?: string;
+    envKey?: string;
+    reasoningEffort?: ICodexReasoningEffort;
+    requiresOpenAIAuth?: boolean;
+    profileConfigText?: string;
+  } = {},
+): Omit<ICodexConfigInspection, 'configPath'> {
+  const issues: ICodexConfigIssue[] = [];
+  const managedBlockResult = removeManagedBlock(existing);
+  const outsideManagedBlock = managedBlockResult.content;
+  const profileConfigText = options.profileConfigText ?? '';
+
+  if (existing.trim().length === 0) {
+    issues.push({
+      code: 'missing-base-config',
+      severity: 'warning',
+      message: 'Codex base config does not exist yet; run "volare config codex" to create it.',
+    });
+  }
+
+  if (profileConfigText.trim().length === 0) {
+    issues.push({
+      code: 'missing-profile-config',
+      severity: 'warning',
+      message: 'Codex Volare profile config does not exist yet.',
+    });
+  }
+
+  if (managedBlockResult.unbalancedStart) {
+    issues.push({
+      code: 'managed-block-unclosed',
+      severity: 'error',
+      message: 'Volare managed block start marker is missing its end marker.',
+    });
+    return {
+      profileMode: 'profile-file',
+      healthy: false,
+      issues,
+    };
+  }
+
+  const desiredBase = buildCodexConfig(existing, { ...options, profileMode: 'profile-file' });
+  const desiredProfile = buildCodexProfileConfig(profileConfigText, options);
+  if (!isValidToml(desiredBase)) {
+    issues.push({
+      code: 'codex-config-invalid-toml',
+      severity: 'error',
+      message:
+        'Codex base config would remain invalid after Volare repair; fix non-Volare TOML syntax or duplicate sections.',
+    });
+  }
+  if (!isValidToml(desiredProfile)) {
+    issues.push({
+      code: 'codex-profile-config-invalid-toml',
+      severity: 'error',
+      message:
+        'Codex Volare profile config would remain invalid after Volare repair; fix non-Volare TOML syntax or duplicate sections.',
+    });
+  }
+
+  if (managedBlockResult.removed) {
+    issues.push({
+      code: 'legacy-managed-block',
+      severity: 'warning',
+      message: 'Found a legacy Volare managed block in the Codex base config.',
+    });
+  }
+
+  if (topLevelValue(existing, 'profile') === DEFAULT_PROFILE) {
+    issues.push({
+      code: 'legacy-base-profile-selector',
+      severity: 'warning',
+      message: 'Found legacy top-level profile selector in the Codex base config.',
+    });
+  }
+
+  if (hasSection(outsideManagedBlock, `[model_providers.${DEFAULT_PROFILE}]`)) {
+    issues.push({
+      code: 'legacy-base-volare-provider',
+      severity: 'warning',
+      message: 'Found a legacy Volare provider section in the Codex base config.',
+    });
+  }
+
+  if (hasSection(outsideManagedBlock, `[profiles.${DEFAULT_PROFILE}]`)) {
+    issues.push({
+      code: 'legacy-base-profile-table',
+      severity: 'warning',
+      message: 'Found a legacy Volare profile table in the Codex base config.',
+    });
+  }
+
+  if (
+    hasSection(outsideManagedBlock, '[model_providers.agent-loom]') ||
+    hasSection(outsideManagedBlock, '[profiles.agent-loom]')
+  ) {
+    issues.push({
+      code: 'legacy-agent-loom-section',
+      severity: 'warning',
+      message: 'Found legacy Agent Loom Codex sections that Volare can remove during repair.',
+    });
+  }
+
+  const expectedReasoningEffort = validateReasoningEffort(
+    options.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+  );
+  addTopLevelDriftIssue(issues, existing, 'model_provider', DEFAULT_PROFILE);
+  addTopLevelDriftIssue(issues, existing, 'model', DEFAULT_MODEL);
+  addTopLevelDriftIssue(issues, existing, 'model_reasoning_effort', expectedReasoningEffort);
+
+  if (existing !== desiredBase && issues.length === 0) {
+    issues.push({
+      code: 'base-config-drift',
+      severity: 'warning',
+      message: 'Volare-owned Codex base config differs from the current desired config.',
+    });
+  }
+
+  if (profileConfigText !== desiredProfile && issues.length === 0) {
+    issues.push({
+      code: 'profile-config-drift',
+      severity: 'warning',
+      message: 'Volare-owned Codex profile config differs from the current desired config.',
+    });
+  }
+
+  return {
+    profileMode: 'profile-file',
+    healthy: issues.length === 0,
+    issues,
+  };
+}
+
+function inspectLegacyCodexConfigText(
+  existing: string,
+  options: {
+    baseUrl?: string;
+    envKey?: string;
+    reasoningEffort?: ICodexReasoningEffort;
+    requiresOpenAIAuth?: boolean;
   } = {},
 ): Omit<ICodexConfigInspection, 'configPath'> {
   const issues: ICodexConfigIssue[] = [];
@@ -162,12 +504,13 @@ export function inspectCodexConfigText(
       message: 'Volare managed block start marker is missing its end marker.',
     });
     return {
+      profileMode: 'legacy-single-file',
       healthy: false,
       issues,
     };
   }
 
-  const desired = buildCodexConfig(existing, options);
+  const desired = buildCodexConfig(existing, { ...options, profileMode: 'legacy-single-file' });
   if (!isValidToml(desired)) {
     issues.push({
       code: 'codex-config-invalid-toml',
@@ -229,23 +572,31 @@ export function inspectCodexConfigText(
   }
 
   return {
+    profileMode: 'legacy-single-file',
     healthy: issues.length === 0,
     issues,
   };
 }
 
-function managedBlock(options: {
-  baseUrl: string;
-  envKey: string;
-  reasoningEffort: ICodexReasoningEffort;
-}): string {
+function profileProviderBlock(options: IResolvedCodexConfigOptions): string {
+  return `[model_providers.${DEFAULT_PROFILE}]
+name = "Volare"
+base_url = "${escapeTomlString(options.baseUrl)}"
+wire_api = "responses"
+env_key = "${escapeTomlString(options.envKey)}"
+requires_openai_auth = ${options.requiresOpenAIAuth}
+supports_websockets = false
+`;
+}
+
+function legacyManagedBlock(options: IResolvedCodexConfigOptions): string {
   return `${MANAGED_BLOCK_START}
 [model_providers.${DEFAULT_PROFILE}]
 name = "Volare"
 base_url = "${escapeTomlString(options.baseUrl)}"
 wire_api = "responses"
 env_key = "${escapeTomlString(options.envKey)}"
-requires_openai_auth = true
+requires_openai_auth = ${options.requiresOpenAIAuth}
 supports_websockets = false
 
 [profiles.${DEFAULT_PROFILE}]
@@ -256,11 +607,30 @@ ${MANAGED_BLOCK_END}
 `;
 }
 
+function removeTopLevelKeyIfValue(content: string, key: string, value: string): string {
+  const lines = content.split(/\r?\n/);
+  const output: string[] = [];
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*"${escapeRegExp(value)}"\\s*$`);
+  let inTopLevel = true;
+  for (const line of lines) {
+    if (/^\s*\[/.test(line)) {
+      inTopLevel = false;
+    }
+    if (inTopLevel && keyPattern.test(line)) {
+      continue;
+    }
+    output.push(line);
+  }
+  return output.join('\n');
+}
+
 function setTopLevelKeys(content: string, entries: Array<[string, string]>): string {
   const lines = content.split(/\r?\n/);
   const firstSectionIndex = lines.findIndex((line) => /^\s*\[/.test(line));
   const boundary = firstSectionIndex >= 0 ? firstSectionIndex : lines.length;
-  const topLevel = lines.slice(0, boundary);
+  const topLevel = lines.slice(0, boundary).filter((line, index, all) => {
+    return line.trim().length > 0 || index !== all.length - 1;
+  });
   const rest = lines.slice(boundary);
 
   for (const [key, value] of entries) {
@@ -444,11 +814,11 @@ function escapeTomlString(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-function validateGeneratedToml(content: string): void {
+function validateGeneratedToml(content: string, message: string): void {
   try {
     Bun.TOML.parse(content);
   } catch (cause) {
-    throw new Error('Generated Codex config must be valid TOML', { cause });
+    throw new Error(message, { cause });
   }
 }
 
@@ -520,37 +890,50 @@ async function readTextIfExists(path: string): Promise<string> {
 }
 
 function defaultConfigPath(): string {
+  return join(defaultCodexHome(), 'config.toml');
+}
+
+function defaultProfileConfigPath(configPath: string): string {
+  return join(dirname(configPath), `${DEFAULT_PROFILE}.config.toml`);
+}
+
+function defaultCodexHome(): string {
   const codexHome = Bun.env['CODEX_HOME'];
   if (codexHome) {
-    return join(codexHome, 'config.toml');
+    return codexHome;
   }
   const home = Bun.env['HOME'];
   if (!home) {
     throw new Error('HOME or CODEX_HOME must be set to locate Codex config');
   }
-  return join(home, '.codex', 'config.toml');
+  return join(home, '.codex');
 }
 
 function backupSuffix(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
-function backupPathFor(configPath: string, options: ICodexConfigOptions): string {
+function backupPathFor(configPath: string, options: ICodexConfigOptions, prefix: string): string {
   return join(
     dirname(configPath),
     'backups',
     'volare',
-    `config-${options.backupSuffix ?? backupSuffix()}.toml`,
+    `${prefix}-${options.backupSuffix ?? backupSuffix()}.toml`,
   );
 }
 
-async function pruneBackups(backupDir: string, keep: number): Promise<void> {
+function backupPrefixFor(path: string): string {
+  return basename(path).replace(/\.toml$/, '');
+}
+
+async function pruneBackups(backupDir: string, keep: number, prefix: string): Promise<void> {
   if (keep < 1) {
     return;
   }
+  const backupPattern = new RegExp(`^${escapeRegExp(prefix)}-.+\\.toml$`);
   const entries = await readdir(backupDir, { withFileTypes: true });
   const backups = entries
-    .filter((entry) => entry.isFile() && /^config-.+\.toml$/.test(entry.name))
+    .filter((entry) => entry.isFile() && backupPattern.test(entry.name))
     .map((entry) => entry.name)
     .sort();
   const stale = backups.slice(0, Math.max(0, backups.length - keep));
@@ -561,10 +944,21 @@ if (import.meta.main) {
   const result = await configureCodex();
   if (result.changed) {
     console.log(`Configured Codex for Volare: ${result.configPath}`);
+    console.log(`Codex profile mode: ${result.profileMode}`);
+    if (result.profileConfigPath) {
+      console.log(`Codex profile config: ${result.profileConfigPath}`);
+    }
     if (result.backupPath) {
       console.log(`Backup written: ${result.backupPath}`);
     }
+    if (result.profileBackupPath) {
+      console.log(`Profile backup written: ${result.profileBackupPath}`);
+    }
   } else {
     console.log(`Codex is already configured for Volare: ${result.configPath}`);
+    console.log(`Codex profile mode: ${result.profileMode}`);
+    if (result.profileConfigPath) {
+      console.log(`Codex profile config: ${result.profileConfigPath}`);
+    }
   }
 }

@@ -5,6 +5,7 @@ import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
+  type CodexProfileMode,
   configureCodex,
   type ICodexConfigInspection,
   type ICodexConfigOptions,
@@ -60,11 +61,7 @@ export interface ICliWriter {
 }
 
 export interface ICliDependencies {
-  configureCodex: (options?: ICodexConfigOptions) => Promise<{
-    configPath: string;
-    changed: boolean;
-    backupPath?: string;
-  }>;
+  configureCodex: (options?: ICodexConfigOptions) => Promise<ICodexConfigResult>;
   inspectCodexConfig: (options?: ICodexConfigOptions) => Promise<ICodexConfigInspection>;
   startRuntime: (options?: IVolareRuntimeOptions) => Promise<IVolareRuntime>;
   installSignalHandlers: (runtime: IVolareRuntime) => void;
@@ -100,6 +97,7 @@ export interface ISetupOptions {
   codexConfigPath?: string;
   baseUrl?: string;
   reasoningEffort?: ICodexReasoningEffort;
+  codexProfileMode?: CodexProfileMode;
 }
 
 export interface ISetupResult {
@@ -197,8 +195,21 @@ export async function runCli(
             ? `Configured Codex: ${result.codexConfig.configPath}`
             : `Codex already configured: ${result.codexConfig.configPath}`;
           await writeLine(io.stdout, message);
+          await writeLine(io.stdout, `Codex profile mode: ${result.codexConfig.profileMode}`);
+          if (result.codexConfig.profileConfigPath) {
+            await writeLine(
+              io.stdout,
+              `Codex profile config: ${result.codexConfig.profileConfigPath}`,
+            );
+          }
           if (result.codexConfig.backupPath) {
             await writeLine(io.stdout, `Backup written: ${result.codexConfig.backupPath}`);
+          }
+          if (result.codexConfig.profileBackupPath) {
+            await writeLine(
+              io.stdout,
+              `Profile backup written: ${result.codexConfig.profileBackupPath}`,
+            );
           }
         }
         if (result.daemonRunning && result.apiKeySource === 'generated') {
@@ -239,14 +250,25 @@ export async function runCli(
         const result = await dependencies.configureCodex(command.options);
         if (result.changed) {
           await writeLine(io.stdout, `Configured Codex for Volare: ${result.configPath}`);
+          await writeLine(io.stdout, `Codex profile mode: ${result.profileMode}`);
+          if (result.profileConfigPath) {
+            await writeLine(io.stdout, `Codex profile config: ${result.profileConfigPath}`);
+          }
           if (result.backupPath) {
             await writeLine(io.stdout, `Backup written: ${result.backupPath}`);
+          }
+          if (result.profileBackupPath) {
+            await writeLine(io.stdout, `Profile backup written: ${result.profileBackupPath}`);
           }
         } else {
           await writeLine(
             io.stdout,
             `Codex is already configured for Volare: ${result.configPath}`,
           );
+          await writeLine(io.stdout, `Codex profile mode: ${result.profileMode}`);
+          if (result.profileConfigPath) {
+            await writeLine(io.stdout, `Codex profile config: ${result.profileConfigPath}`);
+          }
         }
         return 0;
       }
@@ -254,9 +276,17 @@ export async function runCli(
         const result = await dependencies.inspectCodexConfig(command.options);
         if (result.healthy) {
           await writeLine(io.stdout, `Codex config is healthy for Volare: ${result.configPath}`);
+          await writeLine(io.stdout, `Codex profile mode: ${result.profileMode}`);
+          if (result.profileConfigPath) {
+            await writeLine(io.stdout, `Codex profile config: ${result.profileConfigPath}`);
+          }
           return 0;
         }
         await writeLine(io.stdout, `Codex config needs Volare repair: ${result.configPath}`);
+        await writeLine(io.stdout, `Codex profile mode: ${result.profileMode}`);
+        if (result.profileConfigPath) {
+          await writeLine(io.stdout, `Codex profile config: ${result.profileConfigPath}`);
+        }
         for (const issue of result.issues) {
           await writeLine(io.stdout, `- [${issue.severity}] ${issue.code}: ${issue.message}`);
         }
@@ -418,6 +448,12 @@ function parseSetup(args: string[]): ISetupOptions {
       index = parsed.index;
       continue;
     }
+    if (arg === '--codex-profile-mode' || arg.startsWith('--codex-profile-mode=')) {
+      const parsed = readFlagValue(args, index, '--codex-profile-mode');
+      options.codexProfileMode = parseCodexProfileMode(parsed.value, '--codex-profile-mode');
+      index = parsed.index;
+      continue;
+    }
     throw new CliUsageError(`Unknown setup option: ${arg}`);
   }
 
@@ -553,6 +589,12 @@ function parseConfig(
       index = parsed.index;
       continue;
     }
+    if (arg === '--profile-mode' || arg.startsWith('--profile-mode=')) {
+      const parsed = readFlagValue(optionArgs, index, '--profile-mode');
+      options.profileMode = parseCodexProfileMode(parsed.value, '--profile-mode');
+      index = parsed.index;
+      continue;
+    }
     throw new CliUsageError(`Unknown config codex option: ${arg}`);
   }
   if (action === 'doctor') {
@@ -596,6 +638,13 @@ function parseReasoningEffort(value: string, flag: string): ICodexReasoningEffor
     return value;
   }
   throw new CliUsageError(`${flag} must be one of: low, medium, high, xhigh`);
+}
+
+function parseCodexProfileMode(value: string, flag: string): CodexProfileMode {
+  if (value === 'profile-file' || value === 'legacy-single-file') {
+    return value;
+  }
+  throw new CliUsageError(`${flag} must be one of: profile-file, legacy-single-file`);
 }
 
 function defaultDependencies(): ICliDependencies {
@@ -680,6 +729,9 @@ function codexOptionsFromSetup(options: ISetupOptions): ICodexConfigOptions {
   }
   if (options.reasoningEffort) {
     codexOptions.reasoningEffort = options.reasoningEffort;
+  }
+  if (options.codexProfileMode) {
+    codexOptions.profileMode = options.codexProfileMode;
   }
   return codexOptions;
 }
@@ -1167,6 +1219,8 @@ Setup options:
       --config, --config-path <path>   Codex config path
       --base-url <url>                 Volare OpenAI Responses base URL
       --reasoning-effort <effort>      Codex reasoning effort (low, medium, high, xhigh)
+      --codex-profile-mode <mode>      Codex config profile mode
+                                        (profile-file or legacy-single-file)
 
 Start options:
   -d, --daemon                         Start in the background
@@ -1187,6 +1241,8 @@ Config options:
       --base-url <url>                 Volare OpenAI Responses base URL
       --env-key <name>                 Codex env_key for the Volare API token
       --reasoning-effort <effort>      Codex reasoning effort (low, medium, high, xhigh)
+      --profile-mode <mode>            Codex config profile mode
+                                        (profile-file or legacy-single-file)
 
 Doctor:
   volare doctor certs checks the local Python certificate chain used by
