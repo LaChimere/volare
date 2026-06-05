@@ -282,6 +282,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     active: IActivePrompt,
     options: ICancelOptions,
   ): Promise<ICancelResult> {
+    const deadlineMs = options.forceAfterTimeout ? performance.now() + options.timeoutMs : null;
     this.#stopAcceptingDeltas(active);
     this.#logger.info(
       {
@@ -295,7 +296,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     try {
       await worker.peer.notify('session/cancel', { sessionId: worker.sessionId });
     } catch (error) {
-      return await this.#fallbackKillAfterNative(worker, active, options, {
+      return await this.#fallbackKillAfterNative(worker, active, options, deadlineMs, {
         reason: 'native_request_failed',
         cause: error,
       });
@@ -306,28 +307,28 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         (stopReason) => ({ type: 'settled' as const, stopReason }),
         (error) => ({ type: 'failed' as const, error }),
       ) ?? Promise.resolve({ type: 'failed' as const, error: new Error('missing prompt result') }),
-      Bun.sleep(this.#nativeCancelWaitMs).then(() => ({ type: 'timeout' as const })),
+      Bun.sleep(this.#nativeWaitBudgetMs(deadlineMs)).then(() => ({ type: 'timeout' as const })),
     ]);
     if (settled.type === 'timeout') {
-      return await this.#fallbackKillAfterNative(worker, active, options, {
+      return await this.#fallbackKillAfterNative(worker, active, options, deadlineMs, {
         reason: 'native_timeout',
       });
     }
     if (settled.type === 'failed') {
-      return await this.#fallbackKillAfterNative(worker, active, options, {
+      return await this.#fallbackKillAfterNative(worker, active, options, deadlineMs, {
         reason: 'native_prompt_failed',
         cause: settled.error,
       });
     }
     if (settled.stopReason !== 'cancelled') {
-      return await this.#fallbackKillAfterNative(worker, active, options, {
+      return await this.#fallbackKillAfterNative(worker, active, options, deadlineMs, {
         reason: 'native_wrong_stop_reason',
         stopReason: settled.stopReason,
       });
     }
-    const reuse = await this.#verifyNativeCancelReuse(worker);
+    const reuse = await this.#verifyNativeCancelReuse(worker, deadlineMs);
     if (!reuse.reusable) {
-      return await this.#fallbackKillAfterNative(worker, active, options, {
+      return await this.#fallbackKillAfterNative(worker, active, options, deadlineMs, {
         reason: reuse.reason,
         ...(reuse.stopReason === undefined ? {} : { stopReason: reuse.stopReason }),
         ...(reuse.cause === undefined ? {} : { cause: reuse.cause }),
@@ -344,7 +345,9 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       },
       'ACP native cancel completed',
     );
-    worker.active = null;
+    if (worker.active?.generation === active.generation) {
+      worker.active = null;
+    }
     worker.idleSinceMs = Date.now();
     active.cancelManaged = true;
     active.queue.fail(new VolareError('backend_cancelled', 'ACP prompt was cancelled'));
@@ -353,6 +356,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
 
   async #verifyNativeCancelReuse(
     worker: IAcpWorker,
+    deadlineMs: number | null,
   ): Promise<
     { reusable: true } | { reusable: false; reason: string; stopReason?: string; cause?: unknown }
   > {
@@ -367,7 +371,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         (stopReason) => ({ type: 'settled' as const, stopReason }),
         (error) => ({ type: 'failed' as const, error }),
       ),
-      Bun.sleep(this.#nativeCancelWaitMs).then(() => ({ type: 'timeout' as const })),
+      Bun.sleep(this.#nativeWaitBudgetMs(deadlineMs)).then(() => ({ type: 'timeout' as const })),
     ]);
     if (result.type === 'timeout') {
       return { reusable: false, reason: 'reuse_verification_timeout' };
@@ -393,6 +397,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     worker: IAcpWorker,
     active: IActivePrompt,
     options: ICancelOptions,
+    deadlineMs: number | null,
     details: { reason: string; stopReason?: string; cause?: unknown },
   ): Promise<ICancelResult> {
     this.#logger.warn(
@@ -407,7 +412,31 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       },
       'ACP native cancel fell back to kill',
     );
-    return await this.#cancelKill(worker, active, options);
+    return await this.#cancelKill(
+      worker,
+      active,
+      this.#withRemainingCancelBudget(options, deadlineMs),
+    );
+  }
+
+  #nativeWaitBudgetMs(deadlineMs: number | null): number {
+    if (deadlineMs === null) {
+      return this.#nativeCancelWaitMs;
+    }
+    return Math.max(
+      0,
+      Math.min(this.#nativeCancelWaitMs, Math.ceil(deadlineMs - performance.now())),
+    );
+  }
+
+  #withRemainingCancelBudget(options: ICancelOptions, deadlineMs: number | null): ICancelOptions {
+    if (!options.forceAfterTimeout || deadlineMs === null) {
+      return options;
+    }
+    return {
+      forceAfterTimeout: true,
+      timeoutMs: Math.max(0, Math.ceil(deadlineMs - performance.now())),
+    };
   }
 
   async dispose(backendSessionId: string): Promise<void> {
@@ -435,7 +464,11 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
 
   async #getOrCreateWorker(backendSessionId: string, cwd: string): Promise<IAcpWorker> {
     await this.#evictIdleWorkers();
-    const existing = this.#workers.get(backendSessionId);
+    let existing = this.#workers.get(backendSessionId);
+    if (existing?.cancellation) {
+      await existing.cancellation.catch(() => undefined);
+      existing = this.#workers.get(backendSessionId);
+    }
     if (existing) {
       if (existing.cwd !== cwd) {
         await this.dispose(backendSessionId);
