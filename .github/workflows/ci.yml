@@ -27,7 +27,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install Codex CLI
-        run: npm install --global @openai/codex@0.128.0
+        run: npm install --global @openai/codex@latest
 
       - name: Check
         run: bun run check
