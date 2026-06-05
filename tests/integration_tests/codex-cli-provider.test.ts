@@ -81,18 +81,21 @@ describe('Codex CLI provider integration', () => {
 
       expect(result).toMatchObject({
         configPath,
+        profileMode: 'profile-file',
         changed: true,
+        profileConfigPath: join(root, 'volare.config.toml'),
         backupPath: join(root, 'backups', 'volare', 'config-it.toml'),
       });
       await expect(
         readFile(join(root, 'backups', 'volare', 'config-it.toml'), 'utf8'),
       ).resolves.toContain('[model_providers.other]');
-      await expect(readFile(configPath, 'utf8')).resolves.toContain('# >>> volare managed');
       await expect(readFile(configPath, 'utf8')).resolves.toContain(
-        '[model_providers.volare]\nname = "Volare"\nbase_url = "http://127.0.0.1:8765/openai/v1"\nwire_api = "responses"\nenv_key = "VOLARE_API_KEY"\nrequires_openai_auth = true',
+        'model_provider = "volare"\nmodel = "gpt-5.5"',
       );
-      await expect(readFile(configPath, 'utf8')).resolves.toContain(
-        '[profiles.volare]\nmodel_provider = "volare"\nmodel = "gpt-5.5"',
+      await expect(readFile(configPath, 'utf8')).resolves.not.toContain('[profiles.volare]');
+      await expect(readFile(configPath, 'utf8')).resolves.not.toContain('[model_providers.volare]');
+      await expect(readFile(join(root, 'volare.config.toml'), 'utf8')).resolves.toContain(
+        '[model_providers.volare]\nname = "Volare"\nbase_url = "http://127.0.0.1:8765/openai/v1"\nwire_api = "responses"\nenv_key = "VOLARE_API_KEY"\nrequires_openai_auth = true',
       );
     } finally {
       await rm(root, { recursive: true, force: true });
