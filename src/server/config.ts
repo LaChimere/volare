@@ -1,6 +1,12 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  ACP_CANCEL_STRATEGIES,
+  type AcpCancelStrategy,
+  DEFAULT_ACP_CANCEL_STRATEGY,
+  DEFAULT_ACP_NATIVE_CANCEL_WAIT_MS,
+} from '../backends/copilot-cli/acp-runner';
+import {
   type CopilotCliPermissionMode,
   type CopilotMcpMode,
   DEFAULT_COPILOT_CLI_PERMISSION_MODE,
@@ -31,6 +37,8 @@ export interface IServerRuntimeConfig {
   eventRetentionDays?: number;
   copilotRuntimeMode: CopilotRuntimeMode;
   copilotAcpMaxWorkers: number;
+  copilotAcpCancelStrategy: AcpCancelStrategy;
+  copilotAcpNativeCancelWaitMs: number;
   copilotPermissionMode: CopilotCliPermissionMode;
   copilotMcpMode: CopilotMcpMode;
   childProcessEnv: Record<string, string>;
@@ -58,6 +66,8 @@ export interface IServerRuntimeEnv {
   VOLARE_EVENT_RETENTION_DAYS: string | undefined;
   VOLARE_COPILOT_RUNTIME_MODE: string | undefined;
   VOLARE_COPILOT_ACP_MAX_WORKERS: string | undefined;
+  VOLARE_COPILOT_ACP_CANCEL_STRATEGY: string | undefined;
+  VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS: string | undefined;
   VOLARE_COPILOT_PERMISSION_MODE: string | undefined;
   VOLARE_COPILOT_MCP_MODE: string | undefined;
   SSL_CERT_FILE: string | undefined;
@@ -97,6 +107,14 @@ export function createServerRuntimeConfig(
   const copilotPermissionMode = parseCopilotPermissionMode(env.VOLARE_COPILOT_PERMISSION_MODE);
   const copilotMcpMode = parseCopilotMcpMode(env.VOLARE_COPILOT_MCP_MODE);
   const copilotRuntimeMode = parseCopilotRuntimeMode(env.VOLARE_COPILOT_RUNTIME_MODE);
+  const copilotAcpCancelStrategy = parseAcpCancelStrategy(env.VOLARE_COPILOT_ACP_CANCEL_STRATEGY);
+  const copilotAcpNativeCancelWaitMs = integerInRange(
+    'VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS',
+    env.VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS,
+    1,
+    600_000,
+    DEFAULT_ACP_NATIVE_CANCEL_WAIT_MS,
+  );
   const maxActiveSessions = integerInRange(
     'VOLARE_MAX_ACTIVE_SESSIONS',
     env.VOLARE_MAX_ACTIVE_SESSIONS,
@@ -154,6 +172,8 @@ export function createServerRuntimeConfig(
     logLevel: parseLogLevel(env.VOLARE_LOG_LEVEL),
     copilotRuntimeMode,
     copilotAcpMaxWorkers,
+    copilotAcpCancelStrategy,
+    copilotAcpNativeCancelWaitMs,
     copilotPermissionMode,
     copilotMcpMode,
     childProcessEnv: pickChildProcessEnv(env),
@@ -185,6 +205,8 @@ export function readServerRuntimeEnv(): IServerRuntimeEnv {
     VOLARE_EVENT_RETENTION_DAYS: Bun.env['VOLARE_EVENT_RETENTION_DAYS'],
     VOLARE_COPILOT_RUNTIME_MODE: Bun.env['VOLARE_COPILOT_RUNTIME_MODE'],
     VOLARE_COPILOT_ACP_MAX_WORKERS: Bun.env['VOLARE_COPILOT_ACP_MAX_WORKERS'],
+    VOLARE_COPILOT_ACP_CANCEL_STRATEGY: Bun.env['VOLARE_COPILOT_ACP_CANCEL_STRATEGY'],
+    VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS: Bun.env['VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS'],
     VOLARE_COPILOT_PERMISSION_MODE: Bun.env['VOLARE_COPILOT_PERMISSION_MODE'],
     VOLARE_COPILOT_MCP_MODE: Bun.env['VOLARE_COPILOT_MCP_MODE'],
     SSL_CERT_FILE: Bun.env['SSL_CERT_FILE'],
@@ -229,6 +251,17 @@ function parseCopilotRuntimeMode(value: string | undefined): CopilotRuntimeMode 
 
 function isCopilotRuntimeMode(value: string): value is CopilotRuntimeMode {
   return COPILOT_RUNTIME_MODES.includes(value as CopilotRuntimeMode);
+}
+
+function parseAcpCancelStrategy(value: string | undefined): AcpCancelStrategy {
+  const strategy = value?.trim() ?? DEFAULT_ACP_CANCEL_STRATEGY;
+  if (ACP_CANCEL_STRATEGIES.includes(strategy as AcpCancelStrategy)) {
+    return strategy as AcpCancelStrategy;
+  }
+  throw new VolareError(
+    'invalid_config',
+    'VOLARE_COPILOT_ACP_CANCEL_STRATEGY must be kill, native, or auto',
+  );
 }
 
 function parseCopilotPermissionMode(value: string | undefined): CopilotCliPermissionMode {

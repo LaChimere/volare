@@ -32,10 +32,17 @@ export interface IAcpCopilotPromptRunnerOptions {
   maxWorkers?: number;
   requestTimeoutMs?: number;
   idleTimeoutMs?: number;
+  cancelStrategy?: AcpCancelStrategy;
+  nativeCancelWaitMs?: number;
   logger?: ILogger;
   childProcessEnv?: Record<string, string>;
   spawn?: (args: string[], options: { cwd: string }) => IAcpProcess;
 }
+
+export const ACP_CANCEL_STRATEGIES = ['kill', 'native', 'auto'] as const;
+export type AcpCancelStrategy = (typeof ACP_CANCEL_STRATEGIES)[number];
+export const DEFAULT_ACP_CANCEL_STRATEGY: AcpCancelStrategy = 'kill';
+export const DEFAULT_ACP_NATIVE_CANCEL_WAIT_MS = 5000;
 
 interface IAcpWorker {
   backendSessionId: string;
@@ -63,6 +70,8 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #maxWorkers: number;
   readonly #requestTimeoutMs: number;
   readonly #idleTimeoutMs: number;
+  readonly #cancelStrategy: AcpCancelStrategy;
+  readonly #nativeCancelWaitMs: number;
   readonly #logger: ILogger;
   readonly #childProcessEnv: Record<string, string>;
   readonly #spawn: (args: string[], options: { cwd: string }) => IAcpProcess;
@@ -78,6 +87,8 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     this.#maxWorkers = options.maxWorkers ?? DEFAULT_ACP_MAX_WORKERS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_ACP_REQUEST_TIMEOUT_MS;
     this.#idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_ACP_IDLE_TIMEOUT_MS;
+    this.#cancelStrategy = options.cancelStrategy ?? DEFAULT_ACP_CANCEL_STRATEGY;
+    this.#nativeCancelWaitMs = options.nativeCancelWaitMs ?? DEFAULT_ACP_NATIVE_CANCEL_WAIT_MS;
     this.#childProcessEnv = options.childProcessEnv ?? {};
     this.#logger = (options.logger ?? new NoopLogger()).child({
       component: 'backend',
@@ -174,6 +185,15 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     backendSessionId: string,
     options: ICancelOptions = { timeoutMs: 0, forceAfterTimeout: false },
   ): Promise<ICancelResult> {
+    this.#logger.info(
+      {
+        event: 'backend.acp.cancel.requested',
+        backendSessionId,
+        strategy: this.#cancelStrategy,
+        nativeCancelWaitMs: this.#nativeCancelWaitMs,
+      },
+      'ACP cancel requested',
+    );
     const worker = this.#workers.get(backendSessionId);
     const creating = this.#creatingWorkers.get(backendSessionId);
     if (!worker && creating) {
