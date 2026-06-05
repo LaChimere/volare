@@ -6,10 +6,18 @@ import { join } from 'node:path';
 import {
   buildCodexConfig,
   configureCodex,
+  detectCodexProfileModeFromVersion,
   inspectCodexConfigText,
 } from '../../../scripts/config-codex';
 
 describe('config-codex script', () => {
+  test('detects Codex profile-file mode from current CLI versions', () => {
+    expect(detectCodexProfileModeFromVersion('codex-cli 0.136.0')).toBe('profile-file');
+    expect(detectCodexProfileModeFromVersion('codex 0.134.0')).toBe('profile-file');
+    expect(detectCodexProfileModeFromVersion('codex 0.133.0')).toBe('legacy-single-file');
+    expect(detectCodexProfileModeFromVersion('custom codex build')).toBe('profile-file');
+  });
+
   test('builds Codex Volare config while preserving unrelated sections', () => {
     const config = buildCodexConfig(
       [
