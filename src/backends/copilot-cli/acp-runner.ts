@@ -31,6 +31,7 @@ export interface IAcpCopilotPromptRunnerOptions {
   permissionMode?: CopilotCliPermissionMode;
   maxWorkers?: number;
   requestTimeoutMs?: number;
+  idleTimeoutMs?: number;
   logger?: ILogger;
   childProcessEnv?: Record<string, string>;
   spawn?: (args: string[], options: { cwd: string }) => IAcpProcess;
@@ -44,6 +45,7 @@ interface IAcpWorker {
   sessionId: string;
   active: IActivePrompt | null;
   generation: number;
+  idleSinceMs: number;
 }
 
 interface IActivePrompt {
@@ -53,12 +55,14 @@ interface IActivePrompt {
 
 const DEFAULT_ACP_MAX_WORKERS = 10;
 const DEFAULT_ACP_REQUEST_TIMEOUT_MS = 600_000;
+const DEFAULT_ACP_IDLE_TIMEOUT_MS = 300_000;
 
 export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #command: string;
   readonly #permissionMode: CopilotCliPermissionMode;
   readonly #maxWorkers: number;
   readonly #requestTimeoutMs: number;
+  readonly #idleTimeoutMs: number;
   readonly #logger: ILogger;
   readonly #childProcessEnv: Record<string, string>;
   readonly #spawn: (args: string[], options: { cwd: string }) => IAcpProcess;
@@ -73,6 +77,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     this.#permissionMode = options.permissionMode ?? DEFAULT_COPILOT_CLI_PERMISSION_MODE;
     this.#maxWorkers = options.maxWorkers ?? DEFAULT_ACP_MAX_WORKERS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_ACP_REQUEST_TIMEOUT_MS;
+    this.#idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_ACP_IDLE_TIMEOUT_MS;
     this.#childProcessEnv = options.childProcessEnv ?? {};
     this.#logger = (options.logger ?? new NoopLogger()).child({
       component: 'backend',
@@ -105,6 +110,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     const queue = new TextQueue();
     const generation = worker.generation;
     worker.active = { generation, queue };
+    worker.idleSinceMs = 0;
     const abortError = new VolareError('backend_cancelled', 'ACP prompt was aborted');
     const abort = () => {
       queue.fail(abortError);
@@ -144,6 +150,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         options.signal?.removeEventListener('abort', abort);
         if (worker.active?.generation === generation) {
           worker.active = null;
+          worker.idleSinceMs = Date.now();
         }
       });
 
@@ -223,9 +230,12 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   }
 
   async #getOrCreateWorker(backendSessionId: string, cwd: string): Promise<IAcpWorker> {
+    await this.#evictIdleWorkers();
     const existing = this.#workers.get(backendSessionId);
     if (existing) {
       if (existing.cwd !== cwd) {
+        await this.dispose(backendSessionId);
+      } else if (this.#isIdleExpired(existing)) {
         await this.dispose(backendSessionId);
       } else {
         return existing;
@@ -293,6 +303,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         sessionId: session.sessionId,
         active: null,
         generation: this.#nextGeneration,
+        idleSinceMs: Date.now(),
       };
       this.#nextGeneration += 1;
       this.#workers.set(backendSessionId, worker);
@@ -390,6 +401,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     if (this.#workers.get(worker.backendSessionId) === worker) {
       this.#workers.delete(worker.backendSessionId);
     }
+
     worker.peer.close();
     worker.proc.kill('SIGTERM');
     await Promise.race([worker.proc.exited, Bun.sleep(250)]);
@@ -403,6 +415,17 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       },
       'ACP worker replaced',
     );
+  }
+
+  async #evictIdleWorkers(): Promise<void> {
+    const expired = [...this.#workers.values()].filter((worker) => this.#isIdleExpired(worker));
+    for (const worker of expired) {
+      await this.#replaceWorker(worker, 'idle_timeout');
+    }
+  }
+
+  #isIdleExpired(worker: IAcpWorker): boolean {
+    return worker.active === null && Date.now() - worker.idleSinceMs >= this.#idleTimeoutMs;
   }
 
   #buildArgs(): string[] {

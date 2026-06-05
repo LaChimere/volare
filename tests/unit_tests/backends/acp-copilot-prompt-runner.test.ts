@@ -488,6 +488,34 @@ describe('AcpCopilotPromptRunner', () => {
     expect(processes).toHaveLength(2);
   });
 
+  test('evicts idle workers before enforcing the worker cap', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+      maxWorkers: 1,
+      idleTimeoutMs: 1,
+    });
+
+    await collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp/a' }));
+    await Bun.sleep(2);
+    await expect(
+      collect(runner.run('prompt text', { backendSessionId: 'backend_2', cwd: '/tmp/b' })),
+    ).resolves.toEqual(['hello']);
+
+    expect(processes).toHaveLength(2);
+    expect(processes[0]?.killed).toContain('SIGTERM');
+  });
+
   test('cancel kills a worker that is still starting up', async () => {
     const processes: FakeAcpProcess[] = [];
     const runner = new AcpCopilotPromptRunner({
