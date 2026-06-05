@@ -59,6 +59,8 @@ interface IActivePrompt {
   generation: number;
   queue: TextQueue;
   acceptingDeltas: boolean;
+  promptResult?: Promise<string>;
+  cancellation?: Promise<ICancelResult>;
 }
 
 const DEFAULT_ACP_MAX_WORKERS = 10;
@@ -121,7 +123,8 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
 
     const queue = new TextQueue();
     const generation = worker.generation;
-    worker.active = { generation, queue, acceptingDeltas: true };
+    const active: IActivePrompt = { generation, queue, acceptingDeltas: true };
+    worker.active = active;
     worker.idleSinceMs = 0;
     const abortError = new VolareError('backend_cancelled', 'ACP prompt was aborted');
     const abort = () => {
@@ -142,7 +145,9 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       })
       .then((response) => {
         const stopReason = parseStopReason(response.result);
-        queue.close();
+        if (active.acceptingDeltas) {
+          queue.close();
+        }
         this.#logger.info(
           {
             event: 'backend.acp.prompt.completed',
@@ -153,10 +158,14 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
           'ACP prompt completed',
         );
         return stopReason;
-      })
+      });
+    active.promptResult = promptResponse;
+    const promptDone = promptResponse
       .catch((error) => {
         promptError = error;
-        queue.fail(error);
+        if (active.acceptingDeltas) {
+          queue.fail(error);
+        }
       })
       .finally(() => {
         options.signal?.removeEventListener('abort', abort);
@@ -170,7 +179,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       for await (const chunk of queue) {
         yield chunk;
       }
-      await promptResponse;
+      await promptDone;
       if (promptError) {
         throw promptError;
       }
@@ -206,12 +215,23 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     if (!worker?.active) {
       return { status: 'not_found' };
     }
+    if (worker.active.cancellation) {
+      return await worker.active.cancellation;
+    }
+    let cancellation: Promise<ICancelResult>;
     switch (this.#cancelStrategy) {
       case 'kill':
-      case 'native':
+        cancellation = this.#cancelKill(worker, worker.active, options);
+        break;
       case 'auto':
-        return await this.#cancelKill(worker, worker.active, options);
+        cancellation = this.#cancelKill(worker, worker.active, options);
+        break;
+      case 'native':
+        cancellation = this.#cancelNativeTerminal(worker, worker.active, options);
+        break;
     }
+    worker.active.cancellation = cancellation;
+    return await cancellation;
   }
 
   async #cancelKill(
@@ -243,6 +263,113 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     }
     worker.proc.kill('SIGKILL');
     return { status: 'timed_out' };
+  }
+
+  async #cancelNativeTerminal(
+    worker: IAcpWorker,
+    active: IActivePrompt,
+    options: ICancelOptions,
+  ): Promise<ICancelResult> {
+    this.#stopAcceptingDeltas(active);
+    this.#logger.info(
+      {
+        event: 'backend.acp.cancel.native_sent',
+        backendSessionId: worker.backendSessionId,
+        generation: active.generation,
+        nativeCancelWaitMs: this.#nativeCancelWaitMs,
+      },
+      'ACP native cancel sent',
+    );
+    try {
+      await worker.peer.notify('session/cancel', { sessionId: worker.sessionId });
+    } catch (error) {
+      return await this.#fallbackKillAfterNative(worker, active, options, {
+        reason: 'native_request_failed',
+        cause: error,
+      });
+    }
+    const startedAt = performance.now();
+    const settled = await Promise.race([
+      active.promptResult?.then(
+        (stopReason) => ({ type: 'settled' as const, stopReason }),
+        (error) => ({ type: 'failed' as const, error }),
+      ) ?? Promise.resolve({ type: 'failed' as const, error: new Error('missing prompt result') }),
+      Bun.sleep(this.#nativeCancelWaitMs).then(() => ({ type: 'timeout' as const })),
+    ]);
+    if (settled.type === 'timeout') {
+      return await this.#fallbackKillAfterNative(worker, active, options, {
+        reason: 'native_timeout',
+      });
+    }
+    if (settled.type === 'failed') {
+      return await this.#fallbackKillAfterNative(worker, active, options, {
+        reason: 'native_prompt_failed',
+        cause: settled.error,
+      });
+    }
+    if (settled.stopReason !== 'cancelled') {
+      return await this.#fallbackKillAfterNative(worker, active, options, {
+        reason: 'native_wrong_stop_reason',
+        stopReason: settled.stopReason,
+      });
+    }
+    this.#logger.info(
+      {
+        event: 'backend.acp.cancel.native_succeeded',
+        backendSessionId: worker.backendSessionId,
+        generation: active.generation,
+        stopReason: settled.stopReason,
+        nativeDurationMs: elapsedMs(startedAt),
+        workerReused: false,
+      },
+      'ACP native cancel completed',
+    );
+    this.#workers.delete(worker.backendSessionId);
+    active.queue.fail(new VolareError('backend_cancelled', 'ACP prompt was cancelled'));
+    worker.peer.close();
+    worker.proc.kill('SIGTERM');
+    if (!options.forceAfterTimeout) {
+      return { status: 'cancelled' };
+    }
+    const exited = await Promise.race([
+      worker.proc.exited.then(() => true),
+      Bun.sleep(options.timeoutMs).then(() => false),
+    ]);
+    if (exited) {
+      return { status: 'cancelled' };
+    }
+    worker.proc.kill('SIGKILL');
+    this.#logger.warn(
+      {
+        event: 'backend.acp.cancel.timed_out',
+        backendSessionId: worker.backendSessionId,
+        generation: active.generation,
+        strategy: 'native',
+      },
+      'ACP native cancel cleanup timed out',
+    );
+    return { status: 'timed_out' };
+  }
+
+  async #fallbackKillAfterNative(
+    worker: IAcpWorker,
+    active: IActivePrompt,
+    options: ICancelOptions,
+    details: { reason: string; stopReason?: string; cause?: unknown },
+  ): Promise<ICancelResult> {
+    this.#logger.warn(
+      {
+        event: 'backend.acp.cancel.fallback_kill',
+        backendSessionId: worker.backendSessionId,
+        generation: active.generation,
+        strategy: 'native',
+        fallbackReason: details.reason,
+        ...(details.stopReason === undefined ? {} : { stopReason: details.stopReason }),
+        ...(details.cause instanceof Error ? { errorMessage: details.cause.message } : {}),
+      },
+      'ACP native cancel fell back to kill',
+    );
+    return await this.#cancelKill(worker, active, options);
   }
 
   async dispose(backendSessionId: string): Promise<void> {
