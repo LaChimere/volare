@@ -219,13 +219,11 @@ If any check fails, follow the recovery flow:
     - Logs/metrics cover worker startup, handshake, session creation, first frame/text, prompt duration, stop reason, cancellation path, replacement reason, active workers, and cap exhaustion.
   - Evidence: Documentation updates prepared for `docs/configuration.md`, `docs/operations.md`, and `docs/architecture.md` to describe ACP opt-in, rollback to process mode, unmediated MCP incompatibility, worker caps, and ACP log events. Integrated runtime ROI was remeasured through local `/openai/v1/responses` with 5 process samples, 3 ACP cold samples, and 5 ACP warm continuation samples. Process p50 first assistant SSE was ~7177ms and total ~9408ms; ACP warm p50 first assistant SSE was ~2795ms and total ~3038ms. Warm ACP savings were ~4382ms first-assistant and ~6370ms total, both above the 5% historical-backend-p50 threshold.
 
-### Follow-up capacity strategy
+### Follow-up capacity strategy design
 
-- [ ] Design ACP worker admission and pooling policy
+- [ ] Design ACP worker capacity strategy
   - Acceptance criteria:
-    - Replace immediate `backend_worker_cap_exhausted` failures with an admission queue or explicit backpressure policy for bursts of new Codex sessions.
-    - Evaluate LRU eviction of idle workers before cap exhaustion, not only timeout-based lazy eviction.
-    - Evaluate whether workers can be pooled by compatible scope (`cwd`, permission mode, MCP mode, model/config options) instead of one worker per backend session when isolation remains safe.
-    - Add low-cardinality observability for queued requests, queue wait time, evicted worker reason, cap pressure, and worker reuse rate.
-    - Document local testing recommendations for `VOLARE_COPILOT_ACP_MAX_WORKERS` and `VOLARE_MAX_ACTIVE_SESSIONS`.
-  - Evidence: 2026-06-05 local Codex testing hit 10-worker cap with many new sessions (`worker_created_count=10`, `worker_exited_count=0`, `cap_exhausted_count=18`). Immediate local mitigation is to run with `VOLARE_COPILOT_ACP_MAX_WORKERS=30` and `VOLARE_MAX_ACTIVE_SESSIONS=30`; long-term fix should avoid relying only on a larger cap.
+    - Create a separate design for ACP worker capacity behavior before changing runtime policy.
+    - Cover the observed worker-cap pressure from Codex multi-session testing.
+    - Do not implement or prescribe a specific admission, eviction, pooling, or observability strategy in this checklist before that design is approved.
+  - Evidence: Follow-up design needed; current local testing mitigation is a higher ACP worker cap.
