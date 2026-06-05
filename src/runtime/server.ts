@@ -140,6 +140,8 @@ export function createCopilotPromptRunner(
       logger,
       permissionMode: config.copilotPermissionMode,
       maxWorkers: config.copilotAcpMaxWorkers,
+      cancelStrategy: config.copilotAcpCancelStrategy,
+      nativeCancelWaitMs: config.copilotAcpNativeCancelWaitMs,
       childProcessEnv: config.childProcessEnv,
     });
   }

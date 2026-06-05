@@ -1423,6 +1423,12 @@ describe('server app', () => {
       'VOLARE_COPILOT_ACP_MAX_WORKERS must be an integer',
     );
     expect(() =>
+      createServerRuntimeConfig({ VOLARE_COPILOT_ACP_CANCEL_STRATEGY: 'graceful' }),
+    ).toThrow('VOLARE_COPILOT_ACP_CANCEL_STRATEGY must be kill, native, or auto');
+    expect(() =>
+      createServerRuntimeConfig({ VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS: '0' }),
+    ).toThrow('VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS must be an integer');
+    expect(() =>
       createServerRuntimeConfig({
         VOLARE_COPILOT_MCP_MODE: 'unmediated',
         VOLARE_COPILOT_PERMISSION_MODE: 'restricted',
@@ -1454,6 +1460,8 @@ describe('server app', () => {
         VOLARE_EVENT_RETENTION_DAYS: '30',
         VOLARE_COPILOT_RUNTIME_MODE: 'process',
         VOLARE_COPILOT_ACP_MAX_WORKERS: '8',
+        VOLARE_COPILOT_ACP_CANCEL_STRATEGY: 'native',
+        VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS: '5000',
         VOLARE_COPILOT_PERMISSION_MODE: 'full',
         VOLARE_COPILOT_MCP_MODE: 'unmediated',
         SSL_CERT_FILE: '/tmp/cacert.pem',
@@ -1471,6 +1479,8 @@ describe('server app', () => {
       eventRetentionDays: 30,
       copilotRuntimeMode: 'process',
       copilotAcpMaxWorkers: 8,
+      copilotAcpCancelStrategy: 'native',
+      copilotAcpNativeCancelWaitMs: 5000,
       copilotPermissionMode: 'full',
       copilotMcpMode: 'unmediated',
       childProcessEnv: {
@@ -1481,6 +1491,8 @@ describe('server app', () => {
     });
     expect(createServerRuntimeConfig({}).copilotRuntimeMode).toBe('process');
     expect(createServerRuntimeConfig({}).copilotAcpMaxWorkers).toBe(10);
+    expect(createServerRuntimeConfig({}).copilotAcpCancelStrategy).toBe('kill');
+    expect(createServerRuntimeConfig({}).copilotAcpNativeCancelWaitMs).toBe(5000);
     expect(
       createServerRuntimeConfig({
         VOLARE_COPILOT_RUNTIME_MODE: 'acp',
