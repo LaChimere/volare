@@ -10,7 +10,7 @@ Every endpoint requires bearer auth.
 bunx @lachimere/volare setup
 ```
 
-The setup command generates or reuses `VOLARE_API_KEY`, saves it in `~/.volare/env`, configures Codex in a bounded Volare-managed block, and updates the macOS GUI environment for Codex Desktop. Restart Codex Desktop after setup so it can read the saved token. You can still provide `VOLARE_API_KEY` directly in the environment; setup will reuse and persist that value. If setup generates a new token while the daemon is already running, restart the daemon before reconnecting clients.
+The setup command generates or reuses `VOLARE_API_KEY`, saves it in `~/.volare/env`, configures Codex in the current profile-file layout, and updates the macOS GUI environment for Codex Desktop. Restart Codex Desktop after setup so it can read the saved token. You can still provide `VOLARE_API_KEY` directly in the environment; setup will reuse and persist that value. If setup generates a new token while the daemon is already running, restart the daemon before reconnecting clients.
 
 If `VOLARE_API_KEY` is not set and no persisted token exists, the server generates an ephemeral token and prints it once to stderr. Daemon startup warns in this mode. This is useful for manual experiments but not for Codex CLI/Desktop, because clients need a stable token through `env_key = "VOLARE_API_KEY"`.
 
@@ -83,7 +83,9 @@ Common Codex setup/config flags:
 | `setup`, `config codex` | `--config`, `--config-path <path>` | Override the Codex config path. |
 | `setup`, `config codex` | `--base-url <url>` | Override the Volare OpenAI Responses base URL. |
 | `setup`, `config codex` | `--reasoning-effort <low|medium|high|xhigh>` | Set the Codex default reasoning effort. Defaults to `high`. |
+| `setup` | `--codex-profile-mode <profile-file|legacy-single-file>` | Override the Codex config profile mode. Defaults to installed Codex detection, with `profile-file` as the safe fallback. |
 | `config codex` | `--env-key <name>` | Override the environment variable Codex uses for the Volare API token. Defaults to `VOLARE_API_KEY`. |
+| `config codex` | `--profile-mode <profile-file|legacy-single-file>` | Override the Codex config profile mode. Defaults to installed Codex detection, with `profile-file` as the safe fallback. |
 
 Codex config hygiene commands:
 
@@ -92,7 +94,7 @@ bunx @lachimere/volare config codex doctor
 bunx @lachimere/volare config codex repair
 ```
 
-`doctor` reports safe issue codes and non-secret messages when Volare-owned Codex config has drifted. `repair` is an explicit alias for `config codex`; it rewrites only the Volare-managed block and top-level Volare defaults, cleans known Volare-owned legacy sections, and stores backups under `backups/volare/` next to the selected Codex config file.
+`doctor` reports safe issue codes and non-secret messages when Volare-owned Codex config has drifted. `repair` is an explicit alias for `config codex`; in modern profile-file mode it updates the base config plus `volare.config.toml`, cleans known Volare-owned legacy sections, removes obsolete `[profiles.volare]` state, and stores backups under `backups/volare/` next to the selected Codex config file.
 
 ## Daemon paths
 
