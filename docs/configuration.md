@@ -37,6 +37,8 @@ If `VOLARE_API_KEY` is not set and no persisted token exists, the server generat
 | `VOLARE_EVENT_RETENTION_DAYS` | unset | When set, terminal-turn events older than the configured days can be pruned. |
 | `VOLARE_COPILOT_RUNTIME_MODE` | `process` | Copilot backend runtime: `process` keeps the existing per-turn `copilot --prompt` subprocess path; `acp` opts into the experimental long-lived `copilot --acp` runtime. |
 | `VOLARE_COPILOT_ACP_MAX_WORKERS` | `10` | Maximum live ACP workers when ACP mode is enabled. The effective cap is no greater than `VOLARE_MAX_ACTIVE_SESSIONS`. |
+| `VOLARE_COPILOT_ACP_CANCEL_STRATEGY` | `kill` | ACP-only cancellation strategy: `kill` uses kill-and-replace, `native` attempts ACP `session/cancel` with bounded fallback, and `auto` uses native only when in-memory support evidence proves reusable cancellation. |
+| `VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS` | `5000` | ACP-only native cancel wait budget. When force cancellation is active, this wait shares the existing `VOLARE_CANCEL_TIMEOUT_MS` cleanup budget. |
 | `VOLARE_COPILOT_PERMISSION_MODE` | `full` | Copilot CLI permission mode: `full` passes Copilot CLI `--allow-all`, `web` allows public URL fetches only, and `restricted` passes no non-interactive grants. |
 | `VOLARE_COPILOT_MCP_MODE` | `disabled` | Copilot builtin MCP capability mode: `disabled` passes `--disable-builtin-mcps`; `unmediated` omits that flag and is valid only with permission mode `web` or `full`. |
 | `SSL_CERT_FILE` | unset | Optional CA bundle path inherited by Copilot backend child processes and Python-backed tools. |
@@ -50,6 +52,8 @@ When these CA bundle variables are saved in `~/.volare/env`, Volare preserves th
 By default, Volare invokes Copilot CLI with `--disable-builtin-mcps`. `VOLARE_COPILOT_PERMISSION_MODE` controls the non-interactive permission flags Volare passes to Copilot CLI; it does not make Volare a source-retrieval system or a mediator for Copilot-internal MCP tools. `VOLARE_COPILOT_MCP_MODE=unmediated` is explicit local-developer risk acceptance: Copilot internal MCP actions are not evaluated by Volare approvals or persisted as bridge-owned tool events.
 
 `VOLARE_COPILOT_RUNTIME_MODE=acp` is opt-in and experimental. It keeps Volare's HTTP/API surface unchanged, but runs turns through long-lived Copilot CLI ACP workers instead of starting one `copilot --prompt` process per turn. Keep `process` mode for the stable rollback path. ACP mode rejects `VOLARE_COPILOT_MCP_MODE=unmediated`; use `VOLARE_COPILOT_RUNTIME_MODE=process` if you intentionally need unmediated Copilot MCP passthrough.
+
+ACP cancellation defaults to `VOLARE_COPILOT_ACP_CANCEL_STRATEGY=kill` because Copilot CLI native `session/cancel` behavior must be proven before worker reuse is trusted. `native` is an explicit validation mode: it accepts only `stopReason: "cancelled"` plus a successful reuse verification prompt, and falls back to kill-and-replace otherwise. `auto` behaves like `kill` unless the current runner has in-memory `native-reusable` support evidence.
 
 ACP mode relies on the local Copilot CLI authentication state. If Copilot CLI reports that authentication is required during ACP session setup, Volare calls ACP `authenticate` once with the advertised auth method and retries session creation once. Volare never executes terminal-auth commands embedded in ACP metadata and does not store Copilot credentials; if authentication still fails, run `copilot login` locally and retry.
 
