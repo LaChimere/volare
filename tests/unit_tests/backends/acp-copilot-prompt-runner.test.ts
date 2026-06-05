@@ -26,6 +26,8 @@ class FakeAcpProcess {
   sessionNewAuthFailuresRemaining = 0;
   authenticateShouldFail = false;
   authenticateCalls = 0;
+  promptMode: 'normal' | 'cancelled-on-cancel' | 'end-turn-on-cancel' | 'never' = 'normal';
+  pendingPromptId: number | undefined;
 
   kill(signal: 'SIGTERM' | 'SIGKILL'): void {
     this.killed.push(signal);
@@ -70,6 +72,14 @@ class FakeAcpProcess {
         }
         this.send({ jsonrpc: '2.0', id: frame.id, result: { sessionId: this.sessionId } });
       } else if (frame.method === 'session/prompt') {
+        if (this.promptMode === 'never') {
+          this.pendingPromptId = typeof frame.id === 'number' ? frame.id : undefined;
+          continue;
+        }
+        if (this.promptMode === 'cancelled-on-cancel' || this.promptMode === 'end-turn-on-cancel') {
+          this.pendingPromptId = typeof frame.id === 'number' ? frame.id : undefined;
+          continue;
+        }
         this.send({
           jsonrpc: '2.0',
           method: 'session/update',
@@ -82,6 +92,23 @@ class FakeAcpProcess {
           },
         });
         this.send({ jsonrpc: '2.0', id: frame.id, result: { stopReason: 'end_turn' } });
+      } else if (frame.method === 'session/cancel') {
+        if (this.pendingPromptId === undefined) {
+          continue;
+        }
+        const stopReason =
+          this.promptMode === 'cancelled-on-cancel'
+            ? 'cancelled'
+            : this.promptMode === 'end-turn-on-cancel'
+              ? 'end_turn'
+              : undefined;
+        if (stopReason) {
+          this.send({
+            jsonrpc: '2.0',
+            id: this.pendingPromptId,
+            result: { stopReason },
+          });
+        }
       }
     }
   }
@@ -253,6 +280,104 @@ describe('AcpCopilotPromptRunner', () => {
 
     await expect(firstChunk).resolves.toBeInstanceOf(Error);
     expect(proc.killed).toEqual(['SIGTERM']);
+  });
+
+  test('native cancel waits for cancelled stopReason before cleanup', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      cancelStrategy: 'native',
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.promptMode = 'cancelled-on-cancel';
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+    const iterator = runner
+      .run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })
+      [Symbol.asyncIterator]();
+    const firstChunk = iterator.next().catch((error) => error);
+    await waitFor(() =>
+      processes.some((proc) => proc.inputs.join('\n').includes('session/prompt')),
+    );
+
+    await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
+
+    const proc = processes[0];
+    expect(proc?.inputs.join('\n')).toContain('session/cancel');
+    expect(proc?.killed).toEqual(['SIGTERM']);
+    await expect(firstChunk).resolves.toBeInstanceOf(Error);
+  });
+
+  test('native cancel falls back to kill on wrong stopReason', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      cancelStrategy: 'native',
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.promptMode = 'end-turn-on-cancel';
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+    const iterator = runner
+      .run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })
+      [Symbol.asyncIterator]();
+    const firstChunk = iterator.next().catch((error) => error);
+    await waitFor(() =>
+      processes.some((proc) => proc.inputs.join('\n').includes('session/prompt')),
+    );
+
+    await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
+
+    expect(processes[0]?.inputs.join('\n')).toContain('session/cancel');
+    expect(processes[0]?.killed).toEqual(['SIGTERM']);
+    await expect(firstChunk).resolves.toBeInstanceOf(Error);
+  });
+
+  test('native cancel falls back to kill when native wait expires', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      cancelStrategy: 'native',
+      nativeCancelWaitMs: 1,
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.promptMode = 'never';
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+      requestTimeoutMs: 1_000,
+    });
+    const iterator = runner
+      .run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })
+      [Symbol.asyncIterator]();
+    const firstChunk = iterator.next().catch((error) => error);
+    await waitFor(() =>
+      processes.some((proc) => proc.inputs.join('\n').includes('session/prompt')),
+    );
+
+    await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
+
+    expect(processes[0]?.killed).toEqual(['SIGTERM']);
+    await expect(firstChunk).resolves.toBeInstanceOf(Error);
   });
 
   test('aborts an active ACP prompt when the run signal aborts', async () => {
