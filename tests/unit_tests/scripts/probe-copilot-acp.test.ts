@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   AcpJsonRpcPeer,
   AcpProbeError,
+  classifyAcpCancelCapability,
   classifyUnsupportedProtocolResponse,
   redactAcpFrame,
   runSelfTests,
@@ -432,6 +433,50 @@ describe('probe-copilot-acp harness', () => {
       stdout.close();
       await peer.waitForReaders();
     }
+  });
+
+  test('classifies ACP native cancel capability evidence', () => {
+    expect(
+      classifyAcpCancelCapability({
+        terminalObserved: true,
+        stopReason: 'cancelled',
+        followUpStopReason: 'end_turn',
+        followUpLeakDetected: false,
+      }),
+    ).toBe('native-reusable');
+    expect(
+      classifyAcpCancelCapability({
+        terminalObserved: true,
+        stopReason: 'cancelled',
+        followUpStopReason: null,
+        followUpLeakDetected: null,
+      }),
+    ).toBe('native-terminal-only');
+    expect(
+      classifyAcpCancelCapability({
+        terminalObserved: true,
+        stopReason: 'end_turn',
+        followUpStopReason: null,
+        followUpLeakDetected: null,
+      }),
+    ).toBe('unsupported');
+    expect(
+      classifyAcpCancelCapability({
+        terminalObserved: false,
+        stopReason: null,
+        followUpStopReason: null,
+        followUpLeakDetected: null,
+      }),
+    ).toBe('unknown');
+    expect(
+      classifyAcpCancelCapability({
+        terminalObserved: false,
+        stopReason: null,
+        followUpStopReason: null,
+        followUpLeakDetected: null,
+        error: 'request failed',
+      }),
+    ).toBe('unsupported');
   });
 
   test('rejects pending requests when stdout closes unexpectedly', async () => {
