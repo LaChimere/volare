@@ -1050,7 +1050,7 @@ async function probeCancelCapabilityEvidence(
       );
       followUpStopReason = followUp.stopReason;
       followUpTextBytes = textEncoder.encode(followUp.agentText).byteLength;
-      followUpLeakDetected = !/\bAFTER\b/i.test(followUp.agentText);
+      followUpLeakDetected = detectAcpCancelFollowUpLeak(followUp.agentText);
     }
     return {
       terminalObserved: error === undefined,
@@ -1496,6 +1496,14 @@ function extractAgentText(messages: readonly JsonValue[]): string {
     }
   }
   return chunks.join('');
+}
+
+export function detectAcpCancelFollowUpLeak(value: string): boolean {
+  return normalizeProbeText(value) !== 'AFTER';
+}
+
+function normalizeProbeText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toUpperCase();
 }
 
 async function collectSamples(
