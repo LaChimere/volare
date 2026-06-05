@@ -205,9 +205,22 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     if (!worker?.active) {
       return { status: 'not_found' };
     }
-    const activeGeneration = worker.active.generation;
-    this.#workers.delete(backendSessionId);
-    worker.active.queue.fail(new VolareError('backend_cancelled', 'ACP prompt was cancelled'));
+    switch (this.#cancelStrategy) {
+      case 'kill':
+      case 'native':
+      case 'auto':
+        return await this.#cancelKill(worker, worker.active, options);
+    }
+  }
+
+  async #cancelKill(
+    worker: IAcpWorker,
+    active: IActivePrompt,
+    options: ICancelOptions,
+  ): Promise<ICancelResult> {
+    const activeGeneration = active.generation;
+    this.#workers.delete(worker.backendSessionId);
+    active.queue.fail(new VolareError('backend_cancelled', 'ACP prompt was cancelled'));
     await worker.peer
       .notify('session/cancel', { sessionId: worker.sessionId })
       .catch(() => undefined);
@@ -220,8 +233,8 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       worker.proc.exited.then(() => true),
       Bun.sleep(options.timeoutMs).then(() => false),
     ]);
-    if (this.#workers.get(backendSessionId)?.generation === activeGeneration) {
-      this.#workers.delete(backendSessionId);
+    if (this.#workers.get(worker.backendSessionId)?.generation === activeGeneration) {
+      this.#workers.delete(worker.backendSessionId);
     }
     if (exited) {
       return { status: 'cancelled' };
