@@ -5,6 +5,7 @@ import {
   AcpProbeError,
   classifyAcpCancelCapability,
   classifyUnsupportedProtocolResponse,
+  detectAcpCancelFollowUpLeak,
   redactAcpFrame,
   runSelfTests,
   summarizeInitializeResponse,
@@ -477,6 +478,13 @@ describe('probe-copilot-acp harness', () => {
         error: 'request failed',
       }),
     ).toBe('unsupported');
+  });
+
+  test('detects ACP cancel follow-up leakage strictly', () => {
+    expect(detectAcpCancelFollowUpLeak('AFTER')).toBe(false);
+    expect(detectAcpCancelFollowUpLeak(' after \n')).toBe(false);
+    expect(detectAcpCancelFollowUpLeak('1\n2\nAFTER')).toBe(true);
+    expect(detectAcpCancelFollowUpLeak('AFTER\n1')).toBe(true);
   });
 
   test('rejects pending requests when stdout closes unexpectedly', async () => {
