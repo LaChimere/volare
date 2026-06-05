@@ -109,7 +109,13 @@ function createControlledStream(): {
       if (!streamController || closed) {
         return;
       }
-      streamController.enqueue(textEncoder.encode(text));
+      try {
+        streamController.enqueue(textEncoder.encode(text));
+      } catch (error) {
+        if (!(error instanceof TypeError)) {
+          throw error;
+        }
+      }
     },
     close() {
       if (!streamController || closed) {
@@ -192,6 +198,61 @@ describe('AcpCopilotPromptRunner', () => {
     await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
     expect(processes[0]?.killed).toContain('SIGTERM');
     await expect(firstChunk).resolves.toBeInstanceOf(Error);
+  });
+
+  test('drops ACP text deltas after cancel stops output', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.ignoreSigterm = true;
+        const originalHandle = proc.handleInput.bind(proc);
+        proc.handleInput = (input: string) => {
+          if (input.includes('session/prompt')) {
+            proc.inputs.push(input);
+            return;
+          }
+          originalHandle(input);
+        };
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+      requestTimeoutMs: 1_000,
+    });
+    const iterator = runner
+      .run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })
+      [Symbol.asyncIterator]();
+    const firstChunk = iterator.next().catch((error) => error);
+    await waitFor(() =>
+      processes.some((proc) => proc.inputs.join('\n').includes('session/prompt')),
+    );
+
+    await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
+    const proc = processes[0];
+    expect(proc).toBeDefined();
+    if (!proc) {
+      throw new Error('expected spawned process');
+    }
+    proc.send({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId: proc.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'late text' },
+        },
+      },
+    });
+
+    await expect(firstChunk).resolves.toBeInstanceOf(Error);
+    expect(proc.killed).toEqual(['SIGTERM']);
   });
 
   test('aborts an active ACP prompt when the run signal aborts', async () => {
