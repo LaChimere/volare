@@ -226,6 +226,26 @@ export class CopilotCliBackend implements IAgentBackend {
     } catch (error) {
       const agentError = toVolareError(error);
       const failureClass = classifyBackendFailure(error, agentError, signal);
+      if (agentError.code === 'backend_cancelled') {
+        logger.info(
+          {
+            event: 'backend.turn.cancelled',
+            durationMs: elapsedMs(startedAt),
+            outputChars: text.length,
+            promptAssembleMs,
+            deltaCount,
+            ...(firstAssistantDeltaMs !== undefined ? { firstAssistantDeltaMs } : {}),
+            promptSizeBucket,
+            historyMessagesBucket,
+          },
+          'backend turn cancelled',
+        );
+        yield {
+          type: 'turn.cancelled',
+          turnId: request.turnId,
+        };
+        return;
+      }
       logger.error(
         {
           event: 'backend.turn.failed',

@@ -414,6 +414,54 @@ describe('CopilotCliBackend', () => {
     }
   });
 
+  test('maps runner cancellation to a cancelled turn event', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
+    const logger = new CapturingLogger();
+    const backend = new CopilotCliBackend({
+      runner: new FakeCopilotPromptRunner(
+        ['partial'],
+        new VolareError('backend_cancelled', 'cancelled raw detail'),
+      ),
+      logger,
+    });
+    const workspace: IWorkspace = {
+      id: 'workspace_1',
+      rootPath: await realpath(root),
+    };
+    try {
+      const session = await backend.createSession(workspace, {
+        bridgeSessionId: 'bridge_session_1',
+        threadId: 'thread_1',
+      });
+
+      const events = await collectEvents(
+        backend.send(session, {
+          turnId: 'turn_1',
+          threadId: 'thread_1',
+          workspaceId: 'workspace_1',
+          input: { message: 'hello' },
+          model: 'copilot-agent',
+        }),
+      );
+
+      expect(events.map((event) => event.type)).toEqual(['text.delta', 'turn.cancelled']);
+      expect(logger.entries).toContainEqual(
+        expect.objectContaining({
+          level: 'info',
+          message: 'backend turn cancelled',
+          fields: expect.objectContaining({
+            event: 'backend.turn.cancelled',
+            outputChars: 7,
+            deltaCount: 1,
+          }),
+        }),
+      );
+      expect(JSON.stringify(logger.entries)).not.toContain('cancelled raw detail');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('formats full-history input for the single-prompt Copilot CLI surface', async () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'copilot-workspace-'));
     const runner = new FakeCopilotPromptRunner();
