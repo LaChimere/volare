@@ -58,6 +58,7 @@ interface IAcpWorker {
   peer: AcpJsonRpcPeer;
   sessionId: string;
   active: IActivePrompt | null;
+  reuseVerification: IReuseVerification | null;
   cancellation: Promise<ICancelResult> | null;
   generation: number;
   idleSinceMs: number;
@@ -69,6 +70,10 @@ interface IActivePrompt {
   acceptingDeltas: boolean;
   promptResult?: Promise<string>;
   cancelManaged: boolean;
+}
+
+interface IReuseVerification {
+  chunks: string[];
 }
 
 const DEFAULT_ACP_MAX_WORKERS = 10;
@@ -286,6 +291,15 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       return { status: 'cancelled' };
     }
     worker.proc.kill('SIGKILL');
+    this.#logger.warn(
+      {
+        event: 'backend.acp.cancel.timed_out',
+        backendSessionId: worker.backendSessionId,
+        generation: active.generation,
+        strategy: this.#cancelStrategy,
+      },
+      'ACP cancel cleanup timed out',
+    );
     return { status: 'timed_out' };
   }
 
@@ -373,37 +387,48 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   ): Promise<
     { reusable: true } | { reusable: false; reason: string; stopReason?: string; cause?: unknown }
   > {
-    const verification = worker.peer
-      .request('session/prompt', {
-        sessionId: worker.sessionId,
-        prompt: [{ type: 'text', text: 'Reply with the single word AFTER.' }],
-      })
-      .then((response) => parseStopReason(response.result));
-    const result = await Promise.race([
-      verification.then(
-        (stopReason) => ({ type: 'settled' as const, stopReason }),
-        (error) => ({ type: 'failed' as const, error }),
-      ),
-      Bun.sleep(this.#nativeWaitBudgetMs(deadlineMs)).then(() => ({ type: 'timeout' as const })),
-    ]);
-    if (result.type === 'timeout') {
-      return { reusable: false, reason: 'reuse_verification_timeout' };
+    const verification: IReuseVerification = { chunks: [] };
+    worker.reuseVerification = verification;
+    try {
+      const prompt = worker.peer
+        .request('session/prompt', {
+          sessionId: worker.sessionId,
+          prompt: [{ type: 'text', text: 'Reply with the single word AFTER.' }],
+        })
+        .then((response) => parseStopReason(response.result));
+      const result = await Promise.race([
+        prompt.then(
+          (stopReason) => ({ type: 'settled' as const, stopReason }),
+          (error) => ({ type: 'failed' as const, error }),
+        ),
+        Bun.sleep(this.#nativeWaitBudgetMs(deadlineMs)).then(() => ({ type: 'timeout' as const })),
+      ]);
+      if (result.type === 'timeout') {
+        return { reusable: false, reason: 'reuse_verification_timeout' };
+      }
+      if (result.type === 'failed') {
+        return {
+          reusable: false,
+          reason: 'reuse_verification_failed',
+          cause: result.error,
+        };
+      }
+      if (result.stopReason !== 'end_turn') {
+        return {
+          reusable: false,
+          reason: 'reuse_verification_wrong_stop_reason',
+          stopReason: result.stopReason,
+        };
+      }
+      if (normalizeVerificationText(verification.chunks.join('')) !== 'AFTER') {
+        return { reusable: false, reason: 'reuse_verification_leaked_output' };
+      }
+      return { reusable: true };
+    } finally {
+      if (worker.reuseVerification === verification) {
+        worker.reuseVerification = null;
+      }
     }
-    if (result.type === 'failed') {
-      return {
-        reusable: false,
-        reason: 'reuse_verification_failed',
-        cause: result.error,
-      };
-    }
-    if (result.stopReason !== 'end_turn') {
-      return {
-        reusable: false,
-        reason: 'reuse_verification_wrong_stop_reason',
-        stopReason: result.stopReason,
-      };
-    }
-    return { reusable: true };
   }
 
   async #fallbackKillAfterNative(
@@ -421,7 +446,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         strategy: 'native',
         fallbackReason: details.reason,
         ...(details.stopReason === undefined ? {} : { stopReason: details.stopReason }),
-        ...(details.cause instanceof Error ? { errorMessage: details.cause.message } : {}),
+        ...(details.cause instanceof VolareError ? { errorCode: details.cause.code } : {}),
       },
       'ACP native cancel fell back to kill',
     );
@@ -521,11 +546,13 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         if (!worker) {
           return;
         }
+        const deltas = extractTextDeltas(frame, worker.sessionId);
         const active = worker.active;
         if (!active?.acceptingDeltas) {
+          worker.reuseVerification?.chunks.push(...deltas);
           return;
         }
-        for (const text of extractTextDeltas(frame, worker.sessionId)) {
+        for (const text of deltas) {
           active.queue.push(text);
         }
       },
@@ -556,6 +583,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         peer,
         sessionId: session.sessionId,
         active: null,
+        reuseVerification: null,
         cancellation: null,
         generation: this.#nextGeneration,
         idleSinceMs: Date.now(),
@@ -792,6 +820,10 @@ function parseStopReason(result: JsonValue | undefined): string {
     );
   }
   return stopReason;
+}
+
+function normalizeVerificationText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toUpperCase();
 }
 
 function permissionPolicy(mode: CopilotCliPermissionMode): AcpPermissionPolicy {

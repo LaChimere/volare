@@ -30,6 +30,7 @@ class FakeAcpProcess {
   pendingPromptId: number | undefined;
   restoreNormalAfterCancel = true;
   normalPromptDelayMs = 0;
+  verificationText: string | undefined;
 
   kill(signal: 'SIGTERM' | 'SIGKILL'): void {
     this.killed.push(signal);
@@ -82,6 +83,10 @@ class FakeAcpProcess {
           this.pendingPromptId = typeof frame.id === 'number' ? frame.id : undefined;
           continue;
         }
+        const promptText = JSON.stringify(frame.params ?? {});
+        const responseText = promptText.includes('AFTER')
+          ? (this.verificationText ?? 'AFTER')
+          : 'hello';
         const sendPromptResponse = () => {
           this.send({
             jsonrpc: '2.0',
@@ -90,7 +95,7 @@ class FakeAcpProcess {
               sessionId: this.sessionId,
               update: {
                 sessionUpdate: 'agent_message_chunk',
-                content: { type: 'text', text: 'hello' },
+                content: { type: 'text', text: responseText },
               },
             },
           });
@@ -489,6 +494,38 @@ describe('AcpCopilotPromptRunner', () => {
         };
       },
       requestTimeoutMs: 1_000,
+    });
+    const iterator = runner
+      .run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })
+      [Symbol.asyncIterator]();
+    const firstChunk = iterator.next().catch((error) => error);
+    await waitFor(() =>
+      processes.some((proc) => proc.inputs.join('\n').includes('session/prompt')),
+    );
+
+    await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
+
+    expect(processes[0]?.killed).toEqual(['SIGTERM']);
+    await expect(firstChunk).resolves.toBeInstanceOf(Error);
+  });
+
+  test('native cancel falls back when reuse verification output is contaminated', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      cancelStrategy: 'native',
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.promptMode = 'cancelled-on-cancel';
+        proc.verificationText = '1\n2\nAFTER';
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
     });
     const iterator = runner
       .run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })
