@@ -6,6 +6,7 @@ import { ApprovalProvider } from '../../../src/approvals/provider';
 import { DurableSessionManager } from '../../../src/core/durable-session-manager';
 import { VolareError } from '../../../src/core/errors';
 import { InMemorySessionManager } from '../../../src/core/in-memory-session-manager';
+import { RuntimeCapabilityRegistry } from '../../../src/core/runtime-capability-registry';
 import type {
   IAgentRequest,
   IBackendSession,
@@ -704,6 +705,101 @@ describe('server app', () => {
           context_window: 128_000,
         },
       ],
+    });
+  });
+
+  test('serves a versioned non-secret capabilities projection', async () => {
+    const capabilityRegistry = new RuntimeCapabilityRegistry({
+      runtimeMode: 'acp',
+      maxActiveTurns: 2,
+      approvalWaiter: 'notifier',
+      now: () => 1000,
+    });
+    capabilityRegistry.updateBackend({
+      name: 'copilot-cli',
+      capabilities: {
+        persistentSessions: true,
+        serverSideTools: true,
+        permissionRequests: true,
+        externalApprovalDecisions: false,
+        backendInternalPauseResume: true,
+        cancellation: true,
+      },
+    });
+    capabilityRegistry.updateAcpNativeCancel({
+      classification: 'native-terminal-only',
+      source: 'probe',
+      reason: 'leaked /tmp/secret-workspace raw token 0123456789abcdef',
+    });
+    const app = createApp({
+      config: createServerRuntimeConfig({
+        VOLARE_API_KEY: '0123456789abcdef',
+        VOLARE_WORKSPACE_ROOT: '/tmp/secret-workspace',
+        VOLARE_COPILOT_RUNTIME_MODE: 'acp',
+      }),
+      capabilityRegistry,
+      healthStatus: () => 'ready',
+    });
+
+    const response = await app.fetch(request('/capabilities'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      schema_version: 1,
+      server: { name: 'volare', status: 'ready' },
+      protocols: {
+        openai_responses: {
+          streaming: true,
+          resumable_turns: false,
+        },
+      },
+      runtime: {
+        mode: 'acp',
+        accepting_new_work: true,
+        active_turn_capacity: { enabled: true, limit: 2 },
+        approval_resolution: { supported: true, waiter: 'notifier' },
+      },
+      backend: {
+        name: 'copilot-cli',
+        capabilities: {
+          persistent_sessions: true,
+          server_side_tools: true,
+        },
+      },
+      acp: {
+        native_cancel: {
+          classification: 'native-terminal-only',
+          support: 'unsupported',
+          source: 'probe',
+        },
+      },
+      security: {
+        bearer_auth: true,
+        cors_mode: 'disabled',
+        loopback_only: true,
+      },
+    });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('0123456789abcdef');
+    expect(serialized).not.toContain('/tmp/secret-workspace');
+    expect(serialized).not.toContain(config.projectlessWorkspaceRoot);
+    expect(serialized).not.toContain(config.stateDatabasePath);
+    expect(serialized).not.toContain(config.host);
+  });
+
+  test('requires auth for capabilities and uses Volare error envelope', async () => {
+    const app = createApp({ config });
+
+    const response = await app.fetch(new Request('http://127.0.0.1:8000/capabilities'));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'unauthorized',
+        message: 'Missing or invalid bearer token',
+      },
     });
   });
 

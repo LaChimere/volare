@@ -122,6 +122,7 @@ export async function startVolareRuntime(
       config,
       stateStore,
       eventJournal,
+      capabilityRegistry,
       sessionManager,
       approvalNotifier: approvalProvider,
       workerMetrics: () => backend.workerMetrics(),
