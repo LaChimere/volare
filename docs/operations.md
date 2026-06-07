@@ -88,6 +88,17 @@ Use `Retry-After` for standard seconds-based retry behavior. `X-Volare-Retry-Aft
 
 During shutdown, queued ACP admissions fail as HTTP 503 with `{ "error": { "type": "service_unavailable", "message": "..." } }` plus the same retry headers when the error is observable before the stream starts.
 
+## Capabilities
+
+`GET /capabilities` returns a versioned Volare capability projection for local diagnostics and client feature detection:
+
+```bash
+curl -H "Authorization: Bearer $VOLARE_API_KEY" \
+  http://127.0.0.1:8000/capabilities
+```
+
+The response uses `Cache-Control: no-store` and includes `schema_version`, `server`, `protocols`, `runtime`, `backend`, `acp`, and `security` groups. It intentionally omits tokens, local workspace paths, raw ACP payloads, raw probe output, auth metadata, and internal registry objects. ACP native cancel is reported as a classified observation (`unknown`, `unsupported`, `native-terminal-only`, or `native-reusable`) with a coarse source, not as a stable boolean claim.
+
 ## Approval resolution
 
 When Volare creates a pending approval, resolve it through the Volare control plane rather than an OpenAI-compatible route:

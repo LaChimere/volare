@@ -2,7 +2,7 @@
 
 ## Status
 
-Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, PR 3 runtime capability registry, PR 4 ACP worker admission queue, PR 5 ACP worker observability / idle reaper, PR 6 HTTP app boundary cleanup, and PR 7 event-driven approval wait have been completed.
+Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, PR 3 runtime capability registry, PR 4 ACP worker admission queue, PR 5 ACP worker observability / idle reaper, PR 6 HTTP app boundary cleanup, PR 7 event-driven approval wait, and PR 8 capabilities endpoint have been completed.
 
 ## PR 0: Runtime-control baseline
 
@@ -258,20 +258,33 @@ Evidence:
 
 ## PR 8: Capabilities endpoint
 
-- [ ] Design minimal public capability projection from internal registry
-- [ ] Add versioned, non-secret endpoint
-- [ ] Add `Cache-Control: no-store`
-- [ ] Represent ACP native cancel support as classified observation, not boolean overclaim
-- [ ] Add no-secret/path leakage tests
-- [ ] Update docs
+- [x] Design minimal public capability projection from internal registry
+- [x] Add versioned, non-secret endpoint
+- [x] Add `Cache-Control: no-store`
+- [x] Represent ACP native cancel support as classified observation, not boolean overclaim
+- [x] Add no-secret/path leakage tests
+- [x] Update docs
 
 Acceptance evidence:
 
-- [ ] Endpoint returns versioned projection
-- [ ] Response uses `Cache-Control: no-store`
-- [ ] Output contains no tokens, raw ACP payloads, or local secret paths
-- [ ] ACP native cancel support is classified, not represented as an overclaiming boolean
-- [ ] Adapter-specific projection does not pollute core registry
+- [x] Endpoint returns versioned projection
+- [x] Response uses `Cache-Control: no-store`
+- [x] Output contains no tokens, raw ACP payloads, or local secret paths
+- [x] ACP native cancel support is classified, not represented as an overclaiming boolean
+- [x] Adapter-specific projection does not pollute core registry
+
+Evidence:
+
+- Added `GET /capabilities` with `schema_version: 1`, `Cache-Control: no-store`, and Volare control-plane error envelope routing.
+- Projection composes adapter capabilities and internal registry state without dumping registry objects or raw probe details.
+- ACP native cancel is exposed as classified observation (`unknown`, `unsupported`, `native-terminal-only`, `native-reusable`) with coarse source, not as a boolean.
+- Public projection omits free-form registry reasons to avoid leaking paths, tokens, raw probe text, or auth metadata.
+- Tests cover auth, no-store, versioned shape, no token/path leakage, and classified ACP native cancel output.
+- Documentation updated: `docs/operations.md` documents `/capabilities`, schema version, no-store, field groups, and non-secret/classified semantics.
+- Review/refine: code-review and rubber-duck rounds found stale approval waiter projection, control-plane error classification, public reason leakage, docs, and auth-test gaps; each was fixed and re-reviewed with no material issues remaining.
+- Validation:
+  - `bun test tests/unit_tests/server/app.test.ts && bun run check`
+  - `bun run test`
 
 ## PR 9: SSE resume and AgentEvent schema design
 

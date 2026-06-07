@@ -1,5 +1,6 @@
 import { toVolareError, VolareError } from '../core/errors';
 import { classifyRequestGrounding } from '../core/grounding';
+import type { IRuntimeCapabilityRegistry } from '../core/runtime-capability-registry';
 import type {
   ApprovalDecision,
   IApprovalNotifier,
@@ -18,6 +19,7 @@ import {
   OpenAIResponsesAdapter,
 } from '../northbound/openai-responses/adapter';
 import { requireBearerAuth } from './auth';
+import { encodeCapabilitiesResponse } from './capabilities-route';
 import type { IServerRuntimeConfig } from './config';
 import { journalCanonicalEvents } from './event-streams';
 import { handleCancelOpenAIResponse, handleStoredOpenAIResponse } from './openai-response-routes';
@@ -37,6 +39,7 @@ export interface IAppDependencies {
   approvalNotifier?: IApprovalNotifier;
   stateStore?: IStateStore;
   eventJournal?: IEventJournal;
+  capabilityRegistry?: IRuntimeCapabilityRegistry;
   logger?: ILogger;
   disconnectGraceMs?: number;
   healthStatus?: () => 'recovering' | 'ready';
@@ -64,7 +67,7 @@ export function createApp(dependencies: IAppDependencies): {
       const requestStartedAt = performance.now();
       const requestId = crypto.randomUUID();
       const url = new URL(request.url);
-      const isControlPlaneRequest = url.pathname.startsWith('/control/');
+      const isControlPlaneRequest = isControlPlanePath(url.pathname);
       const logFields = {
         requestId,
         method: request.method,
@@ -99,6 +102,20 @@ export function createApp(dependencies: IAppDependencies): {
               requests_total: requestsTotal,
               ...turnMetrics,
               ...(dependencies.workerMetrics?.() ?? {}),
+            }),
+          );
+        }
+
+        if (request.method === 'GET' && url.pathname === '/capabilities') {
+          return logHttpResponse(
+            logger,
+            logFields,
+            requestStartedAt,
+            encodeCapabilitiesResponse({
+              config: dependencies.config,
+              adapterCapabilities: adapter.capabilities(),
+              capabilityRegistry: dependencies.capabilityRegistry,
+              healthStatus: dependencies.healthStatus?.() ?? 'ready',
             }),
           );
         }
@@ -382,6 +399,10 @@ function openAIResponsesPath(pathname: string): string | undefined {
     }
   }
   return undefined;
+}
+
+function isControlPlanePath(pathname: string): boolean {
+  return pathname === '/capabilities' || pathname.startsWith('/control/');
 }
 
 function parseApprovalResolutionRequest(
