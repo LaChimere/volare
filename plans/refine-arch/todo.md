@@ -2,7 +2,7 @@
 
 ## Status
 
-Execution in progress. PR 0 baseline has been captured.
+Execution in progress. PR 0 baseline and PR 1 active-turn capacity have been completed.
 
 ## PR 0: Runtime-control baseline
 
@@ -38,21 +38,34 @@ Evidence:
 
 ## PR 1: Active-turn capacity
 
-- [ ] Add typed active-turn capacity error
-- [ ] Enforce `maxActiveSessions` before creating durable turn/session state
-- [ ] Map capacity error to HTTP 429 with `Retry-After`, optional millisecond hint, OpenAI `rate_limit_error`, and `code: "capacity_exhausted"`
-- [ ] Add unit tests for over-cap concurrency
-- [ ] Add tests proving cancel intent alone does not release active-turn capacity
-- [ ] Add tests proving terminal events release active-turn capacity exactly once
-- [ ] Add tests proving backend cleanup after terminal result does not keep capacity occupied
-- [ ] Add server/adapter tests for status/body/headers
-- [ ] Update docs if user-visible behavior changes
+- [x] Add typed active-turn capacity error
+- [x] Enforce `maxActiveSessions` before creating durable turn/session state
+- [x] Map capacity error to HTTP 429 with `Retry-After`, optional millisecond hint, OpenAI `rate_limit_error`, and `code: "capacity_exhausted"`
+- [x] Add unit tests for over-cap concurrency
+- [x] Add tests proving cancel intent alone does not release active-turn capacity
+- [x] Add tests proving terminal events release active-turn capacity exactly once
+- [x] Add tests proving backend cleanup after terminal result does not keep capacity occupied
+- [x] Add server/adapter tests for status/body/headers
+- [x] Update docs if user-visible behavior changes
 
 Acceptance evidence:
 
-- [ ] Over-cap requests fail with typed retryable capacity error
-- [ ] No turn/session state is leaked for rejected requests
-- [ ] Existing cancellation and streaming tests remain green
+- [x] Over-cap requests fail with typed retryable capacity error
+- [x] No turn/session state is leaked for rejected requests
+- [x] Existing cancellation and streaming tests remain green
+
+Evidence:
+
+- Core active-turn slots are reserved before durable state creation and tracked by reserved turn IDs; releasing an unreserved or foreign turn is a no-op.
+- Concurrent over-cap starts reject exactly one request with `capacity_exhausted` and leave only one durable turn row.
+- Cancel intent alone keeps the slot occupied until terminal cancel completion; terminal stream events release the slot immediately and idempotently before backend cleanup finishes.
+- Response stream setup failures after `startTurn` cancel the accepted turn and log cleanup failures without masking the original setup error.
+- OpenAI Responses capacity errors return HTTP 429 with `Retry-After`, `X-Volare-Retry-After-Ms`, `X-Volare-Capacity-Scope`, `type: "rate_limit_error"`, and `code: "capacity_exhausted"`.
+- Documentation updated: `docs/configuration.md` now describes `VOLARE_MAX_ACTIVE_SESSIONS` as the active-turn cap and the retryable over-cap rejection behavior.
+- Review: code-review and rubber-duck review completed; blocking findings were fixed, and re-review reported no material issues.
+- Validation:
+  - `bun test tests/unit_tests/core/durable-session-manager.test.ts tests/unit_tests/server/app.test.ts && bunx tsc --noEmit --pretty false`
+  - `bun run check && bun run test`
 
 ## PR 2: Approval resolution
 

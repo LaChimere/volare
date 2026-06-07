@@ -33,7 +33,7 @@ If `VOLARE_API_KEY` is not set and no persisted token exists, the server generat
 | `VOLARE_DISCONNECT_GRACE_MS` | `5000` | Grace period before cancelling on client disconnect. |
 | `VOLARE_HTTP_IDLE_TIMEOUT_SECONDS` | `0` | `0` disables Bun HTTP idle timeout for long streams. |
 | `VOLARE_LOG_LEVEL` | `info` | One of `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`. |
-| `VOLARE_MAX_ACTIVE_SESSIONS` | `10` | Reserved for session limiting. |
+| `VOLARE_MAX_ACTIVE_SESSIONS` | `10` | Maximum concurrent active turns accepted by the runtime. Over-cap `POST /responses` requests are rejected with retryable HTTP 429 capacity errors before durable turn state is created. |
 | `VOLARE_EVENT_RETENTION_DAYS` | unset | When set, terminal-turn events older than the configured days can be pruned. |
 | `VOLARE_COPILOT_RUNTIME_MODE` | `process` | Copilot backend runtime: `process` keeps the existing per-turn `copilot --prompt` subprocess path; `acp` opts into the experimental long-lived `copilot --acp` runtime. |
 | `VOLARE_COPILOT_ACP_MAX_WORKERS` | `10` | Maximum live ACP workers when ACP mode is enabled. The effective cap is no greater than `VOLARE_MAX_ACTIVE_SESSIONS`. |

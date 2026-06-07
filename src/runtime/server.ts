@@ -67,6 +67,7 @@ export async function startVolareRuntime(
       logger,
     }),
     cancelTimeoutMs: config.cancelTimeoutMs,
+    maxActiveTurns: config.maxActiveSessions,
     logger,
   });
 

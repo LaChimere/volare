@@ -432,8 +432,50 @@ export function createCodexModelsResponse(): unknown {
 
 export function encodeOpenAIError(error: unknown): Response {
   const agentError = toVolareError(error);
+  if (agentError.code === 'capacity_exhausted') {
+    const retryAfterMs = retryAfterMsFromError(agentError);
+    const capacityScope = capacityScopeFromError(agentError);
+    return Response.json(
+      {
+        error: {
+          type: 'rate_limit_error',
+          message: agentError.message,
+          code: 'capacity_exhausted',
+          param: null,
+        },
+      },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.max(1, Math.ceil(retryAfterMs / 1000))),
+          'X-Volare-Retry-After-Ms': String(retryAfterMs),
+          'X-Volare-Capacity-Scope': capacityScope,
+        },
+      },
+    );
+  }
   const status = statusForErrorCode(agentError.code);
   return Response.json(new OpenAIResponsesAdapter().encodeError(agentError), { status });
+}
+
+function retryAfterMsFromError(error: VolareError): number {
+  if (isRecord(error.cause)) {
+    const value = error.cause['retryAfterMs'];
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      return Math.ceil(value);
+    }
+  }
+  return 1000;
+}
+
+function capacityScopeFromError(error: VolareError): string {
+  if (isRecord(error.cause)) {
+    const value = error.cause['scope'];
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+  return 'active_turns';
 }
 
 function encodeObservedSse(

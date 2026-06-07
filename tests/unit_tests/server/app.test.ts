@@ -4,17 +4,21 @@ import { mkdir, realpath } from 'node:fs/promises';
 import { DefaultApprovalPolicy } from '../../../src/approvals/policy';
 import { ApprovalProvider } from '../../../src/approvals/provider';
 import { DurableSessionManager } from '../../../src/core/durable-session-manager';
+import { VolareError } from '../../../src/core/errors';
 import { InMemorySessionManager } from '../../../src/core/in-memory-session-manager';
 import type {
   IAgentRequest,
   IBackendSession,
   ICancelResult,
   IEventJournal,
+  IResolvedTurn,
+  ISessionManager,
   IWorkspace,
   IWorkspaceResolver,
 } from '../../../src/core/types';
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
 import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
+import { OpenAIResponsesAdapter } from '../../../src/northbound/openai-responses/adapter';
 import { createApp, type IAppDependencies } from '../../../src/server/app';
 import { createServerRuntimeConfig } from '../../../src/server/config';
 import { migrate } from '../../../src/state/migrations';
@@ -152,6 +156,21 @@ class ThrowingEventJournal implements IEventJournal {
 class CancelCleanupFailingSessionManager extends InMemorySessionManager {
   override async cancelTurn(_turnId: string): Promise<ICancelResult> {
     throw new Error('cancel cleanup failed');
+  }
+}
+
+class TrackingCancelSessionManager extends InMemorySessionManager {
+  readonly cancelledTurnIds: string[] = [];
+
+  override async cancelTurn(turnId: string): Promise<ICancelResult> {
+    this.cancelledTurnIds.push(turnId);
+    return await super.cancelTurn(turnId);
+  }
+}
+
+class ThrowingEncodeAdapter extends OpenAIResponsesAdapter {
+  override encodeStream(): AsyncIterable<Uint8Array> {
+    throw new Error('stream setup failed');
   }
 }
 
@@ -333,6 +352,78 @@ describe('server app', () => {
         message: 'Session manager is not configured',
       },
     });
+  });
+
+  test('maps active-turn capacity exhaustion to retryable OpenAI error', async () => {
+    const capacityManager: ISessionManager = {
+      async startTurn(): Promise<IResolvedTurn> {
+        throw new VolareError('capacity_exhausted', 'Active turn capacity is exhausted', {
+          cause: { retryAfterMs: 2500 },
+        });
+      },
+      async getTurn() {
+        return null;
+      },
+      getEvents() {
+        return [];
+      },
+      async *streamTurn() {},
+      async cancelTurn() {
+        return { status: 'not_found' };
+      },
+    };
+    const app = createInMemoryApp({ sessionManager: capacityManager });
+
+    const response = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'copilot-agent', input: 'hello', stream: true }),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('3');
+    expect(response.headers.get('X-Volare-Retry-After-Ms')).toBe('2500');
+    expect(response.headers.get('X-Volare-Capacity-Scope')).toBe('active_turns');
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        type: 'rate_limit_error',
+        message: 'Active turn capacity is exhausted',
+        code: 'capacity_exhausted',
+        param: null,
+      },
+    });
+  });
+
+  test('cancels an accepted turn when response stream setup fails', async () => {
+    const workspace: IWorkspace = {
+      id: 'workspace_test',
+      rootPath: process.cwd(),
+    };
+    const sessionManager = new TrackingCancelSessionManager({
+      backend: new MockBackend(),
+      workspace,
+    });
+    const app = createInMemoryApp({
+      adapter: new ThrowingEncodeAdapter(),
+      sessionManager,
+    });
+
+    const response = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'copilot-agent', input: 'hello', stream: true }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        type: 'internal_error',
+        message: 'stream setup failed',
+      },
+    });
+    expect(sessionManager.cancelledTurnIds).toHaveLength(1);
   });
 
   test('serves a Codex-compatible models route', async () => {

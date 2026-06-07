@@ -26,13 +26,16 @@ const TERMINAL_TURN_TYPES = new Set<AgentEvent['type']>([
   'turn.interrupted',
 ]);
 const DEFAULT_CANCEL_TIMEOUT_MS = 1000;
+const DEFAULT_MAX_ACTIVE_TURNS = Number.POSITIVE_INFINITY;
 
 export class DurableSessionManager implements ISessionManager {
   readonly #store: IStateStore;
   readonly #backend: IAgentBackend;
   readonly #approvalProvider: IApprovalProvider | undefined;
   readonly #cancelTimeoutMs: number;
+  readonly #maxActiveTurns: number;
   readonly #events = new Map<string, AgentEvent[]>();
+  readonly #activeTurnIds = new Set<string>();
   #activeTurnCount = 0;
 
   constructor(options: {
@@ -40,12 +43,14 @@ export class DurableSessionManager implements ISessionManager {
     backend: IAgentBackend;
     approvalProvider?: IApprovalProvider;
     cancelTimeoutMs?: number;
+    maxActiveTurns?: number;
     logger?: ILogger;
   }) {
     this.#store = options.store;
     this.#backend = options.backend;
     this.#approvalProvider = options.approvalProvider;
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? DEFAULT_CANCEL_TIMEOUT_MS;
+    this.#maxActiveTurns = options.maxActiveTurns ?? DEFAULT_MAX_ACTIVE_TURNS;
     this.#logger = (options.logger ?? new NoopLogger()).child({
       component: 'session-manager',
       backend: this.#backend.name,
@@ -55,77 +60,92 @@ export class DurableSessionManager implements ISessionManager {
   readonly #logger: ILogger;
 
   async startTurn(input: IAgentRequestInput, context: IRequestContext): Promise<IResolvedTurn> {
+    this.#reserveActiveTurnCapacity();
+    let reservedTurnId: string | undefined;
     const startedAt = performance.now();
     let phaseStartedAt = performance.now();
-    const thread = input.threadId
-      ? await this.#requireThread(input.threadId)
-      : await this.#store.createThread({ workspaceId: context.workspaceId });
-    const threadResolveMs = elapsedMs(phaseStartedAt);
-    if (thread.workspaceId !== context.workspaceId) {
-      throw new VolareError('workspace_mismatch', 'Thread belongs to a different workspace');
-    }
+    try {
+      const thread = input.threadId
+        ? await this.#requireThread(input.threadId)
+        : await this.#store.createThread({ workspaceId: context.workspaceId });
+      const threadResolveMs = elapsedMs(phaseStartedAt);
+      if (thread.workspaceId !== context.workspaceId) {
+        throw new VolareError('workspace_mismatch', 'Thread belongs to a different workspace');
+      }
 
-    phaseStartedAt = performance.now();
-    const session = input.threadId
-      ? await this.#resumeSessionForThread(input.threadId, context.workspaceId)
-      : await this.#createSessionForThread(thread);
-    const backendSessionResolveMs = elapsedMs(phaseStartedAt);
+      phaseStartedAt = performance.now();
+      const session = input.threadId
+        ? await this.#resumeSessionForThread(input.threadId, context.workspaceId)
+        : await this.#createSessionForThread(thread);
+      const backendSessionResolveMs = elapsedMs(phaseStartedAt);
 
-    phaseStartedAt = performance.now();
-    const turnInput = {
-      threadId: thread.id,
-      bridgeSessionId: session.bridgeSessionId,
-      model: input.model,
-      ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
-    };
-    const turn = await this.#store.createTurn(turnInput);
-    if (input.clientRef?.externalId) {
-      await this.#store.bindClientRef({
-        protocol: input.clientRef.protocol,
-        externalId: input.clientRef.externalId,
-        turnId: turn.id,
+      phaseStartedAt = performance.now();
+      const turnInput = {
         threadId: thread.id,
-        ...(input.clientRef.parentExternalId
-          ? {
-              parentProtocol: input.clientRef.parentProtocol ?? input.clientRef.protocol,
-              parentExternalId: input.clientRef.parentExternalId,
-            }
-          : {}),
-      });
-    }
-    const turnPersistMs = elapsedMs(phaseStartedAt);
-    this.#events.set(turn.id, []);
-    this.#logger.info(
-      {
-        event: 'turn.started',
-        requestId: context.requestId,
-        workspaceId: context.workspaceId,
-        threadId: thread.id,
-        turnId: turn.id,
         bridgeSessionId: session.bridgeSessionId,
-        reusedThread: input.threadId !== undefined,
-        stateStartMs: elapsedMs(startedAt),
-        threadResolveMs,
-        backendSessionResolveMs,
-        turnPersistMs,
-      },
-      'turn started',
-    );
-
-    return {
-      turn,
-      thread,
-      session,
-      ...(input.clientRef?.externalId ? { externalResponseId: input.clientRef.externalId } : {}),
-      request: {
-        turnId: turn.id,
-        threadId: thread.id,
-        workspaceId: context.workspaceId,
-        input: input.input,
         model: input.model,
-        ...(input.metadata ? { metadata: input.metadata } : {}),
-      },
-    };
+        ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+      };
+      const turn = await this.#store.createTurn(turnInput);
+      reservedTurnId = turn.id;
+      this.#activeTurnIds.add(turn.id);
+      if (input.clientRef?.externalId) {
+        await this.#store.bindClientRef({
+          protocol: input.clientRef.protocol,
+          externalId: input.clientRef.externalId,
+          turnId: turn.id,
+          threadId: thread.id,
+          ...(input.clientRef.parentExternalId
+            ? {
+                parentProtocol: input.clientRef.parentProtocol ?? input.clientRef.protocol,
+                parentExternalId: input.clientRef.parentExternalId,
+              }
+            : {}),
+        });
+      }
+      const turnPersistMs = elapsedMs(phaseStartedAt);
+      this.#events.set(turn.id, []);
+      this.#logger.info(
+        {
+          event: 'turn.started',
+          requestId: context.requestId,
+          workspaceId: context.workspaceId,
+          threadId: thread.id,
+          turnId: turn.id,
+          bridgeSessionId: session.bridgeSessionId,
+          reusedThread: input.threadId !== undefined,
+          activeTurnCount: this.#activeTurnCount,
+          maxActiveTurns: Number.isFinite(this.#maxActiveTurns) ? this.#maxActiveTurns : null,
+          stateStartMs: elapsedMs(startedAt),
+          threadResolveMs,
+          backendSessionResolveMs,
+          turnPersistMs,
+        },
+        'turn started',
+      );
+
+      return {
+        turn,
+        thread,
+        session,
+        ...(input.clientRef?.externalId ? { externalResponseId: input.clientRef.externalId } : {}),
+        request: {
+          turnId: turn.id,
+          threadId: thread.id,
+          workspaceId: context.workspaceId,
+          input: input.input,
+          model: input.model,
+          ...(input.metadata ? { metadata: input.metadata } : {}),
+        },
+      };
+    } catch (error) {
+      if (reservedTurnId) {
+        this.#releaseActiveTurn(reservedTurnId);
+      } else {
+        this.#releaseUntrackedActiveTurnCapacity();
+      }
+      throw error;
+    }
   }
 
   async getTurn(turnId: string): Promise<ITurnRecord | null> {
@@ -147,6 +167,7 @@ export class DurableSessionManager implements ISessionManager {
         { event: 'turn.cancel.already_terminal', turnId, status: turn.status },
         'turn cancel skipped for terminal turn',
       );
+      this.#releaseActiveTurn(turnId);
       return { status: turn.status === 'cancelled' ? 'cancelled' : 'already_terminal' } as const;
     }
     const session = await this.#store.getBackendSession(turn.bridgeSessionId);
@@ -195,6 +216,7 @@ export class DurableSessionManager implements ISessionManager {
         'turn cancel failed',
       );
       await this.#markTurnFailedAfterError(turn.id, error, 'turn.cancel.cleanup_failed');
+      this.#releaseActiveTurn(turn.id);
       throw error;
     }
 
@@ -222,6 +244,7 @@ export class DurableSessionManager implements ISessionManager {
         },
         'turn cancel timed out',
       );
+      this.#releaseActiveTurn(turn.id);
       return { status: 'timed_out' as const };
     }
 
@@ -238,6 +261,7 @@ export class DurableSessionManager implements ISessionManager {
       { event: 'turn.cancelled', turnId: turn.id, bridgeSessionId: session.bridgeSessionId },
       'turn cancelled',
     );
+    this.#releaseActiveTurn(turn.id);
     return { status: 'cancelled' as const };
   }
 
@@ -245,7 +269,6 @@ export class DurableSessionManager implements ISessionManager {
     this.#assertSessionScope(resolved.session, resolved.request);
     await this.#store.updateTurnStatus(resolved.turn.id, 'queued', 'running');
     const startedAt = performance.now();
-    this.#activeTurnCount += 1;
     let canonicalEventCount = 0;
     const record = (event: AgentEvent): AgentEvent => {
       canonicalEventCount += 1;
@@ -334,6 +357,7 @@ export class DurableSessionManager implements ISessionManager {
               },
               'turn stream terminal event',
             );
+            this.#releaseActiveTurn(resolved.turn.id);
           }
           yield record(event);
         }
@@ -385,7 +409,7 @@ export class DurableSessionManager implements ISessionManager {
         yield interrupted;
       }
     } finally {
-      this.#activeTurnCount = Math.max(0, this.#activeTurnCount - 1);
+      this.#releaseActiveTurn(resolved.turn.id);
     }
   }
 
@@ -623,6 +647,31 @@ export class DurableSessionManager implements ISessionManager {
   #record(turnId: string, event: AgentEvent): AgentEvent {
     this.#appendEvent(turnId, event);
     return event;
+  }
+
+  #reserveActiveTurnCapacity(): void {
+    if (this.#activeTurnCount >= this.#maxActiveTurns) {
+      throw new VolareError('capacity_exhausted', 'Active turn capacity is exhausted', {
+        cause: {
+          scope: 'active_turns',
+          limit: Number.isFinite(this.#maxActiveTurns) ? this.#maxActiveTurns : null,
+          activeTurnCount: this.#activeTurnCount,
+          retryAfterMs: 1000,
+        },
+      });
+    }
+    this.#activeTurnCount += 1;
+  }
+
+  #releaseActiveTurn(turnId: string): void {
+    if (!this.#activeTurnIds.delete(turnId)) {
+      return;
+    }
+    this.#activeTurnCount = Math.max(0, this.#activeTurnCount - 1);
+  }
+
+  #releaseUntrackedActiveTurnCapacity(): void {
+    this.#activeTurnCount = Math.max(0, this.#activeTurnCount - 1);
   }
 
   #appendEvent(turnId: string, event: AgentEvent): void {
