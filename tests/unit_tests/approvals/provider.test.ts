@@ -245,6 +245,77 @@ describe('ApprovalProvider', () => {
     ]);
   });
 
+  test('wakes same-process approval waiters without waiting for the poll interval', async () => {
+    const store = createStore();
+    const { workspace, thread, session, turn } = await createFixture(store);
+    const provider = new ApprovalProvider({
+      store,
+      policy: new DefaultApprovalPolicy({ now: () => 1000, timeoutMs: 60_000 }),
+      now: () => 1000,
+      pollMs: 60_000,
+    });
+    const evaluation = await provider.evaluate(
+      { action: 'shell:exec', scope: { command: 'bun test' } },
+      {
+        turnId: turn.id,
+        threadId: thread.id,
+        workspaceId: workspace.id,
+        workspaceRootPath: workspace.rootPath,
+        bridgeSessionId: session.bridgeSessionId,
+      },
+    );
+    if (evaluation.type !== 'ask') {
+      throw new Error('expected ask');
+    }
+    const waiter = provider.awaitDecision(evaluation.approvalId);
+
+    await provider.resolveApproval({
+      approvalId: evaluation.approvalId,
+      turnId: turn.id,
+      bridgeSessionId: session.bridgeSessionId,
+      decision: { type: 'allow', scope: 'once' },
+    });
+
+    await expect(Promise.race([waiter, Bun.sleep(20).then(() => 'poll_timeout')])).resolves.toEqual(
+      { type: 'allow', scope: 'once' },
+    );
+  });
+
+  test('falls back to SQLite polling for cross-provider approval decisions', async () => {
+    const store = createStore();
+    const { workspace, thread, session, turn } = await createFixture(store);
+    const waiterProvider = new ApprovalProvider({
+      store,
+      policy: new DefaultApprovalPolicy({ now: () => 1000, timeoutMs: 60_000 }),
+      now: () => 1000,
+      pollMs: 1,
+    });
+    const resolverProvider = new ApprovalProvider({ store });
+    const evaluation = await waiterProvider.evaluate(
+      { action: 'shell:exec', scope: { command: 'bun test' } },
+      {
+        turnId: turn.id,
+        threadId: thread.id,
+        workspaceId: workspace.id,
+        workspaceRootPath: workspace.rootPath,
+        bridgeSessionId: session.bridgeSessionId,
+      },
+    );
+    if (evaluation.type !== 'ask') {
+      throw new Error('expected ask');
+    }
+    const waiter = waiterProvider.awaitDecision(evaluation.approvalId);
+
+    await resolverProvider.resolveApproval({
+      approvalId: evaluation.approvalId,
+      turnId: turn.id,
+      bridgeSessionId: session.bridgeSessionId,
+      decision: { type: 'deny', scope: 'once', reason: 'manual' },
+    });
+
+    await expect(waiter).resolves.toEqual({ type: 'deny', scope: 'once', reason: 'manual' });
+  });
+
   test('rejects approval resolution when ownership does not match', async () => {
     const store = createStore();
     const { workspace, thread, session, turn } = await createFixture(store);
