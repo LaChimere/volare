@@ -641,6 +641,7 @@ describe('DurableSessionManager', () => {
 
       const iterator = manager.streamTurn(first)[Symbol.asyncIterator]();
       await expect(iterator.next()).rejects.toThrow('stream start failed');
+      await expect(store.getTurn(first.turn.id)).resolves.toMatchObject({ status: 'failed' });
 
       await expect(
         manager.startTurn(
@@ -907,6 +908,7 @@ describe('DurableSessionManager', () => {
           }),
         ),
       ).rejects.toThrow('Backend session does not match request scope');
+      await expect(store.getTurn(resolved.turn.id)).resolves.toMatchObject({ status: 'failed' });
       await expect(
         manager.startTurn(
           { model: 'copilot-agent', input: { message: 'after mismatch' } },
