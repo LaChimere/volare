@@ -226,8 +226,10 @@ Evidence:
 - Extracted live-turn metrics into `src/server/turn-metrics.ts`.
 - Existing OpenAI error encoding remains in `src/northbound/openai-responses/adapter.ts`; no response schema or route behavior changed in this slice.
 - Extracted stored-response and cancel response helpers into `src/server/openai-response-routes.ts` while keeping transport logging/status ownership in `app.ts`.
+- Follow-up fix: terminal cancel responses after durable restart now replay the event journal when in-memory events are empty, matching stored-response replay behavior.
 - Validation:
   - `bun test tests/unit_tests/server/app.test.ts tests/integration_tests/codex-cli-provider.test.ts && bun run check`
+  - `bun run test`
 
 ## PR 7: Event-driven approval wait
 
@@ -252,6 +254,7 @@ Evidence:
 - Tests cover same-process wake without waiting for a long poll interval and cross-provider SQLite fallback.
 - Validation:
   - `bun test tests/unit_tests/approvals/provider.test.ts tests/unit_tests/core/durable-session-manager.test.ts && bun run check`
+  - `bun run test`
 
 ## PR 8: Capabilities endpoint
 

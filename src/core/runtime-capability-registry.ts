@@ -2,6 +2,7 @@ import type { IBackendCapabilities } from './types';
 
 export type CapabilitySupport = 'unknown' | 'unsupported' | 'supported';
 export type CapabilityObservationSource = 'unknown' | 'config' | 'probe';
+export type ApprovalWaiterMode = 'polling' | 'notifier';
 export type AcpNativeCancelClassification =
   | 'unknown'
   | 'unsupported'
@@ -49,6 +50,7 @@ export interface IRuntimeCapabilityRegistry {
   updateRuntimeMode(mode: string): void;
   updateBackend(input: { name: string; capabilities: IBackendCapabilities }): void;
   clearBackend(reason: string): void;
+  updateApprovalWaiter(mode: ApprovalWaiterMode): void;
   updateAcpNativeCancel(input: {
     classification: AcpNativeCancelClassification;
     source: CapabilityObservationSource;
@@ -65,13 +67,20 @@ export class RuntimeCapabilityRegistry implements IRuntimeCapabilityRegistry {
   #runtimeMode: string;
   #acceptingNewWork = true;
   #maxActiveTurns: number | null;
+  #approvalWaiter: ApprovalWaiterMode;
   #backend: IRuntimeCapabilitySnapshot['backend'] = null;
   #acpNativeCancel: IAcpNativeCancelObservation;
 
-  constructor(options: { runtimeMode: string; maxActiveTurns: number | null; now?: () => number }) {
+  constructor(options: {
+    runtimeMode: string;
+    maxActiveTurns: number | null;
+    approvalWaiter?: ApprovalWaiterMode;
+    now?: () => number;
+  }) {
     this.#now = options.now ?? Date.now;
     this.#runtimeMode = options.runtimeMode;
     this.#maxActiveTurns = options.maxActiveTurns;
+    this.#approvalWaiter = options.approvalWaiter ?? 'polling';
     this.#updatedAt = this.#now();
     this.#acpNativeCancel = this.#unknownAcpNativeCancel('not_observed');
   }
@@ -89,7 +98,7 @@ export class RuntimeCapabilityRegistry implements IRuntimeCapabilityRegistry {
         },
         approvalResolution: {
           supported: true,
-          waiter: 'polling',
+          waiter: this.#approvalWaiter,
         },
       },
       backend: this.#backend
@@ -127,6 +136,14 @@ export class RuntimeCapabilityRegistry implements IRuntimeCapabilityRegistry {
   clearBackend(reason: string): void {
     this.#backend = null;
     this.#acpNativeCancel = this.#unknownAcpNativeCancel(reason);
+    this.#touch();
+  }
+
+  updateApprovalWaiter(mode: ApprovalWaiterMode): void {
+    if (this.#approvalWaiter === mode) {
+      return;
+    }
+    this.#approvalWaiter = mode;
     this.#touch();
   }
 
