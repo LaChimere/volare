@@ -2,7 +2,7 @@
 
 ## Status
 
-Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, PR 3 runtime capability registry, PR 4 ACP worker admission queue, PR 5 ACP worker observability / idle reaper, PR 6 HTTP app boundary cleanup, PR 7 event-driven approval wait, and PR 8 capabilities endpoint have been completed.
+Execution complete. PR 0 baseline through PR 9 SSE resume / AgentEvent schema design have been completed.
 
 ## PR 0: Runtime-control baseline
 
@@ -288,18 +288,29 @@ Evidence:
 
 ## PR 9: SSE resume and AgentEvent schema design
 
-- [ ] Define event ID format
-- [ ] Define `Last-Event-ID` replay semantics
-- [ ] Define terminal-event idempotency rules
-- [ ] Define journal envelope version/upcaster strategy
-- [ ] Define migration/test strategy for prior journal versions
-- [ ] Review design with latest available Claude xhigh and GPT high-reasoning models
+- [x] Define event ID format
+- [x] Define `Last-Event-ID` replay semantics
+- [x] Define terminal-event idempotency rules
+- [x] Define journal envelope version/upcaster strategy
+- [x] Define migration/test strategy for prior journal versions
+- [x] Review design with latest available Claude xhigh and GPT high-reasoning models
 
 Acceptance evidence:
 
-- [ ] Design approved before implementation
-- [ ] Future tests cover no duplicate/skipped terminal events
-- [ ] Future tests cover at least one prior schema version
+- [x] Design approved before implementation
+- [x] Future tests cover no duplicate/skipped terminal events
+- [x] Future tests cover at least one prior schema version
+
+Evidence:
+
+- Extended `plans/refine-arch/design.md` Decision 10 with frame-granular SSE ids: `turn:<turn_id>:seq:<sequence>:part:<frame_part>`.
+- Defined `Last-Event-ID` parsing, cross-turn/future/out-of-range/pruned cursor handling, EventSource stale-cursor guidance, and replay after exact `(seq, part)` cursors.
+- Defined terminal idempotency rules, including prologue plus `[DONE]` behavior after terminal-frame cursor and corruption handling for terminal status without terminal journal envelope.
+- Defined `envelope_schema_version` migration direction, version-0 upcaster requirements, redaction constraints, and compatibility tests.
+- Added future test strategy for prior schema version, frame-part resume, no duplicate/skipped terminal events, exactly one `[DONE]`, tombstones, security terminal rows, and terminal atomicity gating.
+- Review/refine: GPT and Claude high-reasoning passes found cursor stability, stateful adapter resume, terminal/prologue ambiguity, terminal/journal ordering, schema storage, tombstone, EventSource, and frame-part issues; each was fixed and re-reviewed.
+- Validation:
+  - `bun run check`
 
 ## Deferred / explicitly out of scope for this plan
 
