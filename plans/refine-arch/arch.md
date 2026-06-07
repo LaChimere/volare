@@ -38,11 +38,11 @@ graph TD
     AgentEvents[Canonical AgentEvent stream]
     Workspace[Workspace resolver]
     ApprovalState[Approval state machine]
-    RuntimeCapabilities[Runtime capability registry]
   end
 
   subgraph Control[Runtime control plane]
-    Capacity[Max active sessions]
+    RuntimeCapabilities[Runtime capability registry]
+    Capacity[Active-turn capacity]
     Admission[ACP worker admission queue]
     Cancel[Cancellation state machine]
     Approval[Approval resolution pipeline]
@@ -403,6 +403,7 @@ Defer these until the control plane is stable:
 - A2A federation
 - full ACP SDK replacement
 - SSE resume
+- enterprise/shared-deployment content policy provider
 
 Small seams that support future work, such as a capability registry or approval waiter interface, are not the same as implementing the full deferred feature. The deferred item is the production capability, not every enabling seam.
 
@@ -422,10 +423,10 @@ Avoid these architecture moves:
 
 | Phase | Goal | Primary change | Acceptance criteria |
 |---|---|---|---|
-| 0 | Baseline | Measure latency, cancel, worker pressure, approval wait, journal append cost | Baseline report includes sample counts or p50/p90 values for each metric, or explicitly explains why a metric is unavailable. |
+| 0 | Baseline | Measure latency, cancel, worker pressure, approval wait, journal append cost | Baseline report follows the sample minimums in `design.md` for synthetic metrics; live-Copilot metrics may use smaller samples only with explicit confidence caveats. |
 | 1 | Active session cap | Enforce `maxActiveSessions` | Concurrent turn test proves over-cap requests fail with a typed `capacity_exhausted`/equivalent core error, adapters map it to retryable wire semantics, and no turn/session state leaks. |
 | 2 | Approval closure | Add approval resolution route/path plus waiter seam | Pending approval can be resolved through API; wrong turn/session ownership is rejected; duplicate resolve attempts return the existing terminal decision without state change; timeout behavior still works. |
-| 3 | Runtime capability registry | Add internal runtime/backend capability aggregation | Unit tests cover runtime/backend/probe capability merge and stable schema versioning; no adapter-specific wire fields enter core. |
+| 3 | Runtime capability registry | Add internal runtime/backend capability aggregation | Unit tests cover runtime/backend/probe capability merge and invalidation semantics; no adapter-specific wire fields enter core. |
 | 4 | Worker admission | Add ACP admission queue | Concurrent worker-cap test proves FIFO drain, queued abort removal, create-time abort slot release, explicit timeout, and shutdown drain. |
 | 5 | Worker observability | Add metrics + idle reaper | Metrics expose active/creating/idle/queue depth; idle worker is reaped without a new request; shutdown drains queued admissions and active turns according to documented timeouts. |
 | 6 | App boundary cleanup | Split stream/journal/metrics/error responsibilities | Route/status/SSE behavior remains unchanged; OpenAI error body encoding lives in adapter code. |
