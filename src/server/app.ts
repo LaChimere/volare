@@ -39,6 +39,7 @@ export interface IAppDependencies {
   logger?: ILogger;
   disconnectGraceMs?: number;
   healthStatus?: () => 'recovering' | 'ready';
+  workerMetrics?: () => Record<string, number>;
 }
 
 export function createApp(dependencies: IAppDependencies): {
@@ -96,6 +97,7 @@ export function createApp(dependencies: IAppDependencies): {
               uptime_ms: Date.now() - startedAt,
               requests_total: requestsTotal,
               ...turnMetrics,
+              ...(dependencies.workerMetrics?.() ?? {}),
             }),
           );
         }

@@ -20,6 +20,7 @@ import {
   type CopilotCliPermissionMode,
   DEFAULT_COPILOT_CLI_PERMISSION_MODE,
   type ICopilotPromptRunner,
+  type ICopilotPromptRunnerSnapshot,
   type ICopilotPromptRunOptions,
 } from './backend';
 
@@ -38,6 +39,7 @@ export interface IAcpCopilotPromptRunnerOptions {
   admissionTimeoutMs?: number;
   requestTimeoutMs?: number;
   idleTimeoutMs?: number;
+  idleReaperIntervalMs?: number;
   cancelStrategy?: AcpCancelStrategy;
   nativeCancelSupport?: AcpNativeCancelSupport;
   nativeCancelWaitMs?: number;
@@ -113,6 +115,8 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #creatingWorkers = new Map<string, Promise<IAcpWorker>>();
   readonly #startupKillers = new Map<string, () => void>();
   readonly #cancelledCreations = new Set<string>();
+  #idleReaperTimer: ReturnType<typeof setInterval> | null = null;
+  #idleReaperInFlight = false;
   #nextGeneration = 1;
 
   constructor(options: IAcpCopilotPromptRunnerOptions = {}) {
@@ -122,6 +126,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     this.#admissionQueue = new WorkerAdmissionQueue({
       maxActive: this.#maxWorkers,
       timeoutMs: options.admissionTimeoutMs ?? DEFAULT_ACP_ADMISSION_TIMEOUT_MS,
+      ...(options.logger ? { logger: options.logger } : {}),
     });
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_ACP_REQUEST_TIMEOUT_MS;
     this.#idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_ACP_IDLE_TIMEOUT_MS;
@@ -153,6 +158,19 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     if (options.nativeCancelSupport !== undefined) {
       this.#recordNativeCancelSupport(this.#nativeCancelSupport, 'config');
     }
+    this.#startIdleReaper(options.idleReaperIntervalMs);
+  }
+
+  snapshot(): ICopilotPromptRunnerSnapshot {
+    const workers = [...this.#workers.values()];
+    return {
+      maxWorkers: this.#maxWorkers,
+      activeWorkers: workers.length,
+      creatingWorkers: this.#creatingWorkers.size,
+      idleWorkers: workers.filter((worker) => worker.active === null).length,
+      activePromptWorkers: workers.filter((worker) => worker.active !== null).length,
+      admission: this.#admissionQueue.snapshot(),
+    };
   }
 
   async prepare(options: ICopilotPromptRunOptions): Promise<void> {
@@ -160,6 +178,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   }
 
   shutdown(reason = 'shutdown'): void {
+    this.#stopIdleReaper();
     this.#admissionQueue.shutdown(reason);
   }
 
@@ -560,7 +579,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     cwd: string,
     signal?: AbortSignal,
   ): Promise<IAcpWorker> {
-    await this.#evictIdleWorkers();
+    await this.#evictIdleWorkers('request');
     let existing = this.#workers.get(backendSessionId);
     if (existing?.cancellation) {
       await existing.cancellation.catch(() => undefined);
@@ -786,10 +805,22 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     );
   }
 
-  async #evictIdleWorkers(): Promise<void> {
+  async #evictIdleWorkers(trigger: 'request' | 'idle_reaper'): Promise<void> {
     const expired = [...this.#workers.values()].filter((worker) => this.#isIdleExpired(worker));
     for (const worker of expired) {
+      const idleMs = Date.now() - worker.idleSinceMs;
       await this.#replaceWorker(worker, 'idle_timeout');
+      this.#logger.info(
+        {
+          event: 'backend.acp.worker.reaped',
+          backendSessionId: worker.backendSessionId,
+          trigger,
+          idleMs,
+          activeWorkers: this.#workers.size,
+          creatingWorkers: this.#creatingWorkers.size,
+        },
+        'ACP idle worker reaped',
+      );
     }
   }
 
@@ -808,6 +839,42 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       '--log-level',
       'error',
     ];
+  }
+
+  #startIdleReaper(intervalMs: number | undefined): void {
+    if (this.#idleTimeoutMs <= 0) {
+      return;
+    }
+    const delayMs = intervalMs ?? Math.max(1000, Math.min(this.#idleTimeoutMs, 60_000));
+    this.#idleReaperTimer = setInterval(() => {
+      if (this.#idleReaperInFlight) {
+        return;
+      }
+      this.#idleReaperInFlight = true;
+      void this.#evictIdleWorkers('idle_reaper')
+        .catch((cause) => {
+          this.#logger.error(
+            {
+              event: 'backend.acp.worker.reaper_failed',
+              errorCode: 'internal_error',
+              error: new VolareError('internal_error', 'ACP idle reaper failed', { cause }),
+            },
+            'ACP idle reaper failed',
+          );
+        })
+        .finally(() => {
+          this.#idleReaperInFlight = false;
+        });
+    }, delayMs);
+    unrefTimer(this.#idleReaperTimer);
+  }
+
+  #stopIdleReaper(): void {
+    if (!this.#idleReaperTimer) {
+      return;
+    }
+    clearInterval(this.#idleReaperTimer);
+    this.#idleReaperTimer = null;
   }
 
   #recordNativeCancelSupport(support: AcpNativeCancelSupport, source: 'config' | 'probe'): void {
@@ -861,6 +928,10 @@ function acpNativeCancelClassification(
     case 'unknown':
       return 'unknown';
   }
+}
+
+function unrefTimer(timer: ReturnType<typeof setInterval>): void {
+  (timer as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.();
 }
 
 class TextQueue implements AsyncIterable<string> {

@@ -1,7 +1,19 @@
 import { VolareError } from '../../core/errors';
+import { type ILogger, NoopLogger } from '../../logging/logger';
 
 export interface IWorkerAdmissionLease {
   release(): void;
+}
+
+export interface IWorkerAdmissionSnapshot {
+  maxActive: number;
+  active: number;
+  queueDepth: number;
+  grantedTotal: number;
+  queuedTotal: number;
+  timeoutTotal: number;
+  cancelledTotal: number;
+  shutdownTotal: number;
 }
 
 interface IAdmissionEntry {
@@ -16,29 +28,79 @@ interface IAdmissionEntry {
 export class WorkerAdmissionQueue {
   readonly #maxActive: number;
   readonly #timeoutMs: number;
+  readonly #logger: ILogger;
   readonly #queue: IAdmissionEntry[] = [];
   #active = 0;
   #closedReason: string | null = null;
+  #grantedTotal = 0;
+  #queuedTotal = 0;
+  #timeoutTotal = 0;
+  #cancelledTotal = 0;
+  #shutdownTotal = 0;
 
-  constructor(options: { maxActive: number; timeoutMs: number }) {
+  constructor(options: { maxActive: number; timeoutMs: number; logger?: ILogger }) {
     this.#maxActive = options.maxActive;
     this.#timeoutMs = options.timeoutMs;
+    this.#logger = (options.logger ?? new NoopLogger()).child({
+      component: 'backend',
+      backend: 'copilot-cli',
+      queue: 'worker-admission',
+    });
+  }
+
+  snapshot(): IWorkerAdmissionSnapshot {
+    return {
+      maxActive: this.#maxActive,
+      active: this.#active,
+      queueDepth: this.#queue.length,
+      grantedTotal: this.#grantedTotal,
+      queuedTotal: this.#queuedTotal,
+      timeoutTotal: this.#timeoutTotal,
+      cancelledTotal: this.#cancelledTotal,
+      shutdownTotal: this.#shutdownTotal,
+    };
   }
 
   async acquire(label: string, signal?: AbortSignal): Promise<IWorkerAdmissionLease> {
     if (this.#closedReason) {
+      this.#shutdownTotal += 1;
+      this.#logger.warn(
+        {
+          event: 'backend.acp.admission.shutdown_rejected',
+          backendSessionId: label,
+          reason: this.#closedReason,
+          queueDepth: this.#queue.length,
+          activeAdmissions: this.#active,
+          maxAdmissions: this.#maxActive,
+        },
+        'ACP worker admission rejected during shutdown',
+      );
       throw new VolareError('service_unavailable', 'ACP worker admission is shutting down', {
         cause: { retryAfterMs: 1000, reason: this.#closedReason },
       });
     }
     if (signal?.aborted) {
+      this.#cancelledTotal += 1;
       throw new VolareError('backend_cancelled', 'ACP worker admission was cancelled');
     }
     if (this.#active < this.#maxActive) {
       this.#active += 1;
+      this.#grantedTotal += 1;
+      this.#logger.debug(
+        {
+          event: 'backend.acp.admission.granted',
+          backendSessionId: label,
+          queued: false,
+          queueDepth: this.#queue.length,
+          activeAdmissions: this.#active,
+          maxAdmissions: this.#maxActive,
+        },
+        'ACP worker admission granted',
+      );
       return this.#lease();
     }
     if (this.#timeoutMs <= 0) {
+      this.#timeoutTotal += 1;
       throw admissionTimeoutError(this.#timeoutMs);
     }
 
@@ -55,13 +117,47 @@ export class WorkerAdmissionQueue {
         reject(error);
       };
       entry.timeout = setTimeout(() => {
+        this.#timeoutTotal += 1;
+        this.#logger.warn(
+          {
+            event: 'backend.acp.admission.timed_out',
+            backendSessionId: label,
+            queueDepth: this.#queue.length,
+            activeAdmissions: this.#active,
+            maxAdmissions: this.#maxActive,
+          },
+          'ACP worker admission timed out',
+        );
         rejectEntry(admissionTimeoutError(this.#timeoutMs));
       }, this.#timeoutMs);
       entry.onAbort = () => {
+        this.#cancelledTotal += 1;
+        this.#logger.info(
+          {
+            event: 'backend.acp.admission.cancelled',
+            backendSessionId: label,
+            reason: 'signal_aborted',
+            queueDepth: this.#queue.length,
+            activeAdmissions: this.#active,
+            maxAdmissions: this.#maxActive,
+          },
+          'ACP worker admission cancelled',
+        );
         rejectEntry(new VolareError('backend_cancelled', 'ACP worker admission was cancelled'));
       };
       signal?.addEventListener('abort', entry.onAbort, { once: true });
       this.#queue.push(entry);
+      this.#queuedTotal += 1;
+      this.#logger.info(
+        {
+          event: 'backend.acp.admission.queued',
+          backendSessionId: label,
+          queueDepth: this.#queue.length,
+          activeAdmissions: this.#active,
+          maxAdmissions: this.#maxActive,
+        },
+        'ACP worker admission queued',
+      );
     });
   }
 
@@ -70,6 +166,18 @@ export class WorkerAdmissionQueue {
     for (const entry of entries) {
       this.#removeEntry(entry);
       this.#cleanupEntry(entry);
+      this.#cancelledTotal += 1;
+      this.#logger.info(
+        {
+          event: 'backend.acp.admission.cancelled',
+          backendSessionId: label,
+          reason,
+          queueDepth: this.#queue.length,
+          activeAdmissions: this.#active,
+          maxAdmissions: this.#maxActive,
+        },
+        'ACP worker admission cancelled',
+      );
       entry.reject(
         new VolareError('backend_cancelled', 'ACP worker admission was cancelled', {
           cause: { reason },
@@ -82,6 +190,18 @@ export class WorkerAdmissionQueue {
     this.#closedReason = reason;
     for (const entry of this.#queue.splice(0)) {
       this.#cleanupEntry(entry);
+      this.#shutdownTotal += 1;
+      this.#logger.warn(
+        {
+          event: 'backend.acp.admission.shutdown_rejected',
+          backendSessionId: entry.label,
+          reason,
+          queueDepth: this.#queue.length,
+          activeAdmissions: this.#active,
+          maxAdmissions: this.#maxActive,
+        },
+        'ACP worker admission rejected during shutdown',
+      );
       entry.reject(
         new VolareError('service_unavailable', 'ACP worker admission is shutting down', {
           cause: { retryAfterMs: 1000, reason },
@@ -103,10 +223,23 @@ export class WorkerAdmissionQueue {
       }
       this.#cleanupEntry(entry);
       if (entry.signal?.aborted) {
+        this.#cancelledTotal += 1;
         entry.reject(new VolareError('backend_cancelled', 'ACP worker admission was cancelled'));
         continue;
       }
       this.#active += 1;
+      this.#grantedTotal += 1;
+      this.#logger.debug(
+        {
+          event: 'backend.acp.admission.granted',
+          backendSessionId: entry.label,
+          queued: true,
+          queueDepth: this.#queue.length,
+          activeAdmissions: this.#active,
+          maxAdmissions: this.#maxActive,
+        },
+        'ACP worker admission granted',
+      );
       entry.resolve(this.#lease());
     }
   }

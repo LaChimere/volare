@@ -123,6 +123,7 @@ export async function startVolareRuntime(
       eventJournal,
       sessionManager,
       approvalNotifier: approvalProvider,
+      workerMetrics: () => backend.workerMetrics(),
       logger,
     }).fetch,
   });

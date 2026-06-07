@@ -2,9 +2,53 @@ import { describe, expect, test } from 'bun:test';
 
 import { AcpCopilotPromptRunner } from '../../../src/backends/copilot-cli/acp-runner';
 import { RuntimeCapabilityRegistry } from '../../../src/core/runtime-capability-registry';
+import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
+
+class CapturingLogger implements ILogger {
+  constructor(
+    readonly entries: Array<{ level: string; fields: ILogFields; message?: string }> = [],
+    readonly bindings: ILogBindings = {},
+  ) {}
+
+  child(bindings: ILogBindings): ILogger {
+    return new CapturingLogger(this.entries, { ...this.bindings, ...bindings });
+  }
+
+  trace(fields: ILogFields, message?: string): void {
+    this.push('trace', fields, message);
+  }
+
+  debug(fields: ILogFields, message?: string): void {
+    this.push('debug', fields, message);
+  }
+
+  info(fields: ILogFields, message?: string): void {
+    this.push('info', fields, message);
+  }
+
+  warn(fields: ILogFields, message?: string): void {
+    this.push('warn', fields, message);
+  }
+
+  error(fields: ILogFields, message?: string): void {
+    this.push('error', fields, message);
+  }
+
+  fatal(fields: ILogFields, message?: string): void {
+    this.push('fatal', fields, message);
+  }
+
+  private push(level: string, fields: ILogFields, message?: string): void {
+    this.entries.push({
+      level,
+      fields: { ...this.bindings, ...fields },
+      ...(message === undefined ? {} : { message }),
+    });
+  }
+}
 
 class FakeAcpProcess {
   readonly stdout = createControlledStream();
@@ -888,6 +932,19 @@ describe('AcpCopilotPromptRunner', () => {
     await runner.dispose('backend_2');
     await expect(third).resolves.toEqual(['hello']);
     expect(processes).toHaveLength(3);
+    expect(runner.snapshot()).toMatchObject({
+      maxWorkers: 1,
+      activeWorkers: 1,
+      creatingWorkers: 0,
+      idleWorkers: 1,
+      activePromptWorkers: 0,
+      admission: {
+        active: 1,
+        queueDepth: 0,
+        grantedTotal: 3,
+        queuedTotal: 2,
+      },
+    });
   });
 
   test('removes queued ACP worker admission when the request aborts', async () => {
@@ -924,6 +981,103 @@ describe('AcpCopilotPromptRunner', () => {
       collect(runner.run('third', { backendSessionId: 'backend_3', cwd: '/tmp/c' })),
     ).resolves.toEqual(['hello']);
     expect(processes).toHaveLength(2);
+    expect(runner.snapshot().admission).toMatchObject({
+      queueDepth: 0,
+      cancelledTotal: 1,
+    });
+  });
+
+  test('reaps idle ACP workers in the background without a new request', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const logger = new CapturingLogger();
+    const runner = new AcpCopilotPromptRunner({
+      maxWorkers: 1,
+      idleTimeoutMs: 1,
+      idleReaperIntervalMs: 1,
+      logger,
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+
+    await collect(
+      runner.run('sensitive prompt text', { backendSessionId: 'backend_1', cwd: '/tmp/secret' }),
+    );
+    expect(runner.snapshot()).toMatchObject({
+      activeWorkers: 1,
+      idleWorkers: 1,
+      activePromptWorkers: 0,
+      admission: { active: 1 },
+    });
+
+    await waitFor(() => runner.snapshot().activeWorkers === 0);
+
+    expect(runner.snapshot()).toMatchObject({
+      activeWorkers: 0,
+      idleWorkers: 0,
+      activePromptWorkers: 0,
+      admission: { active: 0 },
+    });
+    expect(logger.entries).toContainEqual(
+      expect.objectContaining({
+        message: 'ACP idle worker reaped',
+        fields: expect.objectContaining({
+          event: 'backend.acp.worker.reaped',
+          trigger: 'idle_reaper',
+        }),
+      }),
+    );
+    expect(JSON.stringify(logger.entries)).not.toContain('sensitive prompt text');
+    expect(JSON.stringify(logger.entries)).not.toContain('/tmp/secret');
+    runner.shutdown();
+  });
+
+  test('idle reaper does not reap active ACP workers', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      maxWorkers: 1,
+      idleTimeoutMs: 1,
+      idleReaperIntervalMs: 1,
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        proc.promptMode = 'never';
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+      requestTimeoutMs: 1000,
+    });
+    const iterator = runner
+      .run('active prompt', { backendSessionId: 'backend_1', cwd: '/tmp' })
+      [Symbol.asyncIterator]();
+    const firstChunk = iterator.next().catch((error) => error);
+    await waitFor(() => runner.snapshot().activePromptWorkers === 1);
+    await Bun.sleep(5);
+
+    expect(runner.snapshot()).toMatchObject({
+      activeWorkers: 1,
+      activePromptWorkers: 1,
+      idleWorkers: 0,
+      admission: { active: 1 },
+    });
+    expect(processes[0]?.killed).toEqual([]);
+
+    await runner.cancel('backend_1');
+    await firstChunk;
+    runner.shutdown();
   });
 
   test('rejects concurrent prompts on the same ACP worker', async () => {
