@@ -28,6 +28,10 @@ bunx @lachimere/volare logs
 tail -f ~/.volare/logs/volare.log
 ```
 
+## Shutdown behavior
+
+Shutdown first asks the HTTP server to stop accepting new requests, then drains runtime control-plane work. Pending ACP worker admissions are rejected with `service_unavailable`; tracked ACP workers are disposed by sending `SIGTERM` and then `SIGKILL` if they have not exited within the runner cleanup grace window. SQLite-backed turn state, approvals, and journal events are written synchronously by the local database; the current journal has no buffered writer to flush or close separately after terminal cleanup is recorded.
+
 ## Health and metrics
 
 ```bash
@@ -48,8 +52,22 @@ curl -H "Authorization: Bearer $VOLARE_API_KEY" \
 | `turns_with_citation_like_output_total` | Terminal live turns whose assistant text contains markdown links, bare `http(s)` URLs, or `[n]` references. |
 | `turns_with_grounding_warnings_total` | Terminal live turns with content-grounding warnings such as source-needed answers without observable sources. |
 | `turns_unmediated_total` | Accepted live turns using explicit unmediated tooling mode. |
+| `acp_workers_max` | Configured ACP worker ceiling when ACP runtime is active. |
+| `acp_workers_active` | Live ACP workers currently tracked by the runner. |
+| `acp_workers_creating` | ACP workers currently starting up. |
+| `acp_workers_idle` | Live ACP workers without an active prompt. |
+| `acp_workers_running_prompts` | Live ACP workers currently running a prompt. |
+| `acp_admission_active` | Worker admission leases currently held. |
+| `acp_admission_queue_depth` | ACP worker admissions waiting for a worker slot. |
+| `acp_admission_granted_total` | Total ACP worker admissions granted since startup. |
+| `acp_admission_queued_total` | Total ACP worker admissions queued since startup. |
+| `acp_admission_timeout_total` | Total ACP worker admissions that timed out since startup. |
+| `acp_admission_cancelled_total` | Total ACP worker admissions cancelled before a worker was admitted. |
+| `acp_admission_shutdown_total` | Total ACP worker admissions rejected during shutdown drain. |
 
-These counters are aggregate-only. They intentionally do not include prompt text, domains, warning-code breakdowns, source URLs, session IDs, or hostnames. Auth failures, parse failures, rejected requests, `GET` handlers, debug reads, and journal replay do not increment them.
+These counters are aggregate-only. They intentionally do not include prompt text, domains, warning-code breakdowns, source URLs, session IDs, hostnames, local paths, raw ACP frames, or token values. Auth failures, parse failures, rejected requests, `GET` handlers, debug reads, and journal replay do not increment live-turn counters.
+
+`acp_workers_creating` includes worker creations that are waiting for admission as well as workers that are already starting a process. Use it with `acp_admission_queue_depth` to distinguish queued admissions from process startup work.
 
 ## Capacity errors
 
@@ -102,7 +120,8 @@ Runtime logs are structured JSON lines. Important event names include:
 | `workspace.resolved`, `workspace.selected` | Workspace selection and projectless status. |
 | `turn.started`, `turn.audit`, `turn.stream.started`, `turn.stream.terminal`, `turn.stream.interrupted`, `turn.stream.failed` | Session manager turn lifecycle and per-accepted-turn capability audit. |
 | `backend.turn.started`, `backend.turn.completed`, `backend.turn.failed` | Copilot CLI backend lifecycle and summary metrics. |
-| `backend.acp.worker.created`, `backend.acp.worker.exited`, `backend.acp.worker.replaced`, `backend.acp.prompt.completed` | ACP runtime worker and prompt lifecycle events when `VOLARE_COPILOT_RUNTIME_MODE=acp` is enabled. |
+| `backend.acp.worker.created`, `backend.acp.worker.exited`, `backend.acp.worker.replaced`, `backend.acp.worker.reaped`, `backend.acp.prompt.completed` | ACP runtime worker and prompt lifecycle events when `VOLARE_COPILOT_RUNTIME_MODE=acp` is enabled. |
+| `backend.acp.admission.queued`, `backend.acp.admission.granted`, `backend.acp.admission.timed_out`, `backend.acp.admission.cancelled`, `backend.acp.admission.shutdown_rejected` | ACP worker admission queue diagnostics. These include counts and backend session IDs only, never prompts, raw ACP payloads, workspace paths, or tokens. |
 | `backend.acp.cancel.requested`, `backend.acp.cancel.native_sent`, `backend.acp.cancel.native_succeeded`, `backend.acp.cancel.fallback_kill`, `backend.acp.cancel.timed_out` | ACP cancellation strategy diagnostics. |
 | `responses.stream.started`, `responses.stream.completed`, `responses.stream.failed`, `responses.stream.interrupted` | SSE lifecycle. Stream start logs include safe model and reasoning-effort metadata when the client sends it. |
 | `responses.metadata.reserved_keys_stripped` | Client metadata attempted to use reserved `volare` / `volare.*` keys; logs key paths only, never values. |
@@ -125,7 +144,7 @@ Core and backend summaries use separate counters:
 - `turn.stream.started` includes `activeTurnCount`. Terminal, interrupted, and failed stream logs include `canonicalEventCount`, which counts canonical `AgentEvent` records and is separate from SSE `sseFrameCount`.
 - `backend.turn.completed` and `backend.turn.failed` include `promptAssembleMs`, `deltaCount`, coarse `promptSizeBucket` and `historyMessagesBucket`, and assistant delta timing fields when observed. Successful completion logs also include grounding-adjacent fields such as `groundingDomain`, `needsSourceGrounding`, `groundingCitationLikeOutputCount`, `groundingEvaluatedByteCount`, `groundingTruncated`, and `groundingWarningCodes`. `durationMs` keeps the backend runner duration after prompt assembly; it does not include `promptAssembleMs`.
 - `firstAssistantDeltaMs` and `maxObservedInterDeltaGapMs` are pull-path observations from backend text deltas. They can include downstream backpressure, journaling, SSE encoding, or client pull delays, so treat them as local correlation fields rather than model-only latency. Cancelled backend failures omit non-comparable `maxObservedInterDeltaGapMs` because cancellation and backpressure can dominate the observed gap.
-- ACP runtime logs are present only when `VOLARE_COPILOT_RUNTIME_MODE=acp` is explicitly configured. Use `backend.acp.worker.created` to confirm worker startup, `backend.acp.prompt.completed` to inspect ACP `stopReason` and prompt duration, and `backend.acp.worker.replaced` / `backend.acp.worker.exited` to diagnose kill-and-replace cancellation or worker crashes. ACP cancel logs include the configured strategy, native wait budget, fallback reason, observed `stopReason`, and whether a worker was reused. Roll back by setting `VOLARE_COPILOT_RUNTIME_MODE=process` and restarting Volare.
+- ACP runtime logs are present only when `VOLARE_COPILOT_RUNTIME_MODE=acp` is explicitly configured. Use `backend.acp.worker.created` to confirm worker startup, `backend.acp.prompt.completed` to inspect ACP `stopReason` and prompt duration, and `backend.acp.worker.replaced` / `backend.acp.worker.exited` / `backend.acp.worker.reaped` to diagnose kill-and-replace cancellation, worker crashes, or background idle cleanup. ACP cancel logs include the configured strategy, native wait budget, fallback reason, observed `stopReason`, and whether a worker was reused. Roll back by setting `VOLARE_COPILOT_RUNTIME_MODE=process` and restarting Volare.
 - `backend.turn.failed.failureClass` uses low-cardinality classes such as `process_exit`, `stream_read_failure`, `cancelled`, `backend_ended_without_terminal`, and `unknown`. These logs use safe `errorCode`/`failureClass` fields and do not serialize raw causes, CLI stderr, prompts, or history.
 
 `firstStdoutMs` is not emitted yet. Capturing it accurately belongs inside the raw stdout runner, while the current backend boundary only observes parsed assistant deltas; adding it would require a broader runner API change. `journal.append.slow` is also deferred for now: the journal has per-append timing but no bounded per-turn slow-append aggregator or threshold configuration, and adding state only for this warning would be more design than the current log-first slice needs.

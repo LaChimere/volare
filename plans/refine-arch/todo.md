@@ -2,7 +2,7 @@
 
 ## Status
 
-Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, PR 3 runtime capability registry, and PR 4 ACP worker admission queue have been completed.
+Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, PR 3 runtime capability registry, PR 4 ACP worker admission queue, and PR 5 ACP worker observability / idle reaper have been completed.
 
 ## PR 0: Runtime-control baseline
 
@@ -171,24 +171,37 @@ Evidence:
 
 ## PR 5: ACP worker observability and idle reaper
 
-- [ ] Add worker/admission snapshot or metrics provider seam
-- [ ] Expose active/creating/idle worker counts
-- [ ] Expose admission queue depth and outcome counts
-- [ ] Add background idle reaper
-- [ ] Add structured admission/reaper logs
-- [ ] Add tests for metrics and idle cleanup
-- [ ] Update operations docs
+- [x] Add worker/admission snapshot or metrics provider seam
+- [x] Expose active/creating/idle worker counts
+- [x] Expose admission queue depth and outcome counts
+- [x] Add background idle reaper
+- [x] Add structured admission/reaper logs
+- [x] Add tests for metrics and idle cleanup
+- [x] Update operations docs
 
 Acceptance evidence:
 
-- [ ] `/metrics` includes non-secret worker pressure fields
-- [ ] Structured admission/reaper logs include no prompts, tokens, raw ACP frames, or local secret paths
-- [ ] Idle worker is reaped without a new request
-- [ ] Idle reaper does not interfere with active workers or admission accounting
-- [ ] Shutdown stops accepting new turns/admissions before drain begins
-- [ ] New turns/admissions after shutdown stop-accepting use service-lifecycle unavailable semantics
-- [ ] Shutdown drains queues and active work according to timeout semantics
-- [ ] Shutdown flushes or safely closes the event journal after terminal cleanup is recorded
+- [x] `/metrics` includes non-secret worker pressure fields
+- [x] Structured admission/reaper logs include no prompts, tokens, raw ACP frames, or local secret paths
+- [x] Idle worker is reaped without a new request
+- [x] Idle reaper does not interfere with active workers or admission accounting
+- [x] Shutdown stops accepting new turns/admissions before drain begins
+- [x] New turns/admissions after shutdown stop-accepting use service-lifecycle unavailable semantics
+- [x] Shutdown drains queues and active work according to timeout semantics
+- [x] Shutdown flushes or safely closes the event journal after terminal cleanup is recorded
+
+Evidence:
+
+- Added internal ACP runner snapshots and `CopilotCliBackend.workerMetrics()`; `/metrics` now accepts a worker metrics provider and emits non-secret ACP worker/admission counters.
+- Metrics include active/creating/idle/running worker counts plus admission queue depth and granted/queued/timeout/cancelled/shutdown outcome totals.
+- Added structured `backend.acp.admission.*` and `backend.acp.worker.reaped` logs with counts, backend session IDs, reasons, and idle duration only; tests assert prompt text and workspace paths do not appear.
+- Added a background idle reaper with `unref`, shutdown stop, and an in-flight guard; tests prove idle workers are reaped without a new request and active workers are not reaped.
+- Shutdown uses the existing stop-accepting order, drains ACP admission queues via `service_unavailable`, maps post-shutdown backend requests to 503 retry semantics, and documents ACP worker cleanup timeout behavior.
+- SQLite-backed journal writes are synchronous; operations docs now record that the journal has no buffered writer requiring separate flush/close after terminal cleanup.
+- Review/refine: code-review and rubber-duck rounds found stale status, reaper reentrancy, shutdown `backend_closing` 500 mapping, snapshot coupling, and docs gaps; each was fixed and re-reviewed with no material issues remaining.
+- Validation:
+  - `bun test tests/unit_tests/backends/acp-copilot-prompt-runner.test.ts tests/unit_tests/backends/copilot-cli-backend.test.ts tests/unit_tests/server/app.test.ts && bun run check`
+  - `bun run test`
 
 ## PR 6: HTTP app boundary cleanup
 

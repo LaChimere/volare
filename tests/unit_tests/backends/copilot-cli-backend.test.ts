@@ -698,10 +698,14 @@ describe('CopilotCliBackend', () => {
           bridgeSessionId: 'bridge_session_4',
           threadId: 'thread_4',
         }),
-      ).rejects.toThrow('Backend is shutting down');
-      await expect(backend.resumeSession(secondSession)).rejects.toThrow(
-        'Backend is shutting down',
-      );
+      ).rejects.toMatchObject({
+        code: 'service_unavailable',
+        cause: { retryAfterMs: 1000, reason: 'shutdown' },
+      });
+      await expect(backend.resumeSession(secondSession)).rejects.toMatchObject({
+        code: 'service_unavailable',
+        cause: { retryAfterMs: 1000, reason: 'shutdown' },
+      });
       await expect(
         collectEvents(
           backend.send(session, {
@@ -712,7 +716,10 @@ describe('CopilotCliBackend', () => {
             model: 'copilot-agent',
           }),
         ),
-      ).rejects.toThrow('Backend is shutting down');
+      ).rejects.toMatchObject({
+        code: 'service_unavailable',
+        cause: { retryAfterMs: 1000, reason: 'shutdown' },
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

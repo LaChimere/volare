@@ -731,7 +731,16 @@ describe('server app', () => {
   });
 
   test('serves authenticated health and metrics routes', async () => {
-    const app = createApp({ config, healthStatus: () => 'recovering' });
+    const app = createApp({
+      config,
+      healthStatus: () => 'recovering',
+      workerMetrics: () => ({
+        acp_workers_active: 1,
+        acp_workers_creating: 0,
+        acp_workers_idle: 1,
+        acp_admission_queue_depth: 2,
+      }),
+    });
 
     const health = await app.fetch(request('/healthz'));
     const metrics = await app.fetch(request('/metrics'));
@@ -748,6 +757,10 @@ describe('server app', () => {
       turns_with_citation_like_output_total: 0,
       turns_with_grounding_warnings_total: 0,
       turns_unmediated_total: 0,
+      acp_workers_active: 1,
+      acp_workers_creating: 0,
+      acp_workers_idle: 1,
+      acp_admission_queue_depth: 2,
     });
   });
 

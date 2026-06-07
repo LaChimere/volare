@@ -19,6 +19,7 @@ import type {
 } from '../../core/types';
 import { createEstimatedUsage } from '../../core/usage';
 import { type ILogger, NoopLogger } from '../../logging/logger';
+import type { IWorkerAdmissionSnapshot } from './admission-queue';
 import {
   createProcessIdentity,
   DefaultProcessIdentityValidator,
@@ -44,6 +45,16 @@ export interface ICopilotPromptRunner {
   cancel?(backendSessionId: string, options?: ICancelOptions): Promise<ICancelResult>;
   dispose?(backendSessionId: string): Promise<void>;
   shutdown?(reason?: string): void;
+  snapshot?(): ICopilotPromptRunnerSnapshot;
+}
+
+export interface ICopilotPromptRunnerSnapshot {
+  maxWorkers: number;
+  activeWorkers: number;
+  creatingWorkers: number;
+  idleWorkers: number;
+  activePromptWorkers: number;
+  admission: IWorkerAdmissionSnapshot;
 }
 
 export interface ICopilotPromptRunOptions {
@@ -112,12 +123,33 @@ export class CopilotCliBackend implements IAgentBackend {
     };
   }
 
+  workerMetrics(): Record<string, number> {
+    const snapshot = this.#runner.snapshot?.();
+    if (!snapshot) {
+      return {};
+    }
+    return {
+      acp_workers_max: snapshot.maxWorkers,
+      acp_workers_active: snapshot.activeWorkers,
+      acp_workers_creating: snapshot.creatingWorkers,
+      acp_workers_idle: snapshot.idleWorkers,
+      acp_workers_running_prompts: snapshot.activePromptWorkers,
+      acp_admission_active: snapshot.admission.active,
+      acp_admission_queue_depth: snapshot.admission.queueDepth,
+      acp_admission_granted_total: snapshot.admission.grantedTotal,
+      acp_admission_queued_total: snapshot.admission.queuedTotal,
+      acp_admission_timeout_total: snapshot.admission.timeoutTotal,
+      acp_admission_cancelled_total: snapshot.admission.cancelledTotal,
+      acp_admission_shutdown_total: snapshot.admission.shutdownTotal,
+    };
+  }
+
   async createSession(
     workspace: IWorkspace,
     options: ICreateSessionOptions,
   ): Promise<IBackendSession> {
     if (this.#closing) {
-      throw new VolareError('backend_closing', 'Backend is shutting down');
+      throw backendClosingError();
     }
     const canonicalRoot = await canonicalizeWorkspaceRoot(workspace.rootPath);
     if (canonicalRoot !== workspace.rootPath) {
@@ -127,7 +159,7 @@ export class CopilotCliBackend implements IAgentBackend {
       );
     }
     if (this.#closing) {
-      throw new VolareError('backend_closing', 'Backend is shutting down');
+      throw backendClosingError();
     }
     const backendSessionId = `copilot_cli_${options.bridgeSessionId}`;
     this.#workspaceRoots.set(backendSessionId, canonicalRoot);
@@ -152,7 +184,7 @@ export class CopilotCliBackend implements IAgentBackend {
 
   async resumeSession(session: IBackendSession, signal?: AbortSignal): Promise<IBackendSession> {
     if (this.#closing) {
-      throw new VolareError('backend_closing', 'Backend is shutting down');
+      throw backendClosingError();
     }
     if (!session.backendSessionId) {
       throw new VolareError(
@@ -178,7 +210,7 @@ export class CopilotCliBackend implements IAgentBackend {
     signal?: AbortSignal,
   ): AsyncIterable<AgentEvent> {
     if (this.#closing) {
-      throw new VolareError('backend_closing', 'Backend is shutting down');
+      throw backendClosingError();
     }
     if (!session.backendSessionId) {
       throw new VolareError(
@@ -218,7 +250,7 @@ export class CopilotCliBackend implements IAgentBackend {
     logger.info({ event: 'backend.turn.started' }, 'backend turn started');
     try {
       if (this.#closing) {
-        throw new VolareError('backend_closing', 'Backend is shutting down');
+        throw backendClosingError();
       }
       for await (const delta of this.#runner.run(promptText, {
         backendSessionId: session.backendSessionId,
@@ -460,6 +492,12 @@ async function canonicalizeWorkspaceRoot(rootPath: string): Promise<string> {
       },
     );
   }
+}
+
+function backendClosingError(): VolareError {
+  return new VolareError('service_unavailable', 'Backend is shutting down', {
+    cause: { retryAfterMs: 1000, reason: 'shutdown' },
+  });
 }
 
 export class BunCopilotPromptRunner implements ICopilotPromptRunner {
