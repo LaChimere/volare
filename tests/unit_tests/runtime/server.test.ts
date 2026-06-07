@@ -74,9 +74,15 @@ describe('runtime server wiring', () => {
     });
     const merged = registry.snapshot();
     expect(merged.runtime.activeTurnCapacity).toEqual({ enabled: true, limit: 3 });
+    expect(merged.runtime.approvalResolution).toEqual({ supported: true, waiter: 'polling' });
     expect(merged.backend).toMatchObject({
       name: 'copilot-cli',
       capabilities: { cancellation: true },
+    });
+    registry.updateApprovalWaiter('notifier');
+    expect(registry.snapshot().runtime.approvalResolution).toEqual({
+      supported: true,
+      waiter: 'notifier',
     });
     expect(merged.acp.nativeCancel).toMatchObject({
       classification: 'native-reusable',

@@ -58,6 +58,7 @@ export async function startVolareRuntime(
   const capabilityRegistry = new RuntimeCapabilityRegistry({
     runtimeMode: config.copilotRuntimeMode,
     maxActiveTurns: config.maxActiveSessions,
+    approvalWaiter: 'notifier',
   });
   const backend = new CopilotCliBackend({
     runner: createCopilotPromptRunner(config, logger, capabilityRegistry),
