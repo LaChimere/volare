@@ -398,8 +398,65 @@ Illustrative future schema shape (not a frozen public contract):
 ### Decision 10: Treat AgentEvent schema versioning as part of SSE resume design
 
 - Context: Event replay becomes a client-visible contract once SSE resume exists.
-- Choice: Phase 9 must design event IDs, replay cursor semantics, terminal-event idempotency, and `AgentEvent` schema versioning together. Implementation should add a journal envelope version and an upcaster before exposing replay/resume as a client contract.
+- Choice: Phase 9 designs event IDs, replay cursor semantics, terminal-event idempotency, and `AgentEvent` schema versioning together. Implementation should add a journal envelope version and an upcaster before exposing replay/resume as a client contract.
 - Rationale: Event schema versioning is unnecessary churn before replay is a public contract, but it is mandatory before `Last-Event-ID` replay can be trusted.
+
+SSE resume remains design-only in this refinement wave. The future implementation should use the existing durable journal as the replay source, but should not expose raw journal rows or current in-memory event arrays as the public cursor contract.
+
+#### Event ID format
+
+Future SSE frames should include an `id` field derived from a stable journal cursor:
+
+```text
+turn:<turn_id>:seq:<zero_based_sequence>:part:<zero_based_frame_part>
+```
+
+Rules:
+
+- `turn_id` is the durable internal turn identifier, not a client-provided response id.
+- Because `turn_id` appears in SSE event ids, it becomes observable to stream clients. Turn ids are random non-secret identifiers, but future turn-id prefix/format changes become resume-cursor compatibility changes.
+- `sequence` is the persisted journal row sequence assigned at append time, starting at `0`. Upcasting must preserve cursor identity; it must not renumber, drop, split, merge, or reorder persisted cursor sequences.
+- `part` is the adapter-owned zero-based SSE frame index within the frame group derived from one canonical event. A canonical event that emits one replayable SSE frame uses `part:0`; a text delta that first opens an output item and then emits a delta uses stable parts for both frames.
+- Event IDs are scoped to one response/turn stream. A `Last-Event-ID` whose turn id does not match the requested response resolves to `409` or an equivalent explicit cursor mismatch error, not silent replay from another turn.
+- Canonical journal events own the durable `seq`, and adapters own stable `part` numbering for replayable SSE frames derived from each event. Every replayable SSE frame derived from a canonical event carries an id. Adapter prologue frames such as `response.created` and `response.in_progress` carry no durable event id. `[DONE]` remains a stream sentinel, not a journal event.
+- OpenAI Responses `sequence_number` remains connection-local and resets to `0` on each fresh HTTP connection, including resumed streams. Durable resume correctness depends on SSE `id`, not on OpenAI `sequence_number` continuity across reconnects.
+
+#### `Last-Event-ID` replay semantics
+
+Future `POST /responses` streaming resume should support `Last-Event-ID` only when the request also identifies the same durable response/turn, either through an explicit stored response id or a resumable stream endpoint. Replay starts strictly after the acknowledged id:
+
+1. Parse and validate `Last-Event-ID`.
+2. Resolve the target response id to a durable turn id.
+3. Reject missing, malformed, cross-turn, future (`seq > max(seq)`), non-emitting, out-of-range `part`, or pruned cursors explicitly. Cursor validation must prove that `(seq, part)` exactly matches a replayable SSE frame id the adapter would have emitted for that canonical event.
+4. Load journal envelopes for the turn using a SQL cursor filter (`WHERE turn_id = ? AND seq >= ?`) when no adapter state bootstrap is required. The first loaded sequence may need intra-event frame filtering by `part`. Avoid loading whole long-turn journals only to discard most rows.
+5. Use a resume-aware adapter entry point rather than the normal one-shot `encodeStream`. The adapter must either:
+   - fast-forward over the full upcast canonical history before `last_sequence`, updating any state needed to encode later frames while emitting nothing; or
+   - load a stored response snapshot plus enough prior canonical context to produce complete resumed terminal frames.
+6. Emit only SSE frames whose `(seq, part)` cursor is strictly after `Last-Event-ID`, plus any adapter-required stream sentinel.
+
+If the stream disconnected before the first event id was observed, clients should retry without `Last-Event-ID` and receive a fresh stream from sequence `0`. If the journal was pruned or contains a retention tombstone, resume should return an explicit non-secret expiry error; it should not fall back to partial in-memory replay.
+
+Browser `EventSource` clients can automatically retry with the same `Last-Event-ID`. Cursor mismatch, expiry, and corruption errors should therefore be documented as terminal client errors: clients must close the stream and start a new request without the stale cursor. Implementations for auto-retrying clients must use a non-2xx terminal HTTP response, such as `409` or `410`, rather than a `200` stream that can silently reconnect forever.
+
+Pruned-turn detection must not rely solely on the `seq > last_sequence` replay query. Current retention pruning deletes prior rows and writes a security tombstone at sequence `0`; a resumed request with `Last-Event-ID` above `0` would otherwise see an empty suffix and look "caught up." Implementations must check for a retention tombstone separately before or alongside cursor walking.
+
+Adapter prologue frames are emitted on every fresh HTTP connection, including resumed streams, and are not gated by `Last-Event-ID`. They do not carry durable event ids and must not affect the durable cursor.
+
+#### Terminal event idempotency
+
+Terminal semantics should be monotonic and idempotent:
+
+- Each turn has at most one durable terminal canonical event among `turn.succeeded`, `turn.failed`, `turn.cancelled`, or `turn.interrupted`.
+- Replay must never synthesize a second terminal event when one exists in the journal.
+- If a reconnect supplies a cursor before the terminal event, replay emits all remaining replayable SSE frames in `(seq, part)` order, including exactly one terminal frame group and exactly one `[DONE]`.
+- If a reconnect supplies the last part of the terminal event's frame group, the server emits adapter prologue frames for the fresh HTTP connection, then `[DONE]`, and closes. It must not re-emit `response.completed`, `response.failed`, `response.incomplete`, assistant deltas, or another terminal business frame.
+- Terminal state in SQLite remains the authority for stored-response snapshots, but SSE resume uses journal sequence ids as the replay cursor authority.
+- The canonical terminal event must be appended in the same SQLite transaction as the durable terminal `turns.status` transition, or strictly before the terminal status is made visible. A terminal `turns.status` without a terminal journal envelope is a corruption condition for resume and should return a non-secret `journal_corrupted`-style error rather than silently synthesizing an event.
+- Security-kind journal rows whose redacted canonical payload is a terminal `AgentEvent` count as the canonical terminal event for replay/idempotency. Retention tombstones remain expiry markers, not terminal business events.
+
+Current implementation note: the existing hot path updates `turns.status` in `DurableSessionManager.streamTurn` and appends canonical events later through the HTTP-layer journal wrapper. Before SSE resume is enabled, terminal event persistence must move into the same state/journal transaction as the terminal turn-status transition, or the status transition must happen only after the terminal journal row has been durably appended.
+
+#### Journal envelope and upcaster strategy
 
 Target envelope direction:
 
@@ -413,6 +470,29 @@ interface JournalEnvelopeV1 {
   payload: AgentEvent;
 }
 ```
+
+Implementation guidance:
+
+- Add an `envelope_schema_version` column to the `events` table before enabling client-visible resume. This avoids confusion with the existing database-wide `schema_version` table. Existing rows are read as envelope schema version `"0"` by default; new canonical rows are written with `"1.0"`. The rest of the envelope is materialized from existing row fields (`turn_id`, `seq`, `created_at`, and redacted canonical payload) rather than duplicating those fields into another raw JSON blob.
+- The envelope-schema migration must bump `CURRENT_SCHEMA_VERSION`, add a new migration in `src/state/migrations.ts`, and default existing rows to `"0"` without rewriting redacted payloads.
+- Keep existing unversioned journal rows readable through an upcaster that treats them as `schemaVersion: "0"` and converts them to the current `AgentEvent` shape.
+- Upcasters are pure, deterministic functions from older envelope/payload shapes to the current canonical shape. They may add defaulted metadata but must not invent assistant text, tool output, approval decisions, or terminal outcomes.
+- Breaking changes to canonical event payloads require a new major envelope version and an upcaster before deployment. Additive fields can stay within the same major version when older readers ignore them safely.
+- Redaction remains mandatory before envelope persistence. Upcasters must operate on already-redacted persisted payloads and must not rehydrate raw backend frames.
+
+#### Migration and test strategy
+
+Before enabling SSE resume:
+
+- Add golden tests for replaying a journal with at least one prior unversioned event shape through the upcaster.
+- Add tests that resume from the beginning, from a middle text delta, from immediately before the terminal event, and from immediately after the terminal event.
+- Add negative tests for malformed cursor, missing cursor target, cross-turn cursor, pruned journal/tombstone, and sequence gaps.
+- Add negative tests for future cursors (`seq > max(seq)`), out-of-range frame parts (`part >= frame_count` for that canonical event), non-emitting canonical events, and terminal `turns.status` rows that lack a terminal journal envelope.
+- Add adapter-level tests proving prologue re-emission, frame-part cursor resume within a multi-frame canonical event, connection-local OpenAI `sequence_number` reset, no duplicate/skipped terminal events, and exactly one `[DONE]` on resumed streams.
+- Add a replay test where the terminal event is a security-kind redaction-failure row with a terminal canonical payload.
+- Add restart tests proving resume works when in-memory events are empty and only SQLite journal rows are available.
+- Add tests proving `runtime.sse_resume` in `/capabilities` remains `false` until the envelope-schema migration, at least one version-0 upcaster, and the terminal-status/journal atomicity fix exist.
+- Keep SSE resume implementation out of PR9; PR9 approval is a design gate for a later implementation phase.
 
 ### Decision 11: Source enterprise content exclusion through a policy provider
 
