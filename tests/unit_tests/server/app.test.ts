@@ -1611,6 +1611,16 @@ describe('server app', () => {
       status: 'completed',
       output: [{ content: [{ text: 'journal replay' }] }],
     });
+
+    const cancelResponse = await restartedApp.fetch(
+      request(`/openai/v1/responses/${responseId}/cancel`, { method: 'POST' }),
+    );
+    expect(cancelResponse.status).toBe(200);
+    await expect(cancelResponse.json()).resolves.toMatchObject({
+      id: responseId,
+      status: 'completed',
+      output: [{ content: [{ text: 'journal replay' }] }],
+    });
   });
 
   test('fails missing durable parents explicitly', async () => {
