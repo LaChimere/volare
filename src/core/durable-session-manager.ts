@@ -75,8 +75,8 @@ export class DurableSessionManager implements ISessionManager {
 
       phaseStartedAt = performance.now();
       const session = input.threadId
-        ? await this.#resumeSessionForThread(input.threadId, context.workspaceId)
-        : await this.#createSessionForThread(thread);
+        ? await this.#resumeSessionForThread(input.threadId, context.workspaceId, context.signal)
+        : await this.#createSessionForThread(thread, context.signal);
       const backendSessionResolveMs = elapsedMs(phaseStartedAt);
 
       phaseStartedAt = performance.now();
@@ -448,7 +448,7 @@ export class DurableSessionManager implements ISessionManager {
     return thread;
   }
 
-  async #createSessionForThread(thread: IThread): Promise<IBackendSession> {
+  async #createSessionForThread(thread: IThread, signal?: AbortSignal): Promise<IBackendSession> {
     const workspace = await this.#requireWorkspace(thread.workspaceId);
     const reserved = await this.#store.reserveBackendSession({
       workspaceId: thread.workspaceId,
@@ -459,6 +459,7 @@ export class DurableSessionManager implements ISessionManager {
       const created = await this.#backend.createSession(workspace, {
         bridgeSessionId: reserved.bridgeSessionId,
         threadId: thread.id,
+        ...(signal ? { signal } : {}),
       });
       await this.#store.activateBackendSession(reserved, {
         backendSessionId: created.backendSessionId ?? reserved.bridgeSessionId,
@@ -511,14 +512,18 @@ export class DurableSessionManager implements ISessionManager {
     }
   }
 
-  async #resumeSessionForThread(threadId: string, workspaceId: string): Promise<IBackendSession> {
+  async #resumeSessionForThread(
+    threadId: string,
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<IBackendSession> {
     const session = await this.#store.getBackendSessionByThread(threadId);
     if (!session) {
       throw new VolareError('session_lost', 'No active backend session exists for this thread');
     }
     this.#assertSessionScope(session, { workspaceId, threadId });
     await this.#assertWorkspaceUnchanged(workspaceId);
-    const resumed = await this.#backend.resumeSession(session);
+    const resumed = await this.#backend.resumeSession(session, signal);
     this.#logger.info(
       {
         event: 'backend.session.resumed',

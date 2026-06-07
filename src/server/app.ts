@@ -204,6 +204,7 @@ export function createApp(dependencies: IAppDependencies): {
           const resolved = await sessionManager.startTurn(input, {
             workspaceId: persistedWorkspace.id,
             requestId,
+            signal: request.signal,
           });
           let streamOwnershipTransferred = false;
           try {

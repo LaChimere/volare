@@ -39,9 +39,11 @@ type BackendFailureClass =
   | 'unknown';
 
 export interface ICopilotPromptRunner {
+  prepare?(options: ICopilotPromptRunOptions): Promise<void>;
   run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string>;
   cancel?(backendSessionId: string, options?: ICancelOptions): Promise<ICancelResult>;
   dispose?(backendSessionId: string): Promise<void>;
+  shutdown?(reason?: string): void;
 }
 
 export interface ICopilotPromptRunOptions {
@@ -129,6 +131,16 @@ export class CopilotCliBackend implements IAgentBackend {
     }
     const backendSessionId = `copilot_cli_${options.bridgeSessionId}`;
     this.#workspaceRoots.set(backendSessionId, canonicalRoot);
+    try {
+      await this.#runner.prepare?.({
+        backendSessionId,
+        cwd: canonicalRoot,
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+    } catch (error) {
+      this.#workspaceRoots.delete(backendSessionId);
+      throw error;
+    }
     return {
       bridgeSessionId: options.bridgeSessionId,
       backendSessionId,
@@ -138,7 +150,7 @@ export class CopilotCliBackend implements IAgentBackend {
     };
   }
 
-  async resumeSession(session: IBackendSession): Promise<IBackendSession> {
+  async resumeSession(session: IBackendSession, signal?: AbortSignal): Promise<IBackendSession> {
     if (this.#closing) {
       throw new VolareError('backend_closing', 'Backend is shutting down');
     }
@@ -148,6 +160,15 @@ export class CopilotCliBackend implements IAgentBackend {
         'Cannot resume a reserved backend session',
       );
     }
+    const root = this.#workspaceRoots.get(session.backendSessionId);
+    if (!root) {
+      throw new VolareError('session_lost', 'Backend workspace state was lost');
+    }
+    await this.#runner.prepare?.({
+      backendSessionId: session.backendSessionId,
+      cwd: root,
+      ...(signal ? { signal } : {}),
+    });
     return session;
   }
 
@@ -339,6 +360,7 @@ export class CopilotCliBackend implements IAgentBackend {
 
   async dispose(): Promise<void> {
     this.#closing = true;
+    this.#runner.shutdown?.('shutdown');
     const backendSessionIds = [...this.#workspaceRoots.keys()];
     await Promise.all(
       backendSessionIds.map(async (backendSessionId) => {

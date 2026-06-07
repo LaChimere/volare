@@ -2,7 +2,7 @@
 
 ## Status
 
-Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, and PR 3 runtime capability registry have been completed.
+Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, PR 3 runtime capability registry, and PR 4 ACP worker admission queue have been completed.
 
 ## PR 0: Runtime-control baseline
 
@@ -132,29 +132,42 @@ Evidence:
 
 ## PR 4: ACP worker admission queue
 
-- [ ] Add `WorkerAdmissionQueue` primitive
-- [ ] Add ACP admission timeout config
-- [ ] Wire ACP runner through admission queue
-- [ ] Support queued AbortSignal cancellation
-- [ ] Support abort during worker creation
-- [ ] Release slots on success, failure, cancel, timeout, startup failure, and shutdown
-- [ ] Add queue timeout typed error
-- [ ] Add targeted ACP runner tests
-- [ ] Update config and operations docs
+- [x] Add `WorkerAdmissionQueue` primitive
+- [x] Add ACP admission timeout config
+- [x] Wire ACP runner through admission queue
+- [x] Support queued AbortSignal cancellation
+- [x] Support abort during worker creation
+- [x] Release slots on success, failure, cancel, timeout, startup failure, and shutdown
+- [x] Add queue timeout typed error
+- [x] Add targeted ACP runner tests
+- [x] Update config and operations docs
 
 Acceptance evidence:
 
-- [ ] FIFO drain proven
-- [ ] Queued abort removes entry
-- [ ] Create-time abort releases slot
-- [ ] Queue timeout returns explicit error
-- [ ] Queue timeout maps to retryable capacity semantics
-- [ ] Client disconnect/admission abort maps to cancellation/incomplete, not capacity pressure
-- [ ] Shutdown drain maps to service-lifecycle unavailable semantics when a wire response is possible
-- [ ] Shutdown drains queued admissions
-- [ ] Admission timeout releases active-turn capacity via terminal turn result/event
-- [ ] Admission abort releases active-turn capacity via terminal turn result/event
-- [ ] Shutdown drain releases active-turn capacity via terminal turn result/event when a turn record exists
+- [x] FIFO drain proven
+- [x] Queued abort removes entry
+- [x] Create-time abort releases slot
+- [x] Queue timeout returns explicit error
+- [x] Queue timeout maps to retryable capacity semantics
+- [x] Client disconnect/admission abort maps to cancellation/incomplete, not capacity pressure
+- [x] Shutdown drain maps to service-lifecycle unavailable semantics when a wire response is possible
+- [x] Shutdown drains queued admissions
+- [x] Admission timeout releases active-turn capacity via terminal turn result/event
+- [x] Admission abort releases active-turn capacity via terminal turn result/event
+- [x] Shutdown drain releases active-turn capacity via terminal turn result/event when a turn record exists
+
+Evidence:
+
+- Added `WorkerAdmissionQueue` with FIFO admission, idempotent leases, timeout, queued abort, per-session cancel, and shutdown drain.
+- Added `VOLARE_COPILOT_ACP_ADMISSION_TIMEOUT_MS` and wired ACP runner pre-admission through `CopilotCliBackend.createSession` / `resumeSession` before SSE response creation.
+- Admission timeout now raises `backend_worker_admission_timeout` before response creation when possible and maps to HTTP 429 with retry headers and `X-Volare-Capacity-Scope: backend_worker_admission`.
+- Shutdown admission drain raises `service_unavailable` before response creation when observable and maps to HTTP 503 with retry headers.
+- Request `AbortSignal` is plumbed through session creation/resume and ACP worker startup; queued/startup aborts surface as `backend_cancelled`, not capacity pressure.
+- Tests cover FIFO drain, queued abort removal, startup abort slot release, admission timeout, shutdown/service-unavailable mapping, and config parsing.
+- Review/refine: code-review and rubber-duck rounds found post-response timeout, resume/pre-admission, signal, queued-cancel, and shutdown-drain gaps; each was fixed and re-reviewed with no material issues remaining.
+- Validation:
+  - `bun test tests/unit_tests/backends/acp-copilot-prompt-runner.test.ts tests/unit_tests/server/app.test.ts tests/unit_tests/backends/copilot-cli-backend.test.ts tests/unit_tests/core/durable-session-manager.test.ts && bun run check`
+  - `bun run test`
 
 ## PR 5: ACP worker observability and idle reaper
 

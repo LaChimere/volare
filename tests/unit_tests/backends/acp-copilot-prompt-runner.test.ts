@@ -835,9 +835,10 @@ describe('AcpCopilotPromptRunner', () => {
     expect(processes[0]?.killed).toContain('SIGTERM');
   });
 
-  test('fails explicitly when the ACP worker cap is exhausted', async () => {
+  test('times out explicitly when ACP worker admission is exhausted', async () => {
     const runner = new AcpCopilotPromptRunner({
       maxWorkers: 1,
+      admissionTimeoutMs: 1,
       spawn: () => {
         const proc = new FakeAcpProcess();
         return {
@@ -853,7 +854,76 @@ describe('AcpCopilotPromptRunner', () => {
     await collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp/a' }));
     await expect(
       collect(runner.run('prompt text', { backendSessionId: 'backend_2', cwd: '/tmp/b' })),
-    ).rejects.toThrow('ACP worker cap exhausted');
+    ).rejects.toMatchObject({ code: 'backend_worker_admission_timeout' });
+  });
+
+  test('admits queued ACP workers in FIFO order', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      maxWorkers: 1,
+      admissionTimeoutMs: 1000,
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+    await collect(runner.run('first', { backendSessionId: 'backend_1', cwd: '/tmp/a' }));
+
+    const second = collect(runner.run('second', { backendSessionId: 'backend_2', cwd: '/tmp/b' }));
+    const third = collect(runner.run('third', { backendSessionId: 'backend_3', cwd: '/tmp/c' }));
+    await Bun.sleep(0);
+    expect(processes).toHaveLength(1);
+
+    await runner.dispose('backend_1');
+    await expect(second).resolves.toEqual(['hello']);
+    expect(processes).toHaveLength(2);
+
+    await runner.dispose('backend_2');
+    await expect(third).resolves.toEqual(['hello']);
+    expect(processes).toHaveLength(3);
+  });
+
+  test('removes queued ACP worker admission when the request aborts', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      maxWorkers: 1,
+      admissionTimeoutMs: 1000,
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+    await collect(runner.run('first', { backendSessionId: 'backend_1', cwd: '/tmp/a' }));
+    const controller = new AbortController();
+    const second = collect(
+      runner.run('second', {
+        backendSessionId: 'backend_2',
+        cwd: '/tmp/b',
+        signal: controller.signal,
+      }),
+    );
+
+    controller.abort();
+    await expect(second).rejects.toMatchObject({ code: 'backend_cancelled' });
+    await runner.dispose('backend_1');
+    await expect(
+      collect(runner.run('third', { backendSessionId: 'backend_3', cwd: '/tmp/c' })),
+    ).resolves.toEqual(['hello']);
+    expect(processes).toHaveLength(2);
   });
 
   test('rejects concurrent prompts on the same ACP worker', async () => {
@@ -910,6 +980,7 @@ describe('AcpCopilotPromptRunner', () => {
         };
       },
       maxWorkers: 1,
+      admissionTimeoutMs: 1,
     });
 
     const first = collect(
@@ -923,7 +994,7 @@ describe('AcpCopilotPromptRunner', () => {
       { status: 'fulfilled', value: ['hello'] },
       {
         status: 'rejected',
-        reason: expect.objectContaining({ code: 'backend_worker_cap_exhausted' }),
+        reason: expect.objectContaining({ code: 'backend_worker_admission_timeout' }),
       },
     ]);
     expect(processes).toHaveLength(1);
@@ -1066,6 +1137,51 @@ describe('AcpCopilotPromptRunner', () => {
     await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
     await expect(firstChunk).resolves.toBeInstanceOf(Error);
     expect(processes[0]?.killed).toContain('SIGTERM');
+  });
+
+  test('abort during ACP worker startup releases admission for the next worker', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      maxWorkers: 1,
+      admissionTimeoutMs: 1000,
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        if (processes.length === 0) {
+          const originalHandle = proc.handleInput.bind(proc);
+          proc.handleInput = (input: string) => {
+            if (input.includes('session/new')) {
+              proc.inputs.push(input);
+              return;
+            }
+            originalHandle(input);
+          };
+        }
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+      requestTimeoutMs: 1000,
+    });
+    const controller = new AbortController();
+    const first = collect(
+      runner.run('first', {
+        backendSessionId: 'backend_1',
+        cwd: '/tmp/a',
+        signal: controller.signal,
+      }),
+    );
+    await waitFor(() => processes.some((proc) => proc.inputs.join('\n').includes('session/new')));
+
+    controller.abort();
+    await expect(first).rejects.toMatchObject({ code: 'backend_cancelled' });
+    await expect(
+      collect(runner.run('second', { backendSessionId: 'backend_2', cwd: '/tmp/b' })),
+    ).resolves.toEqual(['hello']);
   });
 
   test('reports not_found when no ACP turn is active', async () => {

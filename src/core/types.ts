@@ -316,6 +316,7 @@ export interface IRequestContext {
   workspaceId: WorkspaceId;
   authSubject?: string;
   requestId: string;
+  signal?: AbortSignal;
 }
 
 export interface IResponseContext {
@@ -430,7 +431,7 @@ export interface IAgentBackend {
   name: string;
   capabilities(): IBackendCapabilities;
   createSession(workspace: IWorkspace, options: ICreateSessionOptions): Promise<IBackendSession>;
-  resumeSession(session: IBackendSession): Promise<IBackendSession>;
+  resumeSession(session: IBackendSession, signal?: AbortSignal): Promise<IBackendSession>;
   send(
     session: IBackendSession,
     request: IAgentRequest,
@@ -464,6 +465,7 @@ export interface ICreateSessionOptions {
   bridgeSessionId: BridgeSessionId;
   threadId: ThreadId;
   model?: string;
+  signal?: AbortSignal;
 }
 
 export interface ICancelOptions {

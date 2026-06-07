@@ -51,6 +51,25 @@ curl -H "Authorization: Bearer $VOLARE_API_KEY" \
 
 These counters are aggregate-only. They intentionally do not include prompt text, domains, warning-code breakdowns, source URLs, session IDs, or hostnames. Auth failures, parse failures, rejected requests, `GET` handlers, debug reads, and journal replay do not increment them.
 
+## Capacity errors
+
+When the active-turn gate or ACP worker admission queue is saturated, OpenAI-compatible `POST /responses` requests fail with HTTP 429 and an OpenAI-style body:
+
+```json
+{
+  "error": {
+    "type": "rate_limit_error",
+    "message": "...",
+    "code": "capacity_exhausted",
+    "param": null
+  }
+}
+```
+
+Use `Retry-After` for standard seconds-based retry behavior. `X-Volare-Retry-After-Ms` carries the same hint with millisecond precision, and `X-Volare-Capacity-Scope` distinguishes `active_turns` from `backend_worker_admission`. ACP admission timeouts use `code: "backend_worker_admission_timeout"` with the same retry headers.
+
+During shutdown, queued ACP admissions fail as HTTP 503 with `{ "error": { "type": "service_unavailable", "message": "..." } }` plus the same retry headers when the error is observable before the stream starts.
+
 ## Approval resolution
 
 When Volare creates a pending approval, resolve it through the Volare control plane rather than an OpenAI-compatible route:
