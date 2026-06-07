@@ -60,6 +60,7 @@ Evidence:
 - Concurrent over-cap starts reject exactly one request with `capacity_exhausted` and leave only one durable turn row.
 - Cancel intent alone keeps the slot occupied until terminal cancel completion; terminal stream events release the slot immediately and idempotently before backend cleanup finishes.
 - Response stream setup failures after `startTurn` cancel the accepted turn and log cleanup failures without masking the original setup error.
+- Milestone review follow-up: stream startup failures before the first event, including scope mismatches and `queued` to `running` state-update failures, release active-turn capacity through `streamTurn`'s `finally`.
 - OpenAI Responses capacity errors return HTTP 429 with `Retry-After`, `X-Volare-Retry-After-Ms`, `X-Volare-Capacity-Scope`, `type: "rate_limit_error"`, and `code: "capacity_exhausted"`.
 - Documentation updated: `docs/configuration.md` now describes `VOLARE_MAX_ACTIVE_SESSIONS` as the active-turn cap and the retryable over-cap rejection behavior.
 - Review: code-review and rubber-duck review completed; blocking findings were fixed, and re-review reported no material issues.

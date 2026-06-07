@@ -15,6 +15,7 @@ import type {
   IBackendSession,
   ICancelResult,
   ICreateSessionOptions,
+  ITurnRecord,
   IWorkspace,
 } from '../../../src/core/types';
 import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
@@ -25,6 +26,28 @@ function createStore(): SQLiteStateStore {
   const database = new Database(':memory:');
   migrate(database);
   return new SQLiteStateStore(database);
+}
+
+class StreamStartFailingStore extends SQLiteStateStore {
+  failingTurnId: string | undefined;
+
+  override async updateTurnStatus(
+    turnId: string,
+    fromStatus: ITurnRecord['status'] | 'any-non-terminal',
+    toStatus: ITurnRecord['status'],
+    completedAt?: number,
+  ): Promise<boolean> {
+    if (turnId === this.failingTurnId && fromStatus === 'queued' && toStatus === 'running') {
+      throw new Error('stream start failed');
+    }
+    return await super.updateTurnStatus(turnId, fromStatus, toStatus, completedAt);
+  }
+}
+
+function createStreamStartFailingStore(): StreamStartFailingStore {
+  const database = new Database(':memory:');
+  migrate(database);
+  return new StreamStartFailingStore(database);
 }
 
 function capabilities(): IBackendCapabilities {
@@ -600,6 +623,36 @@ describe('DurableSessionManager', () => {
     }
   });
 
+  test('releases active-turn capacity when stream startup fails before first event', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStreamStartFailingStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const manager = new DurableSessionManager({
+      store,
+      backend: new SuccessfulBackend(),
+      maxActiveTurns: 1,
+    });
+    try {
+      const first = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'first' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+      store.failingTurnId = first.turn.id;
+
+      const iterator = manager.streamTurn(first)[Symbol.asyncIterator]();
+      await expect(iterator.next()).rejects.toThrow('stream start failed');
+
+      await expect(
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'second' } },
+          { workspaceId: workspace.id, requestId: 'request_2' },
+        ),
+      ).resolves.toMatchObject({ turn: { status: 'queued' } });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('does not release active-turn capacity until cancellation reaches terminal state', async () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
     const store = createStore();
@@ -839,7 +892,7 @@ describe('DurableSessionManager', () => {
     const store = createStore();
     const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
     const backend = new TerminalOmittingBackend();
-    const manager = new DurableSessionManager({ store, backend });
+    const manager = new DurableSessionManager({ store, backend, maxActiveTurns: 1 });
     try {
       const resolved = await manager.startTurn(
         { model: 'copilot-agent', input: { message: 'hello' } },
@@ -854,6 +907,12 @@ describe('DurableSessionManager', () => {
           }),
         ),
       ).rejects.toThrow('Backend session does not match request scope');
+      await expect(
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'after mismatch' } },
+          { workspaceId: workspace.id, requestId: 'request_2' },
+        ),
+      ).resolves.toMatchObject({ turn: { status: 'queued' } });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
