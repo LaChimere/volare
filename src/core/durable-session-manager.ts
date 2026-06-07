@@ -408,6 +408,9 @@ export class DurableSessionManager implements ISessionManager {
         );
         yield interrupted;
       }
+    } catch (error) {
+      await this.#markTurnFailedAfterError(resolved.turn.id, error, 'turn.stream.cleanup_failed');
+      throw error;
     } finally {
       this.#releaseActiveTurn(resolved.turn.id);
     }
