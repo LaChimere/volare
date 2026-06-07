@@ -11,6 +11,10 @@ import {
 } from '../backends/copilot-cli/backend';
 import { DurableSessionManager } from '../core/durable-session-manager';
 import { toVolareError } from '../core/errors';
+import {
+  type IRuntimeCapabilityRegistry,
+  RuntimeCapabilityRegistry,
+} from '../core/runtime-capability-registry';
 import { SQLiteEventJournal } from '../events/sqlite-event-journal';
 import { createLogger } from '../logging/logger';
 import { createApp } from '../server/app';
@@ -51,13 +55,18 @@ export async function startVolareRuntime(
   const stateStore = new SQLiteStateStore(database);
   const eventJournal = new SQLiteEventJournal(database, undefined, logger);
   await stateStore.recoverStartupState();
+  const capabilityRegistry = new RuntimeCapabilityRegistry({
+    runtimeMode: config.copilotRuntimeMode,
+    maxActiveTurns: config.maxActiveSessions,
+  });
   const backend = new CopilotCliBackend({
-    runner: createCopilotPromptRunner(config, logger),
+    runner: createCopilotPromptRunner(config, logger, capabilityRegistry),
     logger,
     permissionMode: config.copilotPermissionMode,
     mcpMode: config.copilotMcpMode,
     childProcessEnv: config.childProcessEnv,
   });
+  capabilityRegistry.updateBackend({ name: backend.name, capabilities: backend.capabilities() });
   const approvalProvider = new ApprovalProvider({
     store: stateStore,
     policy: new DefaultApprovalPolicy({ timeoutMs: config.approvalTimeoutMs }),
@@ -120,7 +129,10 @@ export async function startVolareRuntime(
     server,
     stateStore,
     approvalNotifier: approvalProvider,
-    cleanup: () => backend.dispose(),
+    cleanup: async () => {
+      capabilityRegistry.markShutdown();
+      await backend.dispose();
+    },
   });
   runtimeLogger.info(
     { event: 'runtime.listening', host: config.host, port: config.port },
@@ -148,6 +160,7 @@ export function mergeRuntimeEnv(
 export function createCopilotPromptRunner(
   config: IServerRuntimeConfig,
   logger = createLogger({ level: config.logLevel }),
+  capabilityRegistry?: IRuntimeCapabilityRegistry,
 ): ICopilotPromptRunner {
   if (config.copilotRuntimeMode === 'acp') {
     return new AcpCopilotPromptRunner({
@@ -156,6 +169,7 @@ export function createCopilotPromptRunner(
       maxWorkers: config.copilotAcpMaxWorkers,
       cancelStrategy: config.copilotAcpCancelStrategy,
       nativeCancelWaitMs: config.copilotAcpNativeCancelWaitMs,
+      ...(capabilityRegistry ? { capabilityRegistry } : {}),
       childProcessEnv: config.childProcessEnv,
     });
   }

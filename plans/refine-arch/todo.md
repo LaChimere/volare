@@ -2,7 +2,7 @@
 
 ## Status
 
-Execution in progress. PR 0 baseline, PR 1 active-turn capacity, and PR 2 approval resolution have been completed.
+Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, and PR 3 runtime capability registry have been completed.
 
 ## PR 0: Runtime-control baseline
 
@@ -104,18 +104,30 @@ Evidence:
 
 ## PR 3: Runtime capability registry
 
-- [ ] Add internal runtime/backend capability registry types
-- [ ] Aggregate runtime features, backend capabilities, and probe-derived ACP support
-- [ ] Add invalidation/update semantics
-- [ ] Keep adapter-specific wire projection out of core
-- [ ] Add unit tests for merge and invalidation behavior
+- [x] Add internal runtime/backend capability registry types
+- [x] Aggregate runtime features, backend capabilities, and probe-derived ACP support
+- [x] Add invalidation/update semantics
+- [x] Keep adapter-specific wire projection out of core
+- [x] Add unit tests for merge and invalidation behavior
 
 Acceptance evidence:
 
-- [ ] Registry is internal only
-- [ ] No public endpoint added
-- [ ] No adapter wire fields leak into core
-- [ ] Invalidation triggers cover probe completion/re-run, backend session disposal, runtime mode change, and shutdown
+- [x] Registry is internal only
+- [x] No public endpoint added
+- [x] No adapter wire fields leak into core
+- [x] Invalidation triggers cover probe completion/re-run, backend session disposal, runtime mode change, and shutdown
+
+Evidence:
+
+- Added internal `RuntimeCapabilityRegistry` with runtime features, backend capabilities, and classified ACP native-cancel observations.
+- Registry remains internal to runtime/backend wiring; no `GET /capabilities` or public projection was added.
+- ACP native cancel observations classify `unknown`, `unsupported`, `native-terminal-only`, and `native-reusable` without exposing raw ACP payloads or overclaiming transient failures.
+- ACP runner records successful reusable native cancel probes, negative probe evidence, worker disposal, worker replacement, worker exit, and shutdown/runtime invalidations.
+- Tests cover merge behavior, probe completion/re-run, backend disposal/worker exit, runtime mode change, shutdown invalidation, and runner probe observation updates.
+- Review/refine: code-review and rubber-duck rounds found overclaim/disposal/worker-exit gaps; each was fixed and re-reviewed with no material issues remaining.
+- Validation:
+  - `bun test tests/unit_tests/runtime/server.test.ts tests/unit_tests/backends/acp-copilot-prompt-runner.test.ts && bun run check`
+  - `bun run test`
 
 ## PR 4: ACP worker admission queue
 
