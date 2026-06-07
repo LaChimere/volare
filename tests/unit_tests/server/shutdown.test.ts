@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
+import { ApprovalProvider } from '../../../src/approvals/provider';
 import { ShutdownController } from '../../../src/server/shutdown';
 import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
@@ -39,7 +40,11 @@ describe('ShutdownController', () => {
 
     const [first, second] = await Promise.all([shutdown.shutdown(), shutdown.shutdown()]);
 
-    expect(first).toEqual({ interruptedTurnCount: 1, abandonedSessionCount: 1 });
+    expect(first).toEqual({
+      interruptedTurnCount: 1,
+      abandonedSessionCount: 1,
+      abortedApprovalCount: 0,
+    });
     expect(second).toBe(first);
     expect(server.stopCalls).toEqual([false, true]);
     expect(cleanupCalls).toEqual(['cleanup']);
@@ -125,10 +130,73 @@ describe('ShutdownController', () => {
     await expect(shutdown.shutdown()).resolves.toEqual({
       interruptedTurnCount: 0,
       abandonedSessionCount: 0,
+      abortedApprovalCount: 0,
     });
 
     expect(events).toEqual(['cleanup']);
     expect(server.stopCalls).toEqual([false, true]);
+  });
+
+  test('aborts pending approvals before waiting for graceful stop completion', async () => {
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: '/tmp/volare' });
+    const thread = await store.createThread({ workspaceId: workspace.id });
+    const session = await store.reserveBackendSession({
+      workspaceId: workspace.id,
+      threadId: thread.id,
+      backend: 'mock',
+    });
+    await store.activateBackendSession(session, { backendSessionId: 'backend_1' });
+    const turn = await store.createTurn({
+      threadId: thread.id,
+      bridgeSessionId: session.bridgeSessionId,
+      model: 'copilot-agent',
+    });
+    const approval = await store.createApproval({
+      turnId: turn.id,
+      bridgeSessionId: session.bridgeSessionId,
+      request: { action: 'shell:exec', scope: { command: 'bun test' } },
+      timeoutAt: Date.now() + 60_000,
+    });
+    let releaseGracefulStop: (() => void) | undefined;
+    const server = new FakeServer({
+      gracefulStopPromise: new Promise<void>((resolve) => {
+        releaseGracefulStop = resolve;
+      }),
+    });
+    const approvalNotifier = new ApprovalProvider({ store, pollMs: 1 });
+    const waiter = approvalNotifier.awaitDecision(approval.id);
+    const shutdown = new ShutdownController({
+      server,
+      stateStore: store,
+      approvalNotifier,
+      cleanup: async () => {
+        await expect(store.getApproval(approval.id)).resolves.toMatchObject({
+          status: 'aborted',
+          decision: { type: 'aborted', reason: 'shutdown' },
+        });
+        await expect(
+          approvalNotifier.evaluate(
+            { action: 'shell:exec', scope: { command: 'bun test' } },
+            {
+              turnId: turn.id,
+              threadId: thread.id,
+              workspaceId: workspace.id,
+              workspaceRootPath: workspace.rootPath,
+              bridgeSessionId: session.bridgeSessionId,
+            },
+          ),
+        ).rejects.toMatchObject({ code: 'service_unavailable' });
+        releaseGracefulStop?.();
+      },
+    });
+
+    await expect(shutdown.shutdown()).resolves.toEqual({
+      interruptedTurnCount: 1,
+      abandonedSessionCount: 1,
+      abortedApprovalCount: 1,
+    });
+    await expect(waiter).resolves.toEqual({ type: 'aborted', reason: 'shutdown' });
   });
 });
 

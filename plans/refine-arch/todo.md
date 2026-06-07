@@ -2,7 +2,7 @@
 
 ## Status
 
-Execution in progress. PR 0 baseline and PR 1 active-turn capacity have been completed.
+Execution in progress. PR 0 baseline, PR 1 active-turn capacity, and PR 2 approval resolution have been completed.
 
 ## PR 0: Runtime-control baseline
 
@@ -69,24 +69,38 @@ Evidence:
 
 ## PR 2: Approval resolution
 
-- [ ] Add `IApprovalWaiter` / `IApprovalNotifier` seam with polling implementation
-- [ ] Add Volare-specific approval resolution endpoint/path
-- [ ] Validate approval ownership using turn/session/approval identifiers
-- [ ] Preserve timeout and abort behavior
-- [ ] Make duplicate terminal resolution idempotent
-- [ ] Ensure shutdown drives pending approvals to a durable terminal state and resolves in-process waiters
-- [ ] Record durable terminal approval state before resolving in-process waiters
-- [ ] Add approval provider, server, and session-manager tests
-- [ ] Document endpoint and operational behavior
+- [x] Add `IApprovalWaiter` / `IApprovalNotifier` seam with polling implementation
+- [x] Add Volare-specific approval resolution endpoint/path
+- [x] Validate approval ownership using turn/session/approval identifiers
+- [x] Preserve timeout and abort behavior
+- [x] Make duplicate terminal resolution idempotent
+- [x] Ensure shutdown drives pending approvals to a durable terminal state and resolves in-process waiters
+- [x] Record durable terminal approval state before resolving in-process waiters
+- [x] Add approval provider, server, and session-manager tests
+- [x] Document endpoint and operational behavior
 
 Acceptance evidence:
 
-- [ ] Pending approval resolves through API
-- [ ] Wrong ownership is rejected
-- [ ] Duplicate resolve does not mutate terminal state
-- [ ] Timeout still works
-- [ ] Shutdown resolves or aborts pending approval waiters to a terminal state
-- [ ] Volare-specific approval endpoint errors are non-secret and not OpenAI-specific
+- [x] Pending approval resolves through API
+- [x] Wrong ownership is rejected
+- [x] Duplicate resolve does not mutate terminal state
+- [x] Timeout still works
+- [x] Shutdown resolves or aborts pending approval waiters to a terminal state
+- [x] Volare-specific approval endpoint errors are non-secret and not OpenAI-specific
+
+Evidence:
+
+- Added `IApprovalWaiter` / `IApprovalNotifier` seams and an ownership-aware `ApprovalProvider.resolveApproval(...)`.
+- Added `POST /control/approvals/:approvalId/resolve` with Volare control-plane error bodies and manual `allow`/`deny` decision validation.
+- Approval ownership is validated across approval, turn, bridge session, and thread before mutation; mismatches return `approval_scope_mismatch`.
+- Duplicate terminal resolves return the stored decision and do not append a new journal event.
+- Shutdown sets the provider into draining mode, waits for in-flight approval evaluations before aborting pending approvals, and returns a combined aborted-approval count.
+- Startup/shutdown recovery drives pending approvals to durable `aborted` state and appends shared `permission.resolved` journal events via `permissionResolvedJournalEvent`.
+- Documentation updated: `docs/operations.md` documents the Volare approval resolution endpoint and non-OpenAI control-plane error envelope.
+- Review/refine: multiple code-review and rubber-duck rounds completed; findings about formatting, duplicated journal event shapes, shutdown drain races, misleading recovery reason, and abort-count observability were fixed before commit.
+- Validation:
+  - `bun test tests/unit_tests/approvals/provider.test.ts tests/unit_tests/server/app.test.ts tests/unit_tests/core/durable-session-manager.test.ts tests/unit_tests/server/shutdown.test.ts tests/unit_tests/state/sqlite-store.test.ts && bun run check`
+  - `bun run test`
 
 ## PR 3: Runtime capability registry
 

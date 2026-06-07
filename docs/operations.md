@@ -51,6 +51,25 @@ curl -H "Authorization: Bearer $VOLARE_API_KEY" \
 
 These counters are aggregate-only. They intentionally do not include prompt text, domains, warning-code breakdowns, source URLs, session IDs, or hostnames. Auth failures, parse failures, rejected requests, `GET` handlers, debug reads, and journal replay do not increment them.
 
+## Approval resolution
+
+When Volare creates a pending approval, resolve it through the Volare control plane rather than an OpenAI-compatible route:
+
+```bash
+curl -X POST -H "Authorization: Bearer $VOLARE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "turn_id": "turn_...",
+    "bridge_session_id": "bridge_session_...",
+    "decision": { "type": "allow", "scope": "once" }
+  }' \
+  http://127.0.0.1:8000/control/approvals/approval_.../resolve
+```
+
+The endpoint validates that the approval, turn, and bridge session belong together before recording the terminal decision. Repeating a resolve request for an already terminal approval returns the stored decision without mutating it. Control-plane errors use `{ "error": { "code": "...", "message": "..." } }` rather than OpenAI error shapes.
+
+Successful responses include the resolved ownership tuple, terminal status, and stored decision, for example `{ "approval_id": "approval_...", "turn_id": "turn_...", "bridge_session_id": "bridge_session_...", "status": "resolved", "decision": { "type": "allow", "scope": "once" } }`.
+
 ## Logs
 
 Runtime logs are structured JSON lines. Important event names include:

@@ -58,14 +58,15 @@ export async function startVolareRuntime(
     mcpMode: config.copilotMcpMode,
     childProcessEnv: config.childProcessEnv,
   });
+  const approvalProvider = new ApprovalProvider({
+    store: stateStore,
+    policy: new DefaultApprovalPolicy({ timeoutMs: config.approvalTimeoutMs }),
+    logger,
+  });
   const sessionManager = new DurableSessionManager({
     store: stateStore,
     backend,
-    approvalProvider: new ApprovalProvider({
-      store: stateStore,
-      policy: new DefaultApprovalPolicy({ timeoutMs: config.approvalTimeoutMs }),
-      logger,
-    }),
+    approvalProvider,
     cancelTimeoutMs: config.cancelTimeoutMs,
     maxActiveTurns: config.maxActiveSessions,
     logger,
@@ -106,9 +107,21 @@ export async function startVolareRuntime(
     hostname: config.host,
     port: config.port,
     idleTimeout: config.httpIdleTimeoutSeconds,
-    fetch: createApp({ config, stateStore, eventJournal, sessionManager, logger }).fetch,
+    fetch: createApp({
+      config,
+      stateStore,
+      eventJournal,
+      sessionManager,
+      approvalNotifier: approvalProvider,
+      logger,
+    }).fetch,
   });
-  const shutdown = new ShutdownController({ server, stateStore, cleanup: () => backend.dispose() });
+  const shutdown = new ShutdownController({
+    server,
+    stateStore,
+    approvalNotifier: approvalProvider,
+    cleanup: () => backend.dispose(),
+  });
   runtimeLogger.info(
     { event: 'runtime.listening', host: config.host, port: config.port },
     'Volare listening',
