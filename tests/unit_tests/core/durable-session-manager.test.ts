@@ -81,6 +81,27 @@ class TerminalOmittingBackend implements IAgentBackend {
   }
 }
 
+class DeferredCancelBackend extends TerminalOmittingBackend {
+  resolveCancel!: (result: ICancelResult) => void;
+  readonly cancelStarted: Promise<void>;
+  #resolveCancelStarted!: () => void;
+
+  constructor() {
+    super();
+    this.cancelStarted = new Promise<void>((resolve) => {
+      this.#resolveCancelStarted = resolve;
+    });
+  }
+
+  override async cancel(): Promise<ICancelResult> {
+    this.cancelCount += 1;
+    this.#resolveCancelStarted();
+    return await new Promise<ICancelResult>((resolve) => {
+      this.resolveCancel = resolve;
+    });
+  }
+}
+
 class SuccessfulBackend extends TerminalOmittingBackend {
   override async *send(
     _session: IBackendSession,
@@ -92,6 +113,20 @@ class SuccessfulBackend extends TerminalOmittingBackend {
       turnId: request.turnId,
       output: { text: 'done' },
     } satisfies AgentEvent;
+  }
+}
+
+class TerminalThenHangingBackend extends TerminalOmittingBackend {
+  override async *send(
+    _session: IBackendSession,
+    request: IAgentRequest,
+  ): AsyncIterable<AgentEvent> {
+    yield {
+      type: 'turn.succeeded',
+      turnId: request.turnId,
+      output: { text: 'done' },
+    } satisfies AgentEvent;
+    await new Promise(() => {});
   }
 }
 
@@ -469,6 +504,244 @@ describe('DurableSessionManager', () => {
         type: 'turn.cancelled',
         turnId: resolved.turn.id,
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('enforces active-turn capacity without creating rejected turn state', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new TerminalOmittingBackend();
+    const manager = new DurableSessionManager({ store, backend, maxActiveTurns: 1 });
+    try {
+      const outcomes = await Promise.allSettled([
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'first' } },
+          { workspaceId: workspace.id, requestId: 'request_1' },
+        ),
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'second' } },
+          { workspaceId: workspace.id, requestId: 'request_2' },
+        ),
+      ]);
+
+      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+      const rejected = outcomes.find(
+        (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+      );
+      expect(rejected?.reason).toMatchObject({
+        code: 'capacity_exhausted',
+        cause: expect.objectContaining({
+          scope: 'active_turns',
+          limit: 1,
+          activeTurnCount: 1,
+          retryAfterMs: 1000,
+        }),
+      });
+      await expect(
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'third' } },
+          { workspaceId: workspace.id, requestId: 'request_3' },
+        ),
+      ).rejects.toMatchObject({
+        code: 'capacity_exhausted',
+        cause: expect.objectContaining({
+          scope: 'active_turns',
+          limit: 1,
+          activeTurnCount: 1,
+          retryAfterMs: 1000,
+        }),
+      });
+      const row = store.database
+        .query<{ count: number }, []>('SELECT count(*) AS count FROM turns')
+        .get();
+      expect(row?.count).toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('releases active-turn capacity when startTurn fails before creating turn state', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const otherWorkspace = await store.getOrCreateWorkspace({
+      rootPath: await realpath(await mkdtemp(path.join(import.meta.dir, 'durable-other-'))),
+    });
+    const thread = await store.createThread({ workspaceId: otherWorkspace.id });
+    const manager = new DurableSessionManager({
+      store,
+      backend: new TerminalOmittingBackend(),
+      maxActiveTurns: 1,
+    });
+    try {
+      await expect(
+        manager.startTurn(
+          { threadId: thread.id, model: 'copilot-agent', input: { message: 'wrong workspace' } },
+          { workspaceId: workspace.id, requestId: 'request_1' },
+        ),
+      ).rejects.toMatchObject({ code: 'workspace_mismatch' });
+
+      await expect(
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'after failure' } },
+          { workspaceId: workspace.id, requestId: 'request_2' },
+        ),
+      ).resolves.toMatchObject({ turn: { status: 'queued' } });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(otherWorkspace.rootPath, { recursive: true, force: true });
+    }
+  });
+
+  test('does not release active-turn capacity until cancellation reaches terminal state', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new DeferredCancelBackend();
+    const manager = new DurableSessionManager({ store, backend, maxActiveTurns: 1 });
+    try {
+      const resolved = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'first' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+      const cancel = manager.cancelTurn(resolved.turn.id);
+      await backend.cancelStarted;
+
+      await expect(
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'while cancelling' } },
+          { workspaceId: workspace.id, requestId: 'request_2' },
+        ),
+      ).rejects.toMatchObject({ code: 'capacity_exhausted' });
+
+      backend.resolveCancel({ status: 'cancelled' });
+      await expect(cancel).resolves.toEqual({ status: 'cancelled' });
+      await expect(
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'after terminal cancel' } },
+          { workspaceId: workspace.id, requestId: 'request_3' },
+        ),
+      ).resolves.toMatchObject({ turn: { status: 'queued' } });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('releases active-turn capacity exactly once after terminal stream event', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new SuccessfulBackend();
+    const manager = new DurableSessionManager({ store, backend, maxActiveTurns: 1 });
+    try {
+      const first = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'first' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+      for await (const _ of manager.streamTurn(first)) {
+      }
+
+      await expect(manager.cancelTurn(first.turn.id)).resolves.toEqual({
+        status: 'already_terminal',
+      });
+      await expect(
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'second' } },
+          { workspaceId: workspace.id, requestId: 'request_2' },
+        ),
+      ).resolves.toMatchObject({ turn: { status: 'queued' } });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('releases active-turn capacity when terminal event is observed before backend cleanup ends', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new TerminalThenHangingBackend();
+    const manager = new DurableSessionManager({ store, backend, maxActiveTurns: 1 });
+    let iterator: AsyncIterator<AgentEvent> | undefined;
+    try {
+      const first = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'first' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+      iterator = manager.streamTurn(first)[Symbol.asyncIterator]();
+
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: 'turn.created' },
+      });
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: 'turn.succeeded' },
+      });
+      await expect(
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'second' } },
+          { workspaceId: workspace.id, requestId: 'request_2' },
+        ),
+      ).resolves.toMatchObject({ turn: { status: 'queued' } });
+    } finally {
+      await iterator?.return?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('does not release active-turn capacity when cancelling turns not reserved by this manager', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new TerminalOmittingBackend();
+    const manager = new DurableSessionManager({ store, backend, maxActiveTurns: 1 });
+    try {
+      const foreignThread = await store.createThread({ workspaceId: workspace.id });
+      const foreignSession = await store.reserveBackendSession({
+        workspaceId: workspace.id,
+        threadId: foreignThread.id,
+        backend: backend.name,
+      });
+      await store.activateBackendSession(foreignSession, { backendSessionId: 'backend_foreign' });
+      const foreignTerminalTurn = await store.createTurn({
+        threadId: foreignThread.id,
+        bridgeSessionId: foreignSession.bridgeSessionId,
+        model: 'copilot-agent',
+      });
+      await store.updateTurnStatus(foreignTerminalTurn.id, 'queued', 'succeeded', Date.now());
+      const foreignQueuedTurn = await store.createTurn({
+        threadId: foreignThread.id,
+        bridgeSessionId: foreignSession.bridgeSessionId,
+        model: 'copilot-agent',
+      });
+
+      await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'first' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+
+      await expect(manager.cancelTurn(foreignTerminalTurn.id)).resolves.toEqual({
+        status: 'already_terminal',
+      });
+      await expect(
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'after terminal foreign cancel' } },
+          { workspaceId: workspace.id, requestId: 'request_2' },
+        ),
+      ).rejects.toMatchObject({ code: 'capacity_exhausted' });
+
+      await expect(manager.cancelTurn(foreignQueuedTurn.id)).resolves.toEqual({
+        status: 'cancelled',
+      });
+      await expect(
+        manager.startTurn(
+          { model: 'copilot-agent', input: { message: 'after queued foreign cancel' } },
+          { workspaceId: workspace.id, requestId: 'request_3' },
+        ),
+      ).rejects.toMatchObject({ code: 'capacity_exhausted' });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

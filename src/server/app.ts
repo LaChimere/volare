@@ -175,90 +175,116 @@ export function createApp(dependencies: IAppDependencies): {
             workspaceId: persistedWorkspace.id,
             requestId,
           });
-          phaseMetrics['sessionStartMs'] = elapsedMs(phaseStartedAt);
-          const streamLogger = logger.child({
-            requestId,
-            workspaceId: persistedWorkspace.id,
-            threadId: resolved.thread.id,
-            turnId: resolved.turn.id,
-            responseId: resolved.externalResponseId ?? resolved.turn.id,
-          });
-          const unmediatedToolingEnabled = dependencies.config.copilotMcpMode === 'unmediated';
-          recordAcceptedTurnMetrics(turnMetrics, unmediatedToolingEnabled);
-          logTurnAudit(streamLogger, {
-            sessionId: resolved.session.bridgeSessionId,
-            copilotMcpMode: dependencies.config.copilotMcpMode,
-            copilotPermissionMode: dependencies.config.copilotPermissionMode,
-            unmediatedToolingEnabled,
-          });
-          streamLogger.info(
-            {
-              event: 'responses.stream.started',
-              model: input.model,
-              ...(reasoningEffort ? { reasoningEffort } : {}),
-            },
-            'responses stream started',
-          );
-          const streamAbort = new AbortController();
-          const streamLifecycle = new StreamLifecycleContext(streamLogger);
-          const stream = asyncIterableToStream(
-            adapter.encodeStream(
-              journalCanonicalEvents(
-                observeLiveTurnMetrics(
-                  sessionManager.streamTurn(resolved, streamAbort.signal),
-                  turnMetrics,
-                  classifyRequestGrounding(input.input),
-                  unmediatedToolingEnabled,
+          let streamOwnershipTransferred = false;
+          try {
+            phaseMetrics['sessionStartMs'] = elapsedMs(phaseStartedAt);
+            const streamLogger = logger.child({
+              requestId,
+              workspaceId: persistedWorkspace.id,
+              threadId: resolved.thread.id,
+              turnId: resolved.turn.id,
+              responseId: resolved.externalResponseId ?? resolved.turn.id,
+            });
+            const unmediatedToolingEnabled = dependencies.config.copilotMcpMode === 'unmediated';
+            recordAcceptedTurnMetrics(turnMetrics, unmediatedToolingEnabled);
+            logTurnAudit(streamLogger, {
+              sessionId: resolved.session.bridgeSessionId,
+              copilotMcpMode: dependencies.config.copilotMcpMode,
+              copilotPermissionMode: dependencies.config.copilotPermissionMode,
+              unmediatedToolingEnabled,
+            });
+            streamLogger.info(
+              {
+                event: 'responses.stream.started',
+                model: input.model,
+                ...(reasoningEffort ? { reasoningEffort } : {}),
+              },
+              'responses stream started',
+            );
+            const streamAbort = new AbortController();
+            const streamLifecycle = new StreamLifecycleContext(streamLogger);
+            const stream = asyncIterableToStream(
+              adapter.encodeStream(
+                journalCanonicalEvents(
+                  observeLiveTurnMetrics(
+                    sessionManager.streamTurn(resolved, streamAbort.signal),
+                    turnMetrics,
+                    classifyRequestGrounding(input.input),
+                    unmediatedToolingEnabled,
+                  ),
+                  dependencies.eventJournal,
                 ),
-                dependencies.eventJournal,
+                {
+                  turnId: resolved.turn.id,
+                  threadId: resolved.thread.id,
+                  parentTurnId: resolved.turn.parentTurnId,
+                  bridgeSessionId: resolved.turn.bridgeSessionId,
+                  externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
+                  previousResponseId: input.clientRef?.parentExternalId ?? null,
+                  requestInput: input.input,
+                  ...(input.metadata ? { requestMetadata: input.metadata } : {}),
+                  model: resolved.turn.model,
+                  createdAt: resolved.turn.createdAt,
+                },
+                streamLifecycle,
               ),
               {
-                turnId: resolved.turn.id,
-                threadId: resolved.thread.id,
-                parentTurnId: resolved.turn.parentTurnId,
-                bridgeSessionId: resolved.turn.bridgeSessionId,
-                externalResponseId: resolved.externalResponseId ?? resolved.turn.id,
-                previousResponseId: input.clientRef?.parentExternalId ?? null,
-                requestInput: input.input,
-                ...(input.metadata ? { requestMetadata: input.metadata } : {}),
-                model: resolved.turn.model,
-                createdAt: resolved.turn.createdAt,
+                onFirstPull: () => {
+                  streamLifecycle.recordFirstPull();
+                },
+                onCancel: async () => {
+                  streamLifecycle.recordCancellation('client_disconnect');
+                  await delay(
+                    dependencies.disconnectGraceMs ?? dependencies.config.disconnectGraceMs,
+                  );
+                  streamAbort.abort();
+                  await sessionManager?.cancelTurn(resolved.turn.id);
+                },
+                onComplete: () => {
+                  streamLifecycle.finalizeCleanReturn();
+                },
+                onError: (error) => {
+                  streamLifecycle.finalizeError(error);
+                },
               },
-              streamLifecycle,
-            ),
-            {
-              onFirstPull: () => {
-                streamLifecycle.recordFirstPull();
-              },
-              onCancel: async () => {
-                streamLifecycle.recordCancellation('client_disconnect');
-                await delay(
-                  dependencies.disconnectGraceMs ?? dependencies.config.disconnectGraceMs,
+            );
+            streamLifecycle.recordResponseCreated();
+            const response = logHttpResponse(
+              logger,
+              logFields,
+              requestStartedAt,
+              new Response(stream, {
+                headers: {
+                  'Content-Type': 'text/event-stream; charset=utf-8',
+                  'Cache-Control': 'no-cache',
+                },
+              }),
+              phaseMetrics,
+            );
+            streamOwnershipTransferred = true;
+            return response;
+          } catch (error) {
+            if (!streamOwnershipTransferred) {
+              try {
+                await sessionManager.cancelTurn(resolved.turn.id);
+              } catch (cleanupError) {
+                const agentError = toVolareError(cleanupError);
+                logger.error(
+                  {
+                    event: 'responses.stream.setup_cleanup_failed',
+                    requestId,
+                    workspaceId: persistedWorkspace.id,
+                    threadId: resolved.thread.id,
+                    turnId: resolved.turn.id,
+                    errorCode: agentError.code,
+                    error: agentError,
+                  },
+                  'responses stream setup cleanup failed',
                 );
-                streamAbort.abort();
-                await sessionManager?.cancelTurn(resolved.turn.id);
-              },
-              onComplete: () => {
-                streamLifecycle.finalizeCleanReturn();
-              },
-              onError: (error) => {
-                streamLifecycle.finalizeError(error);
-              },
-            },
-          );
-          streamLifecycle.recordResponseCreated();
-          return logHttpResponse(
-            logger,
-            logFields,
-            requestStartedAt,
-            new Response(stream, {
-              headers: {
-                'Content-Type': 'text/event-stream; charset=utf-8',
-                'Cache-Control': 'no-cache',
-              },
-            }),
-            phaseMetrics,
-          );
+              }
+            }
+            throw error;
+          }
         }
 
         const responseMatch = openAIPath?.match(/^\/responses\/([^/]+)$/);
