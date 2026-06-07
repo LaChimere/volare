@@ -266,8 +266,6 @@ export class DurableSessionManager implements ISessionManager {
   }
 
   async *streamTurn(resolved: IResolvedTurn, signal?: AbortSignal): AsyncIterable<AgentEvent> {
-    this.#assertSessionScope(resolved.session, resolved.request);
-    await this.#store.updateTurnStatus(resolved.turn.id, 'queued', 'running');
     const startedAt = performance.now();
     let canonicalEventCount = 0;
     const record = (event: AgentEvent): AgentEvent => {
@@ -275,6 +273,8 @@ export class DurableSessionManager implements ISessionManager {
       return this.#record(resolved.turn.id, event);
     };
     try {
+      this.#assertSessionScope(resolved.session, resolved.request);
+      await this.#store.updateTurnStatus(resolved.turn.id, 'queued', 'running');
       this.#logger.info(
         {
           event: 'turn.stream.started',
