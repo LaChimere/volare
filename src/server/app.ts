@@ -348,6 +348,7 @@ export function createApp(dependencies: IAppDependencies): {
               adapter,
               sessionManager,
               stateStore,
+              eventJournal: dependencies.eventJournal,
             }),
           );
         }

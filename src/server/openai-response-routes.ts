@@ -45,6 +45,7 @@ export async function handleCancelOpenAIResponse(input: {
   adapter: OpenAIResponsesAdapter;
   sessionManager: ISessionManager | undefined;
   stateStore: IStateStore | undefined;
+  eventJournal: IEventJournal | undefined;
 }): Promise<Response> {
   if (!input.sessionManager) {
     return encodeOpenAIError(new VolareError('not_found', 'Response not found'));
@@ -62,10 +63,14 @@ export async function handleCancelOpenAIResponse(input: {
   if (!turn) {
     return encodeOpenAIError(new VolareError('not_found', 'Response not found'));
   }
+  let events = input.sessionManager.getEvents(turn.id);
+  if (events.length === 0 && input.eventJournal) {
+    events = await collectAgentEvents(input.eventJournal.replay(turn.id));
+  }
   return Response.json(
     input.adapter.encodeStoredResponse(
       clientRef ? { ...turn, id: clientRef.externalId } : turn,
-      input.sessionManager.getEvents(turn.id),
+      events,
       { previousResponseId: clientRef?.parentExternalId ?? null },
     ),
   );
