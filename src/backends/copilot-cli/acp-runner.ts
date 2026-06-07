@@ -1,4 +1,8 @@
 import { VolareError } from '../../core/errors';
+import type {
+  AcpNativeCancelClassification,
+  IRuntimeCapabilityRegistry,
+} from '../../core/runtime-capability-registry';
 import type { ICancelOptions, ICancelResult } from '../../core/types';
 import { type ILogger, NoopLogger } from '../../logging/logger';
 import {
@@ -35,6 +39,7 @@ export interface IAcpCopilotPromptRunnerOptions {
   cancelStrategy?: AcpCancelStrategy;
   nativeCancelSupport?: AcpNativeCancelSupport;
   nativeCancelWaitMs?: number;
+  capabilityRegistry?: IRuntimeCapabilityRegistry;
   logger?: ILogger;
   childProcessEnv?: Record<string, string>;
   spawn?: (args: string[], options: { cwd: string }) => IAcpProcess;
@@ -50,6 +55,12 @@ export type AcpNativeCancelSupport =
 export const DEFAULT_ACP_CANCEL_STRATEGY: AcpCancelStrategy = 'kill';
 export const DEFAULT_ACP_NATIVE_CANCEL_SUPPORT: AcpNativeCancelSupport = 'unknown';
 export const DEFAULT_ACP_NATIVE_CANCEL_WAIT_MS = 5000;
+const NATIVE_TERMINAL_ONLY_FALLBACK_REASONS = new Set([
+  'reuse_verification_timeout',
+  'reuse_verification_failed',
+  'reuse_verification_wrong_stop_reason',
+  'reuse_verification_leaked_output',
+]);
 
 interface IAcpWorker {
   backendSessionId: string;
@@ -89,6 +100,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #cancelStrategy: AcpCancelStrategy;
   #nativeCancelSupport: AcpNativeCancelSupport;
   readonly #nativeCancelWaitMs: number;
+  readonly #capabilityRegistry: IRuntimeCapabilityRegistry | undefined;
   readonly #logger: ILogger;
   readonly #childProcessEnv: Record<string, string>;
   readonly #spawn: (args: string[], options: { cwd: string }) => IAcpProcess;
@@ -107,6 +119,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     this.#cancelStrategy = options.cancelStrategy ?? DEFAULT_ACP_CANCEL_STRATEGY;
     this.#nativeCancelSupport = options.nativeCancelSupport ?? DEFAULT_ACP_NATIVE_CANCEL_SUPPORT;
     this.#nativeCancelWaitMs = options.nativeCancelWaitMs ?? DEFAULT_ACP_NATIVE_CANCEL_WAIT_MS;
+    this.#capabilityRegistry = options.capabilityRegistry;
     this.#childProcessEnv = options.childProcessEnv ?? {};
     this.#logger = (options.logger ?? new NoopLogger()).child({
       component: 'backend',
@@ -128,6 +141,9 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
             CI: '1',
           },
         }));
+    if (options.nativeCancelSupport !== undefined) {
+      this.#recordNativeCancelSupport(this.#nativeCancelSupport, 'config');
+    }
   }
 
   async *run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string> {
@@ -267,9 +283,13 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     worker: IAcpWorker,
     active: IActivePrompt,
     options: ICancelOptions,
+    preserveNativeCancelObservation = false,
   ): Promise<ICancelResult> {
     const activeGeneration = active.generation;
     this.#workers.delete(worker.backendSessionId);
+    if (!preserveNativeCancelObservation) {
+      this.#invalidateNativeCancelObservation('backend_session_disposed');
+    }
     this.#stopAcceptingDeltas(active);
     active.queue.fail(new VolareError('backend_cancelled', 'ACP prompt was cancelled'));
     await worker.peer
@@ -377,6 +397,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     worker.idleSinceMs = Date.now();
     active.cancelManaged = true;
     this.#nativeCancelSupport = 'native-reusable';
+    this.#recordNativeCancelSupport('native-reusable', 'probe');
     active.queue.fail(new VolareError('backend_cancelled', 'ACP prompt was cancelled'));
     return { status: 'cancelled' };
   }
@@ -450,10 +471,18 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       },
       'ACP native cancel fell back to kill',
     );
+    const classification = nativeFallbackClassification(details.reason);
+    this.#nativeCancelSupport = acpNativeCancelSupportFromClassification(classification);
+    this.#capabilityRegistry?.updateAcpNativeCancel({
+      classification,
+      source: 'probe',
+      reason: details.reason,
+    });
     return await this.#cancelKill(
       worker,
       active,
       this.#withRemainingCancelBudget(options, deadlineMs),
+      true,
     );
   }
 
@@ -490,6 +519,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       return;
     }
     this.#workers.delete(backendSessionId);
+    this.#invalidateNativeCancelObservation('backend_session_disposed');
     worker.peer.close();
     worker.proc.kill('SIGTERM');
     await Promise.race([worker.proc.exited, Bun.sleep(250)]);
@@ -593,6 +623,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       void proc.exited.then((exitCode) => {
         if (worker && this.#workers.get(backendSessionId) === worker) {
           this.#workers.delete(backendSessionId);
+          this.#invalidateNativeCancelObservation('backend_worker_exited');
           worker.active?.queue.fail(
             new VolareError('backend_process_failed', `ACP worker exited with ${exitCode}`),
           );
@@ -683,6 +714,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   async #replaceWorker(worker: IAcpWorker, reason: string): Promise<void> {
     if (this.#workers.get(worker.backendSessionId) === worker) {
       this.#workers.delete(worker.backendSessionId);
+      this.#invalidateNativeCancelObservation(reason);
     }
 
     worker.peer.close();
@@ -722,6 +754,58 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       '--log-level',
       'error',
     ];
+  }
+
+  #recordNativeCancelSupport(support: AcpNativeCancelSupport, source: 'config' | 'probe'): void {
+    this.#capabilityRegistry?.updateAcpNativeCancel({
+      classification: acpNativeCancelClassification(support),
+      source,
+    });
+  }
+
+  #invalidateNativeCancelObservation(reason: string): void {
+    this.#nativeCancelSupport = 'unknown';
+    this.#capabilityRegistry?.invalidateAcpNativeCancel(reason);
+  }
+}
+
+function nativeFallbackClassification(reason: string): AcpNativeCancelClassification {
+  if (NATIVE_TERMINAL_ONLY_FALLBACK_REASONS.has(reason)) {
+    return 'native-terminal-only';
+  }
+  if (reason === 'native_wrong_stop_reason') {
+    return 'unsupported';
+  }
+  return 'unknown';
+}
+
+function acpNativeCancelSupportFromClassification(
+  classification: AcpNativeCancelClassification,
+): AcpNativeCancelSupport {
+  switch (classification) {
+    case 'native-reusable':
+      return 'native-reusable';
+    case 'native-terminal-only':
+      return 'native-terminal-only';
+    case 'unsupported':
+      return 'unsupported';
+    case 'unknown':
+      return 'unknown';
+  }
+}
+
+function acpNativeCancelClassification(
+  support: AcpNativeCancelSupport,
+): AcpNativeCancelClassification {
+  switch (support) {
+    case 'native-reusable':
+      return 'native-reusable';
+    case 'native-terminal-only':
+      return 'native-terminal-only';
+    case 'unsupported':
+      return 'unsupported';
+    case 'unknown':
+      return 'unknown';
   }
 }
 

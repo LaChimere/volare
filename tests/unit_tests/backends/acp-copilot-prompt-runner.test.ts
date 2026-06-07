@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { AcpCopilotPromptRunner } from '../../../src/backends/copilot-cli/acp-runner';
+import { RuntimeCapabilityRegistry } from '../../../src/core/runtime-capability-registry';
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
@@ -301,8 +302,14 @@ describe('AcpCopilotPromptRunner', () => {
 
   test('native cancel reuses worker after cancelled stopReason and verification', async () => {
     const processes: FakeAcpProcess[] = [];
+    const capabilityRegistry = new RuntimeCapabilityRegistry({
+      runtimeMode: 'acp',
+      maxActiveTurns: 2,
+      now: () => 1000,
+    });
     const runner = new AcpCopilotPromptRunner({
       cancelStrategy: 'native',
+      capabilityRegistry,
       spawn: () => {
         const proc = new FakeAcpProcess();
         proc.promptMode = 'cancelled-on-cancel';
@@ -325,6 +332,11 @@ describe('AcpCopilotPromptRunner', () => {
     );
 
     await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
+    expect(capabilityRegistry.snapshot().acp.nativeCancel).toMatchObject({
+      classification: 'native-reusable',
+      support: 'supported',
+      source: 'probe',
+    });
 
     const proc = processes[0];
     expect(proc?.inputs.join('\n')).toContain('session/cancel');
@@ -445,8 +457,18 @@ describe('AcpCopilotPromptRunner', () => {
 
   test('native cancel falls back to kill on wrong stopReason', async () => {
     const processes: FakeAcpProcess[] = [];
+    const capabilityRegistry = new RuntimeCapabilityRegistry({
+      runtimeMode: 'acp',
+      maxActiveTurns: 2,
+      now: () => 1000,
+    });
+    capabilityRegistry.updateAcpNativeCancel({
+      classification: 'native-reusable',
+      source: 'probe',
+    });
     const runner = new AcpCopilotPromptRunner({
       cancelStrategy: 'native',
+      capabilityRegistry,
       spawn: () => {
         const proc = new FakeAcpProcess();
         proc.promptMode = 'end-turn-on-cancel';
@@ -469,6 +491,12 @@ describe('AcpCopilotPromptRunner', () => {
     );
 
     await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
+    expect(capabilityRegistry.snapshot().acp.nativeCancel).toMatchObject({
+      classification: 'unsupported',
+      support: 'unsupported',
+      source: 'probe',
+      reason: 'native_wrong_stop_reason',
+    });
 
     expect(processes[0]?.inputs.join('\n')).toContain('session/cancel');
     expect(processes[0]?.killed).toEqual(['SIGTERM']);
@@ -511,8 +539,14 @@ describe('AcpCopilotPromptRunner', () => {
 
   test('native cancel falls back when reuse verification output is contaminated', async () => {
     const processes: FakeAcpProcess[] = [];
+    const capabilityRegistry = new RuntimeCapabilityRegistry({
+      runtimeMode: 'acp',
+      maxActiveTurns: 2,
+      now: () => 1000,
+    });
     const runner = new AcpCopilotPromptRunner({
       cancelStrategy: 'native',
+      capabilityRegistry,
       spawn: () => {
         const proc = new FakeAcpProcess();
         proc.promptMode = 'cancelled-on-cancel';
@@ -536,6 +570,12 @@ describe('AcpCopilotPromptRunner', () => {
     );
 
     await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
+    expect(capabilityRegistry.snapshot().acp.nativeCancel).toMatchObject({
+      classification: 'native-terminal-only',
+      support: 'unsupported',
+      source: 'probe',
+      reason: 'reuse_verification_leaked_output',
+    });
 
     expect(processes[0]?.killed).toEqual(['SIGTERM']);
     await expect(firstChunk).resolves.toBeInstanceOf(Error);
@@ -543,9 +583,15 @@ describe('AcpCopilotPromptRunner', () => {
 
   test('native cancel falls back to kill when native wait expires', async () => {
     const processes: FakeAcpProcess[] = [];
+    const capabilityRegistry = new RuntimeCapabilityRegistry({
+      runtimeMode: 'acp',
+      maxActiveTurns: 2,
+      now: () => 1000,
+    });
     const runner = new AcpCopilotPromptRunner({
       cancelStrategy: 'native',
       nativeCancelWaitMs: 1,
+      capabilityRegistry,
       spawn: () => {
         const proc = new FakeAcpProcess();
         proc.promptMode = 'never';
@@ -569,6 +615,12 @@ describe('AcpCopilotPromptRunner', () => {
     );
 
     await expect(runner.cancel('backend_1')).resolves.toEqual({ status: 'cancelled' });
+    expect(capabilityRegistry.snapshot().acp.nativeCancel).toMatchObject({
+      classification: 'unknown',
+      support: 'unknown',
+      source: 'probe',
+      reason: 'native_timeout',
+    });
 
     expect(processes[0]?.killed).toEqual(['SIGTERM']);
     await expect(firstChunk).resolves.toBeInstanceOf(Error);
@@ -879,7 +931,17 @@ describe('AcpCopilotPromptRunner', () => {
 
   test('removes exited idle workers from the cap', async () => {
     const processes: FakeAcpProcess[] = [];
+    const capabilityRegistry = new RuntimeCapabilityRegistry({
+      runtimeMode: 'acp',
+      maxActiveTurns: 2,
+      now: () => 1000,
+    });
+    capabilityRegistry.updateAcpNativeCancel({
+      classification: 'native-reusable',
+      source: 'probe',
+    });
     const runner = new AcpCopilotPromptRunner({
+      capabilityRegistry,
       spawn: () => {
         const proc = new FakeAcpProcess();
         processes.push(proc);
@@ -897,11 +959,54 @@ describe('AcpCopilotPromptRunner', () => {
     await collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp/a' }));
     processes[0]?.resolveExit(0);
     await Bun.sleep(0);
+    expect(capabilityRegistry.snapshot().acp.nativeCancel).toMatchObject({
+      classification: 'unknown',
+      support: 'unknown',
+      source: 'unknown',
+      reason: 'backend_worker_exited',
+    });
 
     await expect(
       collect(runner.run('prompt text', { backendSessionId: 'backend_2', cwd: '/tmp/b' })),
     ).resolves.toEqual(['hello']);
     expect(processes).toHaveLength(2);
+  });
+
+  test('invalidates native cancel observations when disposing a worker', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const capabilityRegistry = new RuntimeCapabilityRegistry({
+      runtimeMode: 'acp',
+      maxActiveTurns: 2,
+      now: () => 1000,
+    });
+    capabilityRegistry.updateAcpNativeCancel({
+      classification: 'native-reusable',
+      source: 'probe',
+    });
+    const runner = new AcpCopilotPromptRunner({
+      capabilityRegistry,
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+
+    await collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp/a' }));
+    await runner.dispose('backend_1');
+
+    expect(capabilityRegistry.snapshot().acp.nativeCancel).toMatchObject({
+      classification: 'unknown',
+      support: 'unknown',
+      source: 'unknown',
+      reason: 'backend_session_disposed',
+    });
   });
 
   test('evicts idle workers before enforcing the worker cap', async () => {
