@@ -15,6 +15,7 @@ import {
   parseAcpSessionNewResponse,
   selectAcpAuthMethod,
 } from './acp';
+import { type IWorkerAdmissionLease, WorkerAdmissionQueue } from './admission-queue';
 import {
   type CopilotCliPermissionMode,
   DEFAULT_COPILOT_CLI_PERMISSION_MODE,
@@ -34,6 +35,7 @@ export interface IAcpCopilotPromptRunnerOptions {
   command?: string;
   permissionMode?: CopilotCliPermissionMode;
   maxWorkers?: number;
+  admissionTimeoutMs?: number;
   requestTimeoutMs?: number;
   idleTimeoutMs?: number;
   cancelStrategy?: AcpCancelStrategy;
@@ -71,6 +73,7 @@ interface IAcpWorker {
   active: IActivePrompt | null;
   reuseVerification: IReuseVerification | null;
   cancellation: Promise<ICancelResult> | null;
+  admission: IWorkerAdmissionLease;
   generation: number;
   idleSinceMs: number;
 }
@@ -88,6 +91,7 @@ interface IReuseVerification {
 }
 
 const DEFAULT_ACP_MAX_WORKERS = 10;
+export const DEFAULT_ACP_ADMISSION_TIMEOUT_MS = 30_000;
 const DEFAULT_ACP_REQUEST_TIMEOUT_MS = 600_000;
 const DEFAULT_ACP_IDLE_TIMEOUT_MS = 300_000;
 
@@ -95,6 +99,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   readonly #command: string;
   readonly #permissionMode: CopilotCliPermissionMode;
   readonly #maxWorkers: number;
+  readonly #admissionQueue: WorkerAdmissionQueue;
   readonly #requestTimeoutMs: number;
   readonly #idleTimeoutMs: number;
   readonly #cancelStrategy: AcpCancelStrategy;
@@ -114,6 +119,10 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     this.#command = options.command ?? 'copilot';
     this.#permissionMode = options.permissionMode ?? DEFAULT_COPILOT_CLI_PERMISSION_MODE;
     this.#maxWorkers = options.maxWorkers ?? DEFAULT_ACP_MAX_WORKERS;
+    this.#admissionQueue = new WorkerAdmissionQueue({
+      maxActive: this.#maxWorkers,
+      timeoutMs: options.admissionTimeoutMs ?? DEFAULT_ACP_ADMISSION_TIMEOUT_MS,
+    });
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_ACP_REQUEST_TIMEOUT_MS;
     this.#idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_ACP_IDLE_TIMEOUT_MS;
     this.#cancelStrategy = options.cancelStrategy ?? DEFAULT_ACP_CANCEL_STRATEGY;
@@ -146,8 +155,20 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     }
   }
 
+  async prepare(options: ICopilotPromptRunOptions): Promise<void> {
+    await this.#getOrCreateWorker(options.backendSessionId, options.cwd, options.signal);
+  }
+
+  shutdown(reason = 'shutdown'): void {
+    this.#admissionQueue.shutdown(reason);
+  }
+
   async *run(prompt: string, options: ICopilotPromptRunOptions): AsyncIterable<string> {
-    const worker = await this.#getOrCreateWorker(options.backendSessionId, options.cwd);
+    const worker = await this.#getOrCreateWorker(
+      options.backendSessionId,
+      options.cwd,
+      options.signal,
+    );
     if (worker.active) {
       throw new VolareError('backend_worker_busy', 'ACP worker already has an active prompt');
     }
@@ -247,6 +268,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     }
     if (!worker && creating) {
       this.#cancelledCreations.add(backendSessionId);
+      this.#admissionQueue.cancel(backendSessionId, 'backend_cancelled');
       this.#startupKillers.get(backendSessionId)?.();
       await creating.catch(() => undefined);
       return { status: 'cancelled' };
@@ -287,6 +309,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
   ): Promise<ICancelResult> {
     const activeGeneration = active.generation;
     this.#workers.delete(worker.backendSessionId);
+    worker.admission.release();
     if (!preserveNativeCancelObservation) {
       this.#invalidateNativeCancelObservation('backend_session_disposed');
     }
@@ -511,6 +534,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     const creating = this.#creatingWorkers.get(backendSessionId);
     if (!worker && creating) {
       this.#cancelledCreations.add(backendSessionId);
+      this.#admissionQueue.cancel(backendSessionId, 'backend_session_disposed');
       this.#startupKillers.get(backendSessionId)?.();
       await creating.catch(() => undefined);
       return;
@@ -520,6 +544,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     }
     this.#workers.delete(backendSessionId);
     this.#invalidateNativeCancelObservation('backend_session_disposed');
+    worker.admission.release();
     worker.peer.close();
     worker.proc.kill('SIGTERM');
     await Promise.race([worker.proc.exited, Bun.sleep(250)]);
@@ -530,7 +555,11 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     active.acceptingDeltas = false;
   }
 
-  async #getOrCreateWorker(backendSessionId: string, cwd: string): Promise<IAcpWorker> {
+  async #getOrCreateWorker(
+    backendSessionId: string,
+    cwd: string,
+    signal?: AbortSignal,
+  ): Promise<IAcpWorker> {
     await this.#evictIdleWorkers();
     let existing = this.#workers.get(backendSessionId);
     if (existing?.cancellation) {
@@ -550,10 +579,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     if (creating) {
       return await creating;
     }
-    if (this.#workers.size + this.#creatingWorkers.size >= this.#maxWorkers) {
-      throw new VolareError('backend_worker_cap_exhausted', 'ACP worker cap exhausted');
-    }
-    const creatingWorker = this.#createWorker(backendSessionId, cwd);
+    const creatingWorker = this.#createWorker(backendSessionId, cwd, signal);
     this.#creatingWorkers.set(backendSessionId, creatingWorker);
     try {
       return await creatingWorker;
@@ -563,7 +589,16 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     }
   }
 
-  async #createWorker(backendSessionId: string, cwd: string): Promise<IAcpWorker> {
+  async #createWorker(
+    backendSessionId: string,
+    cwd: string,
+    signal?: AbortSignal,
+  ): Promise<IAcpWorker> {
+    const admission = await this.#admissionQueue.acquire(backendSessionId, signal);
+    if (signal?.aborted) {
+      admission.release();
+      throw new VolareError('backend_cancelled', 'ACP worker admission was cancelled');
+    }
     const proc = this.#spawn(this.#buildArgs(), { cwd });
     let worker: IAcpWorker | undefined;
     const peer = new AcpJsonRpcPeer({
@@ -592,6 +627,14 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       proc.kill('SIGTERM');
       proc.kill('SIGKILL');
     });
+    const abortStartup = () => {
+      this.#cancelledCreations.add(backendSessionId);
+      this.#startupKillers.get(backendSessionId)?.();
+    };
+    signal?.addEventListener('abort', abortStartup, { once: true });
+    if (signal?.aborted) {
+      abortStartup();
+    }
     try {
       const initializedAt = performance.now();
       if (this.#cancelledCreations.has(backendSessionId)) {
@@ -615,6 +658,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         active: null,
         reuseVerification: null,
         cancellation: null,
+        admission,
         generation: this.#nextGeneration,
         idleSinceMs: Date.now(),
       };
@@ -624,6 +668,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         if (worker && this.#workers.get(backendSessionId) === worker) {
           this.#workers.delete(backendSessionId);
           this.#invalidateNativeCancelObservation('backend_worker_exited');
+          worker.admission.release();
           worker.active?.queue.fail(
             new VolareError('backend_process_failed', `ACP worker exited with ${exitCode}`),
           );
@@ -649,12 +694,20 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       );
       return worker;
     } catch (error) {
+      const cancelled = this.#cancelledCreations.has(backendSessionId) || signal?.aborted;
+      admission.release();
       peer.close();
       proc.kill('SIGTERM');
       await Promise.race([proc.exited, Bun.sleep(250)]);
       proc.kill('SIGKILL');
+      if (cancelled) {
+        throw new VolareError('backend_cancelled', 'ACP worker startup was cancelled', {
+          cause: error,
+        });
+      }
       throw error;
     } finally {
+      signal?.removeEventListener('abort', abortStartup);
       this.#startupKillers.delete(backendSessionId);
     }
   }
@@ -715,6 +768,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     if (this.#workers.get(worker.backendSessionId) === worker) {
       this.#workers.delete(worker.backendSessionId);
       this.#invalidateNativeCancelObservation(reason);
+      worker.admission.release();
     }
 
     worker.peer.close();

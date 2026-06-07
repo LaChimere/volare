@@ -420,6 +420,89 @@ describe('server app', () => {
     });
   });
 
+  test('maps ACP worker admission timeout to retryable OpenAI capacity error', async () => {
+    const capacityManager: ISessionManager = {
+      async startTurn(): Promise<IResolvedTurn> {
+        throw new VolareError(
+          'backend_worker_admission_timeout',
+          'ACP worker admission timed out',
+          {
+            cause: { scope: 'backend_worker_admission', retryAfterMs: 1250 },
+          },
+        );
+      },
+      async getTurn() {
+        return null;
+      },
+      getEvents() {
+        return [];
+      },
+      async *streamTurn() {},
+      async cancelTurn() {
+        return { status: 'not_found' };
+      },
+    };
+    const app = createInMemoryApp({ sessionManager: capacityManager });
+
+    const response = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'copilot-agent', input: 'hello', stream: true }),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('2');
+    expect(response.headers.get('X-Volare-Retry-After-Ms')).toBe('1250');
+    expect(response.headers.get('X-Volare-Capacity-Scope')).toBe('backend_worker_admission');
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        type: 'rate_limit_error',
+        message: 'ACP worker admission timed out',
+        code: 'backend_worker_admission_timeout',
+        param: null,
+      },
+    });
+  });
+
+  test('maps admission shutdown drain to retryable service unavailable error', async () => {
+    const unavailableManager: ISessionManager = {
+      async startTurn(): Promise<IResolvedTurn> {
+        throw new VolareError('service_unavailable', 'ACP worker admission is shutting down', {
+          cause: { retryAfterMs: 1500, reason: 'shutdown' },
+        });
+      },
+      async getTurn() {
+        return null;
+      },
+      getEvents() {
+        return [];
+      },
+      async *streamTurn() {},
+      async cancelTurn() {
+        return { status: 'not_found' };
+      },
+    };
+    const app = createInMemoryApp({ sessionManager: unavailableManager });
+
+    const response = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'copilot-agent', input: 'hello', stream: true }),
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Retry-After')).toBe('2');
+    expect(response.headers.get('X-Volare-Retry-After-Ms')).toBe('1500');
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        type: 'service_unavailable',
+        message: 'ACP worker admission is shutting down',
+      },
+    });
+  });
+
   test('cancels an accepted turn when response stream setup fails', async () => {
     const workspace: IWorkspace = {
       id: 'workspace_test',
@@ -1684,6 +1767,9 @@ describe('server app', () => {
       createServerRuntimeConfig({ VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS: '0' }),
     ).toThrow('VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS must be an integer');
     expect(() =>
+      createServerRuntimeConfig({ VOLARE_COPILOT_ACP_ADMISSION_TIMEOUT_MS: '-1' }),
+    ).toThrow('VOLARE_COPILOT_ACP_ADMISSION_TIMEOUT_MS must be an integer');
+    expect(() =>
       createServerRuntimeConfig({
         VOLARE_COPILOT_MCP_MODE: 'unmediated',
         VOLARE_COPILOT_PERMISSION_MODE: 'restricted',
@@ -1715,6 +1801,7 @@ describe('server app', () => {
         VOLARE_EVENT_RETENTION_DAYS: '30',
         VOLARE_COPILOT_RUNTIME_MODE: 'process',
         VOLARE_COPILOT_ACP_MAX_WORKERS: '8',
+        VOLARE_COPILOT_ACP_ADMISSION_TIMEOUT_MS: '2500',
         VOLARE_COPILOT_ACP_CANCEL_STRATEGY: 'native',
         VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS: '5000',
         VOLARE_COPILOT_PERMISSION_MODE: 'full',
@@ -1734,6 +1821,7 @@ describe('server app', () => {
       eventRetentionDays: 30,
       copilotRuntimeMode: 'process',
       copilotAcpMaxWorkers: 8,
+      copilotAcpAdmissionTimeoutMs: 2500,
       copilotAcpCancelStrategy: 'native',
       copilotAcpNativeCancelWaitMs: 5000,
       copilotPermissionMode: 'full',
@@ -1746,6 +1834,7 @@ describe('server app', () => {
     });
     expect(createServerRuntimeConfig({}).copilotRuntimeMode).toBe('process');
     expect(createServerRuntimeConfig({}).copilotAcpMaxWorkers).toBe(10);
+    expect(createServerRuntimeConfig({}).copilotAcpAdmissionTimeoutMs).toBe(30_000);
     expect(createServerRuntimeConfig({}).copilotAcpCancelStrategy).toBe('kill');
     expect(createServerRuntimeConfig({}).copilotAcpNativeCancelWaitMs).toBe(5000);
     expect(

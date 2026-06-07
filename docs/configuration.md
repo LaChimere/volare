@@ -37,6 +37,7 @@ If `VOLARE_API_KEY` is not set and no persisted token exists, the server generat
 | `VOLARE_EVENT_RETENTION_DAYS` | unset | When set, terminal-turn events older than the configured days can be pruned. |
 | `VOLARE_COPILOT_RUNTIME_MODE` | `process` | Copilot backend runtime: `process` keeps the existing per-turn `copilot --prompt` subprocess path; `acp` opts into the experimental long-lived `copilot --acp` runtime. |
 | `VOLARE_COPILOT_ACP_MAX_WORKERS` | `10` | Maximum live ACP workers when ACP mode is enabled. The effective cap is no greater than `VOLARE_MAX_ACTIVE_SESSIONS`. |
+| `VOLARE_COPILOT_ACP_ADMISSION_TIMEOUT_MS` | `30000` | ACP-only worker admission queue timeout. `0` disables waiting and fails immediately when all worker slots are occupied. |
 | `VOLARE_COPILOT_ACP_CANCEL_STRATEGY` | `kill` | ACP-only cancellation strategy: `kill` uses kill-and-replace, `native` attempts ACP `session/cancel` with bounded fallback, and `auto` uses native only when in-memory support evidence proves reusable cancellation. |
 | `VOLARE_COPILOT_ACP_NATIVE_CANCEL_WAIT_MS` | `5000` | ACP-only native cancel wait budget. When force cancellation is active, this wait shares the existing `VOLARE_CANCEL_TIMEOUT_MS` cleanup budget. |
 | `VOLARE_COPILOT_PERMISSION_MODE` | `full` | Copilot CLI permission mode: `full` passes Copilot CLI `--allow-all`, `web` allows public URL fetches only, and `restricted` passes no non-interactive grants. |
