@@ -19,7 +19,8 @@ import {
 } from '../northbound/openai-responses/adapter';
 import { requireBearerAuth } from './auth';
 import type { IServerRuntimeConfig } from './config';
-import { collectAgentEvents, journalCanonicalEvents } from './event-streams';
+import { journalCanonicalEvents } from './event-streams';
+import { handleCancelOpenAIResponse, handleStoredOpenAIResponse } from './openai-response-routes';
 import { asyncIterableToStream } from './readable-stream';
 import { StreamLifecycleContext } from './stream-lifecycle';
 import {
@@ -322,84 +323,32 @@ export function createApp(dependencies: IAppDependencies): {
 
         const responseMatch = openAIPath?.match(/^\/responses\/([^/]+)$/);
         if (request.method === 'GET' && responseMatch?.[1]) {
-          if (!sessionManager) {
-            return logHttpResponse(
-              logger,
-              logFields,
-              requestStartedAt,
-              encodeOpenAIError(new VolareError('not_found', 'Response not found')),
-            );
-          }
-          const clientRef = await stateStore?.resolveClientRef(adapter.protocol, responseMatch[1]);
-          const turnId = clientRef?.turnId ?? responseMatch[1];
-          const turn = await sessionManager.getTurn(turnId);
-          if (!turn) {
-            return logHttpResponse(
-              logger,
-              logFields,
-              requestStartedAt,
-              encodeOpenAIError(new VolareError('not_found', 'Response not found')),
-            );
-          }
-          let events = sessionManager.getEvents(turn.id);
-          if (events.length === 0 && dependencies.eventJournal) {
-            events = await collectAgentEvents(dependencies.eventJournal.replay(turn.id));
-          }
           return logHttpResponse(
             logger,
             logFields,
             requestStartedAt,
-            Response.json(
-              adapter.encodeStoredResponse(
-                clientRef ? { ...turn, id: clientRef.externalId } : turn,
-                events,
-                { previousResponseId: clientRef?.parentExternalId ?? null },
-              ),
-            ),
+            await handleStoredOpenAIResponse({
+              responseId: responseMatch[1],
+              adapter,
+              sessionManager,
+              stateStore,
+              eventJournal: dependencies.eventJournal,
+            }),
           );
         }
 
         const cancelMatch = openAIPath?.match(/^\/responses\/([^/]+)\/cancel$/);
         if (request.method === 'POST' && cancelMatch?.[1]) {
-          if (!sessionManager) {
-            return logHttpResponse(
-              logger,
-              logFields,
-              requestStartedAt,
-              encodeOpenAIError(new VolareError('not_found', 'Response not found')),
-            );
-          }
-          const clientRef = await stateStore?.resolveClientRef(adapter.protocol, cancelMatch[1]);
-          const turnId = clientRef?.turnId ?? cancelMatch[1];
-          const result = await sessionManager.cancelTurn(turnId);
-          if (result.status === 'not_found') {
-            return logHttpResponse(
-              logger,
-              logFields,
-              requestStartedAt,
-              encodeOpenAIError(new VolareError('not_found', 'Response not found')),
-            );
-          }
-          const turn = await sessionManager.getTurn(turnId);
-          if (!turn) {
-            return logHttpResponse(
-              logger,
-              logFields,
-              requestStartedAt,
-              encodeOpenAIError(new VolareError('not_found', 'Response not found')),
-            );
-          }
           return logHttpResponse(
             logger,
             logFields,
             requestStartedAt,
-            Response.json(
-              adapter.encodeStoredResponse(
-                clientRef ? { ...turn, id: clientRef.externalId } : turn,
-                sessionManager.getEvents(turn.id),
-                { previousResponseId: clientRef?.parentExternalId ?? null },
-              ),
-            ),
+            await handleCancelOpenAIResponse({
+              responseId: cancelMatch[1],
+              adapter,
+              sessionManager,
+              stateStore,
+            }),
           );
         }
 

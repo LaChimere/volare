@@ -2,7 +2,7 @@
 
 ## Status
 
-Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, PR 3 runtime capability registry, PR 4 ACP worker admission queue, and PR 5 ACP worker observability / idle reaper have been completed.
+Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, PR 3 runtime capability registry, PR 4 ACP worker admission queue, PR 5 ACP worker observability / idle reaper, and PR 6 HTTP app boundary cleanup have been completed.
 
 ## PR 0: Runtime-control baseline
 
@@ -208,15 +208,15 @@ Evidence:
 - [x] Extract stream lifecycle observer
 - [x] Extract journal wrapper
 - [x] Extract metrics collector
-- [ ] Move OpenAI Responses error encoding into adapter package
-- [ ] Extract route handlers incrementally
-- [ ] Preserve current behavior with server/integration tests
+- [x] Move OpenAI Responses error encoding into adapter package
+- [x] Extract route handlers incrementally
+- [x] Preserve current behavior with server/integration tests
 
 Acceptance evidence:
 
-- [ ] Route/status/SSE behavior unchanged
+- [x] Route/status/SSE behavior unchanged
 - [x] OpenAI error body encoding no longer lives in generic app transport logic
-- [ ] No unrelated runtime behavior changes
+- [x] No unrelated runtime behavior changes
 
 Evidence:
 
@@ -225,6 +225,7 @@ Evidence:
 - Extracted canonical journal stream helpers into `src/server/event-streams.ts`.
 - Extracted live-turn metrics into `src/server/turn-metrics.ts`.
 - Existing OpenAI error encoding remains in `src/northbound/openai-responses/adapter.ts`; no response schema or route behavior changed in this slice.
+- Extracted stored-response and cancel response helpers into `src/server/openai-response-routes.ts` while keeping transport logging/status ownership in `app.ts`.
 - Validation:
   - `bun test tests/unit_tests/server/app.test.ts tests/integration_tests/codex-cli-provider.test.ts && bun run check`
 
