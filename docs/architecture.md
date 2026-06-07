@@ -47,7 +47,7 @@ Out of scope for the current architecture:
 | Area | Path | Responsibility |
 |---|---|---|
 | Runtime wiring | `src/runtime/server.ts` | Build config, logger, SQLite database, state store, event journal, session manager, backend, and HTTP server. |
-| HTTP app | `src/server/app.ts` | Bearer auth, routing, request logging, workspace resolution, SSE response streaming, health, metrics, and debug endpoints. |
+| HTTP app | `src/server/app.ts`, `src/server/*` helpers | Bearer auth, routing, request logging, workspace resolution, SSE response setup/lifecycle helpers, health, metrics, debug endpoints, and Volare control-plane routes. |
 | Protocol adapter | `src/northbound/openai-responses/adapter.ts` | Parse OpenAI Responses requests, encode SSE/stored responses, expose Codex model metadata. |
 | Core runtime | `src/core/` | Protocol-neutral types, durable session manager, in-memory session manager, workspace resolver, errors, and usage estimation. |
 | Backend | `src/backends/copilot-cli/` | Frame backend prompts, run Copilot CLI through the default per-turn process runner or the opt-in ACP runner, parse output, and track/cancel backend work. |

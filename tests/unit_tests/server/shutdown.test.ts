@@ -109,7 +109,7 @@ describe('ShutdownController', () => {
     expect(server.stopCalls).toEqual([false, true]);
   });
 
-  test('runs cleanup before waiting for graceful stop completion', async () => {
+  test('waits for graceful stop before cleanup', async () => {
     const store = createStore();
     let releaseGracefulStop: (() => void) | undefined;
     const server: FakeServer = new FakeServer({
@@ -123,7 +123,36 @@ describe('ShutdownController', () => {
       stateStore: store,
       cleanup: () => {
         events.push('cleanup');
-        releaseGracefulStop?.();
+      },
+    });
+
+    const shutdownResult = shutdown.shutdown();
+    await Bun.sleep(0);
+    expect(events).toEqual([]);
+    releaseGracefulStop?.();
+
+    await expect(shutdownResult).resolves.toEqual({
+      interruptedTurnCount: 0,
+      abandonedSessionCount: 0,
+      abortedApprovalCount: 0,
+    });
+
+    expect(events).toEqual(['cleanup']);
+    expect(server.stopCalls).toEqual([false, true]);
+  });
+
+  test('continues cleanup and force-stop after graceful stop timeout', async () => {
+    const store = createStore();
+    const server = new FakeServer({
+      gracefulStopPromise: new Promise<void>(() => {}),
+    });
+    const events: string[] = [];
+    const shutdown = new ShutdownController({
+      server,
+      stateStore: store,
+      gracefulStopTimeoutMs: 1,
+      cleanup: () => {
+        events.push('cleanup');
       },
     });
 
@@ -175,23 +204,26 @@ describe('ShutdownController', () => {
           status: 'aborted',
           decision: { type: 'aborted', reason: 'shutdown' },
         });
-        await expect(
-          approvalNotifier.evaluate(
-            { action: 'shell:exec', scope: { command: 'bun test' } },
-            {
-              turnId: turn.id,
-              threadId: thread.id,
-              workspaceId: workspace.id,
-              workspaceRootPath: workspace.rootPath,
-              bridgeSessionId: session.bridgeSessionId,
-            },
-          ),
-        ).rejects.toMatchObject({ code: 'service_unavailable' });
-        releaseGracefulStop?.();
       },
     });
 
-    await expect(shutdown.shutdown()).resolves.toEqual({
+    const shutdownResult = shutdown.shutdown();
+    await waitForApprovalStatus(store, approval.id, 'aborted');
+    await expect(
+      approvalNotifier.evaluate(
+        { action: 'shell:exec', scope: { command: 'bun test' } },
+        {
+          turnId: turn.id,
+          threadId: thread.id,
+          workspaceId: workspace.id,
+          workspaceRootPath: workspace.rootPath,
+          bridgeSessionId: session.bridgeSessionId,
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'service_unavailable' });
+    releaseGracefulStop?.();
+
+    await expect(shutdownResult).resolves.toEqual({
       interruptedTurnCount: 1,
       abandonedSessionCount: 1,
       abortedApprovalCount: 1,
@@ -235,4 +267,20 @@ class FailingRecoveryStore extends SQLiteStateStore {
   override async recoverStartupState(): Promise<never> {
     throw new Error('recovery failed');
   }
+}
+
+async function waitForApprovalStatus(
+  store: SQLiteStateStore,
+  approvalId: string,
+  status: string,
+): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    const approval = await store.getApproval(approvalId);
+    if (approval?.status === status) {
+      return;
+    }
+    await Bun.sleep(1);
+  }
+  throw new Error(`approval ${approvalId} did not reach ${status}`);
 }

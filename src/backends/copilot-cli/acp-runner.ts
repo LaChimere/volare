@@ -618,7 +618,13 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       admission.release();
       throw new VolareError('backend_cancelled', 'ACP worker admission was cancelled');
     }
-    const proc = this.#spawn(this.#buildArgs(), { cwd });
+    let proc: IAcpProcess;
+    try {
+      proc = this.#spawn(this.#buildArgs(), { cwd });
+    } catch (error) {
+      admission.release();
+      throw error;
+    }
     let worker: IAcpWorker | undefined;
     const peer = new AcpJsonRpcPeer({
       stdin: proc.stdin,

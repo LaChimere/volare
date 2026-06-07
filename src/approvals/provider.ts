@@ -1,4 +1,3 @@
-import { permissionResolvedJournalEvent } from '../core/approval-events';
 import { VolareError } from '../core/errors';
 import type {
   ApprovalDecision,
@@ -74,11 +73,6 @@ export class ApprovalProvider implements IApprovalProvider {
         bridgeSessionId: context.bridgeSessionId,
         request: evaluation.request,
         timeoutAt: evaluation.timeoutAt,
-        journalEvent: {
-          turnId: context.turnId,
-          kind: 'canonical',
-          canonicalJson: permissionRequiredEvent(context.turnId, approvalId, evaluation.request),
-        },
       });
       this.#logger.info(
         {
@@ -108,6 +102,21 @@ export class ApprovalProvider implements IApprovalProvider {
   async resolveApproval(input: IApprovalResolutionRequest): Promise<IApprovalResolutionResult> {
     const approval = await this.#requireApproval(input.approvalId);
     await this.#assertApprovalOwnership(approval, input);
+    if (approval.status === 'pending' && this.#now() >= approval.timeoutAt) {
+      this.#logger.info(
+        {
+          event: 'approval.resolved.timeout_override',
+          approvalId: input.approvalId,
+          turnId: approval.turnId,
+          bridgeSessionId: approval.bridgeSessionId,
+        },
+        'approval resolve converted to timeout',
+      );
+      return await this.#resolveApprovalRecord(approval, {
+        type: 'timeout',
+        reason: 'approval_timeout',
+      });
+    }
     const result = await this.#resolveApprovalRecord(approval, input.decision);
     this.#logger.info(
       {
@@ -199,11 +208,6 @@ export class ApprovalProvider implements IApprovalProvider {
     const result = await this.#store.resolveApprovalWithJournal({
       approvalId: approval.id,
       decision,
-      journalEvent: {
-        turnId: approval.turnId,
-        kind: 'canonical',
-        canonicalJson: permissionResolvedJournalEvent(approval.turnId, approval.id, decision),
-      },
     });
     this.#notifyApprovalWaiters(approval.id);
     return result;
@@ -306,13 +310,4 @@ export class ApprovalProvider implements IApprovalProvider {
       resolve();
     }
   }
-}
-
-function permissionRequiredEvent(turnId: string, approvalId: string, request: IPermissionRequest) {
-  return {
-    type: 'permission.required',
-    turnId,
-    approvalId,
-    action: request.action,
-  };
 }

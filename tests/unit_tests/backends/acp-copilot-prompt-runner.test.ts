@@ -781,6 +781,25 @@ describe('AcpCopilotPromptRunner', () => {
     expect(processes[0]?.killed).toContain('SIGTERM');
   });
 
+  test('releases ACP admission when spawn fails before startup cleanup exists', async () => {
+    const runner = new AcpCopilotPromptRunner({
+      maxWorkers: 1,
+      admissionTimeoutMs: 1,
+      spawn: () => {
+        throw new Error('spawn failed');
+      },
+    });
+
+    await expect(
+      collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp' })),
+    ).rejects.toThrow('spawn failed');
+    expect(runner.snapshot().admission.active).toBe(0);
+    await expect(
+      collect(runner.run('prompt text', { backendSessionId: 'backend_2', cwd: '/tmp' })),
+    ).rejects.toThrow('spawn failed');
+    expect(runner.snapshot().admission.active).toBe(0);
+  });
+
   test('authenticates once and retries session/new when auth is required', async () => {
     const processes: FakeAcpProcess[] = [];
     const runner = new AcpCopilotPromptRunner({

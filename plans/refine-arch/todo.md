@@ -327,7 +327,13 @@ Evidence:
 
 ## Final validation before declaring the plan complete
 
-- [ ] `plans/refine-arch/plan.md` reviewed against `arch.md` and `design.md`
-- [ ] `plans/refine-arch/todo.md` mirrors the approved PR sequence
-- [ ] SQL todos reflect the same PR sequence and dependencies
-- [ ] Gate 2 approval received before implementation starts
+- [x] `plans/refine-arch/plan.md` reviewed against `arch.md` and `design.md`
+- [x] `plans/refine-arch/todo.md` mirrors the approved PR sequence
+- [x] SQL todos reflect the same PR sequence and dependencies
+- [x] Gate 2 approval received before implementation starts
+
+Evidence:
+
+- Full branch review after implementation rechecked `plan.md`, `todo.md`, `arch.md`, and `design.md` alignment.
+- SQL `refine-arch-*` todos are all `done`.
+- Gate 2 approval was received through the active `/goal` execution request before implementation started.

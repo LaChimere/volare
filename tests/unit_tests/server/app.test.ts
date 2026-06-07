@@ -567,7 +567,7 @@ describe('server app', () => {
 
   test('rejects approval resolution with mismatched ownership', async () => {
     const stateStore = createStateStore();
-    const { session, approval } = await createApprovalFixture(stateStore);
+    const { session, turn, approval } = await createApprovalFixture(stateStore);
     const other = await createApprovalFixture(stateStore);
     const app = createDurableApp(stateStore);
 
@@ -584,6 +584,28 @@ describe('server app', () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'approval_scope_mismatch',
+        message: 'Approval ownership does not match the request',
+      },
+    });
+    await expect(stateStore.getApproval(approval.id)).resolves.toMatchObject({
+      status: 'pending',
+    });
+
+    const wrongSession = await app.fetch(
+      request(`/control/approvals/${approval.id}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({
+          turn_id: turn.id,
+          bridge_session_id: other.session.bridgeSessionId,
+          decision: { type: 'allow', scope: 'once' },
+        }),
+      }),
+    );
+
+    expect(wrongSession.status).toBe(409);
+    await expect(wrongSession.json()).resolves.toEqual({
       error: {
         code: 'approval_scope_mismatch',
         message: 'Approval ownership does not match the request',
@@ -760,6 +782,7 @@ describe('server app', () => {
         accepting_new_work: true,
         active_turn_capacity: { enabled: true, limit: 2 },
         approval_resolution: { supported: true, waiter: 'notifier' },
+        sse_resume: false,
       },
       backend: {
         name: 'copilot-cli',
@@ -1678,6 +1701,13 @@ describe('server app', () => {
         }),
       }),
     );
+
+    const internalTurnGet = await app.fetch(request(`/openai/v1/responses/${clientRef?.turnId}`));
+    expect(internalTurnGet.status).toBe(404);
+    const internalTurnCancel = await app.fetch(
+      request(`/openai/v1/responses/${clientRef?.turnId}/cancel`, { method: 'POST' }),
+    );
+    expect(internalTurnCancel.status).toBe(404);
   });
 
   test('serves stored durable responses from journal replay after manager restart', async () => {

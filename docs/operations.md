@@ -97,7 +97,7 @@ curl -H "Authorization: Bearer $VOLARE_API_KEY" \
   http://127.0.0.1:8000/capabilities
 ```
 
-The response uses `Cache-Control: no-store` and includes `schema_version`, `server`, `protocols`, `runtime`, `backend`, `acp`, and `security` groups. It intentionally omits tokens, local workspace paths, raw ACP payloads, raw probe output, auth metadata, and internal registry objects. ACP native cancel is reported as a classified observation (`unknown`, `unsupported`, `native-terminal-only`, or `native-reusable`) with a coarse source, not as a stable boolean claim.
+The response uses `Cache-Control: no-store` and includes `schema_version`, `server`, `protocols`, `runtime`, `backend`, `acp`, and `security` groups. It intentionally omits tokens, local workspace paths, raw ACP payloads, raw probe output, auth metadata, and internal registry objects. ACP native cancel is reported as a classified observation (`unknown`, `unsupported`, `native-terminal-only`, or `native-reusable`) with a coarse source, not as a stable boolean claim. `runtime.sse_resume` remains `false` until the journal envelope migration, upcaster, and terminal-state/journal atomicity requirements are implemented.
 
 ## Approval resolution
 
@@ -117,6 +117,8 @@ curl -X POST -H "Authorization: Bearer $VOLARE_API_KEY" \
 The endpoint validates that the approval, turn, and bridge session belong together before recording the terminal decision. Repeating a resolve request for an already terminal approval returns the stored decision without mutating it. Control-plane errors use `{ "error": { "code": "...", "message": "..." } }` rather than OpenAI error shapes.
 
 Successful responses include the resolved ownership tuple, terminal status, and stored decision, for example `{ "approval_id": "approval_...", "turn_id": "turn_...", "bridge_session_id": "bridge_session_...", "status": "resolved", "decision": { "type": "allow", "scope": "once" } }`.
+
+If a manual resolve arrives after the approval timeout, Volare records and returns the timeout decision instead of accepting the stale `allow` or `deny`.
 
 ## Logs
 

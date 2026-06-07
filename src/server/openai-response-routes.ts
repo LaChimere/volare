@@ -20,6 +20,9 @@ export async function handleStoredOpenAIResponse(input: {
     input.adapter.protocol,
     input.responseId,
   );
+  if (input.stateStore && !clientRef) {
+    return encodeOpenAIError(new VolareError('not_found', 'Response not found'));
+  }
   const turnId = clientRef?.turnId ?? input.responseId;
   const turn = await input.sessionManager.getTurn(turnId);
   if (!turn) {
@@ -54,6 +57,9 @@ export async function handleCancelOpenAIResponse(input: {
     input.adapter.protocol,
     input.responseId,
   );
+  if (input.stateStore && !clientRef) {
+    return encodeOpenAIError(new VolareError('not_found', 'Response not found'));
+  }
   const turnId = clientRef?.turnId ?? input.responseId;
   const result = await input.sessionManager.cancelTurn(turnId);
   if (result.status === 'not_found') {
