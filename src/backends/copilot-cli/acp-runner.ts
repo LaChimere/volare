@@ -73,6 +73,7 @@ interface IAcpWorker {
   peer: AcpJsonRpcPeer;
   sessionId: string;
   active: IActivePrompt | null;
+  reservedForPrompt: boolean;
   reuseVerification: IReuseVerification | null;
   cancellation: Promise<ICancelResult> | null;
   admission: IWorkerAdmissionLease;
@@ -187,8 +188,10 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       options.backendSessionId,
       options.cwd,
       options.signal,
+      true,
     );
     if (worker.active) {
+      worker.reservedForPrompt = false;
       throw new VolareError('backend_worker_busy', 'ACP worker already has an active prompt');
     }
 
@@ -201,6 +204,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       cancelManaged: false,
     };
     worker.active = active;
+    worker.reservedForPrompt = false;
     worker.idleSinceMs = 0;
     const abortError = new VolareError('backend_cancelled', 'ACP prompt was aborted');
     const abort = () => {
@@ -578,6 +582,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
     backendSessionId: string,
     cwd: string,
     signal?: AbortSignal,
+    reserveForPrompt = false,
   ): Promise<IAcpWorker> {
     await this.#evictIdleWorkers('request');
     let existing = this.#workers.get(backendSessionId);
@@ -591,17 +596,29 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
       } else if (this.#isIdleExpired(existing)) {
         await this.dispose(backendSessionId);
       } else {
+        if (reserveForPrompt) {
+          existing.reservedForPrompt = true;
+        }
         return existing;
       }
     }
     const creating = this.#creatingWorkers.get(backendSessionId);
     if (creating) {
-      return await creating;
+      const worker = await creating;
+      if (reserveForPrompt) {
+        worker.reservedForPrompt = true;
+      }
+      return worker;
     }
+    this.#evictIdleWorkerForAdmission();
     const creatingWorker = this.#createWorker(backendSessionId, cwd, signal);
     this.#creatingWorkers.set(backendSessionId, creatingWorker);
     try {
-      return await creatingWorker;
+      const worker = await creatingWorker;
+      if (reserveForPrompt) {
+        worker.reservedForPrompt = true;
+      }
+      return worker;
     } finally {
       this.#creatingWorkers.delete(backendSessionId);
       this.#cancelledCreations.delete(backendSessionId);
@@ -681,6 +698,7 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         peer,
         sessionId: session.sessionId,
         active: null,
+        reservedForPrompt: false,
         reuseVerification: null,
         cancellation: null,
         admission,
@@ -828,6 +846,56 @@ export class AcpCopilotPromptRunner implements ICopilotPromptRunner {
         'ACP idle worker reaped',
       );
     }
+  }
+
+  #evictIdleWorkerForAdmission(): void {
+    if (this.#workers.size + this.#creatingWorkers.size < this.#maxWorkers) {
+      return;
+    }
+    const idleWorkers = [...this.#workers.values()]
+      .filter(
+        (worker) => worker.active === null && !worker.reservedForPrompt && !worker.cancellation,
+      )
+      .sort((left, right) => left.idleSinceMs - right.idleSinceMs);
+    const worker = idleWorkers[0];
+    if (!worker) {
+      return;
+    }
+    if (this.#workers.get(worker.backendSessionId) !== worker) {
+      return;
+    }
+    this.#workers.delete(worker.backendSessionId);
+    this.#invalidateNativeCancelObservation('admission_pressure');
+    worker.peer.close();
+    worker.proc.kill('SIGTERM');
+    worker.admission.release();
+    void Promise.race([worker.proc.exited, Bun.sleep(250)])
+      .then(() => {
+        worker.proc.kill('SIGKILL');
+      })
+      .catch((cause) => {
+        this.#logger.error(
+          {
+            event: 'backend.acp.worker.reaper_failed',
+            errorCode: 'internal_error',
+            error: new VolareError('internal_error', 'ACP admission-pressure cleanup failed', {
+              cause,
+            }),
+          },
+          'ACP admission-pressure cleanup failed',
+        );
+      });
+    this.#logger.info(
+      {
+        event: 'backend.acp.worker.reaped',
+        backendSessionId: worker.backendSessionId,
+        trigger: 'admission_pressure',
+        idleMs: Date.now() - worker.idleSinceMs,
+        activeWorkers: this.#workers.size,
+        creatingWorkers: this.#creatingWorkers.size,
+      },
+      'ACP idle worker reaped',
+    );
   }
 
   #isIdleExpired(worker: IAcpWorker): boolean {
