@@ -404,7 +404,7 @@ Likely paths:
 
 Allowed:
 - Define `JournalEnvelopeV1` / event schema versioning strategy.
-- Define SSE event ID format, likely `turnId:sequence`.
+- Define SSE event ID format; the approved design uses `turn:<turn_id>:seq:<sequence>:part:<frame_part>`.
 - Define replay cursor behavior and terminal-event idempotency.
 - Define future test plan for journals written under at least one prior schema version.
 

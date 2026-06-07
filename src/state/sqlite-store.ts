@@ -421,7 +421,9 @@ export class SQLiteStateStore implements IStateStore {
           now,
           approval.id,
         );
-      insertJournalEvent(this.database, input.journalEvent, now);
+      if (input.journalEvent) {
+        insertJournalEvent(this.database, input.journalEvent, now);
+      }
       return { status: 'resolved' as const, decision: input.decision };
     });
     return transaction();

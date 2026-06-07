@@ -226,7 +226,7 @@ export interface IApprovalRecord {
 export interface IApprovalResolutionInput {
   approvalId: ApprovalId;
   decision: ApprovalDecision;
-  journalEvent: IJournalEvent;
+  journalEvent?: IJournalEvent;
 }
 
 export interface IApprovalResolutionRequest {

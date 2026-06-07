@@ -13,6 +13,7 @@ export interface IShutdownControllerOptions {
   server: IShutdownServer;
   stateStore: IStateStore;
   approvalNotifier?: IApprovalNotifier;
+  gracefulStopTimeoutMs?: number;
   cleanup?: () => void | Promise<void>;
 }
 
@@ -20,6 +21,7 @@ export class ShutdownController implements IShutdownController {
   readonly #server: IShutdownServer;
   readonly #stateStore: IStateStore;
   readonly #approvalNotifier: IApprovalNotifier | undefined;
+  readonly #gracefulStopTimeoutMs: number;
   readonly #cleanup: (() => void | Promise<void>) | undefined;
   #started = false;
   #result: Promise<IShutdownResult> | null = null;
@@ -28,6 +30,7 @@ export class ShutdownController implements IShutdownController {
     this.#server = options.server;
     this.#stateStore = options.stateStore;
     this.#approvalNotifier = options.approvalNotifier;
+    this.#gracefulStopTimeoutMs = options.gracefulStopTimeoutMs ?? 30_000;
     this.#cleanup = options.cleanup;
   }
 
@@ -45,8 +48,11 @@ export class ShutdownController implements IShutdownController {
     let result: IShutdownResult | undefined;
     let abortedApprovalCount = 0;
     let gracefulStop: Promise<void> | undefined;
+    let gracefulStopError: unknown;
     try {
-      gracefulStop = Promise.resolve(this.#server.stop(false));
+      gracefulStop = Promise.resolve(this.#server.stop(false)).catch((error) => {
+        gracefulStopError = error;
+      });
     } catch (error) {
       errors.push(error);
     }
@@ -59,12 +65,15 @@ export class ShutdownController implements IShutdownController {
       errors.push(error);
     }
     try {
-      await this.#cleanup?.();
+      await waitForGracefulStop(gracefulStop, this.#gracefulStopTimeoutMs);
+      if (gracefulStopError) {
+        errors.push(gracefulStopError);
+      }
     } catch (error) {
       errors.push(error);
     }
     try {
-      await gracefulStop;
+      await this.#cleanup?.();
     } catch (error) {
       errors.push(error);
     }
@@ -78,6 +87,9 @@ export class ShutdownController implements IShutdownController {
       await this.#server.stop(true);
     } catch (error) {
       errors.push(error);
+    }
+    if (gracefulStopError && !errors.includes(gracefulStopError)) {
+      errors.push(gracefulStopError);
     }
     if (errors.length === 1) {
       throw errors[0];
@@ -94,4 +106,24 @@ export class ShutdownController implements IShutdownController {
   get started(): boolean {
     return this.#started;
   }
+}
+
+async function waitForGracefulStop(
+  gracefulStop: Promise<void> | undefined,
+  timeoutMs: number,
+): Promise<void> {
+  if (!gracefulStop) {
+    return;
+  }
+  if (timeoutMs <= 0) {
+    await gracefulStop;
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    void gracefulStop.finally(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }

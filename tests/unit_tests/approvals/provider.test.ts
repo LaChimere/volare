@@ -34,12 +34,13 @@ async function createFixture(store: SQLiteStateStore) {
 }
 
 describe('ApprovalProvider', () => {
-  test('persists ask evaluations and resolves with a canonical journal event', async () => {
+  test('persists ask evaluations and resolves without owning canonical journal events', async () => {
     const store = createStore();
     const { workspace, thread, session, turn } = await createFixture(store);
     const provider = new ApprovalProvider({
       store,
       policy: new DefaultApprovalPolicy({ now: () => 1000, timeoutMs: 5000 }),
+      now: () => 1000,
     });
 
     const evaluation = await provider.evaluate(
@@ -74,28 +75,16 @@ describe('ApprovalProvider', () => {
       status: 'resolved',
       decision: { type: 'deny', scope: 'once', reason: 'manual' },
     });
-    expect(canonicalEvents(store, turn.id)).toEqual([
-      {
-        type: 'permission.required',
-        turnId: turn.id,
-        approvalId: evaluation.approvalId,
-        action: 'shell:exec',
-      },
-      {
-        type: 'permission.resolved',
-        turnId: turn.id,
-        approvalId: evaluation.approvalId,
-        decision: 'deny',
-      },
-    ]);
+    expect(canonicalEvents(store, turn.id)).toEqual([]);
   });
 
-  test('journals manual allow decisions', async () => {
+  test('resolves manual allow decisions without duplicate journal rows', async () => {
     const store = createStore();
     const { workspace, thread, session, turn } = await createFixture(store);
     const provider = new ApprovalProvider({
       store,
       policy: new DefaultApprovalPolicy({ now: () => 1000, timeoutMs: 5000 }),
+      now: () => 1000,
     });
     const evaluation = await provider.evaluate(
       { action: 'shell:exec', scope: { command: 'bun test' } },
@@ -122,20 +111,7 @@ describe('ApprovalProvider', () => {
       status: 'resolved',
       decision: { type: 'allow', scope: 'once' },
     });
-    expect(canonicalEvents(store, turn.id)).toEqual([
-      {
-        type: 'permission.required',
-        turnId: turn.id,
-        approvalId: evaluation.approvalId,
-        action: 'shell:exec',
-      },
-      {
-        type: 'permission.resolved',
-        turnId: turn.id,
-        approvalId: evaluation.approvalId,
-        decision: 'allow',
-      },
-    ]);
+    expect(canonicalEvents(store, turn.id)).toEqual([]);
   });
 
   test('atomically resolves aborted awaits and makes later resolves idempotent', async () => {
@@ -184,20 +160,7 @@ describe('ApprovalProvider', () => {
       status: 'already_terminal',
       decision: { type: 'aborted', reason: 'turn_cancelled' },
     });
-    expect(canonicalEvents(store, turn.id)).toEqual([
-      {
-        type: 'permission.required',
-        turnId: turn.id,
-        approvalId: evaluation.approvalId,
-        action: 'shell:exec',
-      },
-      {
-        type: 'permission.resolved',
-        turnId: turn.id,
-        approvalId: evaluation.approvalId,
-        decision: 'deny',
-      },
-    ]);
+    expect(canonicalEvents(store, turn.id)).toEqual([]);
   });
 
   test('atomically resolves timed-out awaits before returning', async () => {
@@ -229,20 +192,7 @@ describe('ApprovalProvider', () => {
     await expect(store.getApproval(evaluation.approvalId)).resolves.toMatchObject({
       status: 'timed_out',
     });
-    expect(canonicalEvents(store, turn.id)).toEqual([
-      {
-        type: 'permission.required',
-        turnId: turn.id,
-        approvalId: evaluation.approvalId,
-        action: 'shell:exec',
-      },
-      {
-        type: 'permission.resolved',
-        turnId: turn.id,
-        approvalId: evaluation.approvalId,
-        decision: 'deny',
-      },
-    ]);
+    expect(canonicalEvents(store, turn.id)).toEqual([]);
   });
 
   test('wakes same-process approval waiters without waiting for the poll interval', async () => {
@@ -290,7 +240,7 @@ describe('ApprovalProvider', () => {
       now: () => 1000,
       pollMs: 1,
     });
-    const resolverProvider = new ApprovalProvider({ store });
+    const resolverProvider = new ApprovalProvider({ store, now: () => 1000 });
     const evaluation = await waiterProvider.evaluate(
       { action: 'shell:exec', scope: { command: 'bun test' } },
       {
@@ -323,6 +273,7 @@ describe('ApprovalProvider', () => {
     const provider = new ApprovalProvider({
       store,
       policy: new DefaultApprovalPolicy({ now: () => 1000, timeoutMs: 5000 }),
+      now: () => 1000,
     });
     const evaluation = await provider.evaluate(
       { action: 'shell:exec', scope: { command: 'bun test' } },
@@ -348,6 +299,81 @@ describe('ApprovalProvider', () => {
     ).rejects.toMatchObject({ code: 'approval_scope_mismatch' });
     await expect(store.getApproval(evaluation.approvalId)).resolves.toMatchObject({
       status: 'pending',
+    });
+  });
+
+  test('rejects approval resolution when bridge session ownership does not match', async () => {
+    const store = createStore();
+    const { workspace, thread, session, turn } = await createFixture(store);
+    const other = await createFixture(store);
+    const provider = new ApprovalProvider({
+      store,
+      policy: new DefaultApprovalPolicy({ now: () => 1000, timeoutMs: 5000 }),
+      now: () => 1000,
+    });
+    const evaluation = await provider.evaluate(
+      { action: 'shell:exec', scope: { command: 'bun test' } },
+      {
+        turnId: turn.id,
+        threadId: thread.id,
+        workspaceId: workspace.id,
+        workspaceRootPath: workspace.rootPath,
+        bridgeSessionId: session.bridgeSessionId,
+      },
+    );
+    if (evaluation.type !== 'ask') {
+      throw new Error('expected ask');
+    }
+
+    await expect(
+      provider.resolveApproval({
+        approvalId: evaluation.approvalId,
+        turnId: turn.id,
+        bridgeSessionId: other.session.bridgeSessionId,
+        decision: { type: 'allow', scope: 'once' },
+      }),
+    ).rejects.toMatchObject({ code: 'approval_scope_mismatch' });
+    await expect(store.getApproval(evaluation.approvalId)).resolves.toMatchObject({
+      status: 'pending',
+    });
+  });
+
+  test('manual resolution after timeout records a timeout decision', async () => {
+    const store = createStore();
+    const { workspace, thread, session, turn } = await createFixture(store);
+    const provider = new ApprovalProvider({
+      store,
+      policy: new DefaultApprovalPolicy({ now: () => 1000, timeoutMs: 1 }),
+      now: () => 1002,
+    });
+    const evaluation = await provider.evaluate(
+      { action: 'shell:exec', scope: { command: 'bun test' } },
+      {
+        turnId: turn.id,
+        threadId: thread.id,
+        workspaceId: workspace.id,
+        workspaceRootPath: workspace.rootPath,
+        bridgeSessionId: session.bridgeSessionId,
+      },
+    );
+    if (evaluation.type !== 'ask') {
+      throw new Error('expected ask');
+    }
+
+    await expect(
+      provider.resolveApproval({
+        approvalId: evaluation.approvalId,
+        turnId: turn.id,
+        bridgeSessionId: session.bridgeSessionId,
+        decision: { type: 'allow', scope: 'once' },
+      }),
+    ).resolves.toEqual({
+      status: 'resolved',
+      decision: { type: 'timeout', reason: 'approval_timeout' },
+    });
+    await expect(store.getApproval(evaluation.approvalId)).resolves.toMatchObject({
+      status: 'timed_out',
+      decision: { type: 'timeout', reason: 'approval_timeout' },
     });
   });
 

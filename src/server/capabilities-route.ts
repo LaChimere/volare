@@ -31,6 +31,7 @@ export function encodeCapabilitiesResponse(input: {
               supported: snapshot.runtime.approvalResolution.supported,
               waiter: snapshot.runtime.approvalResolution.waiter,
             },
+            sse_resume: false,
           }
         : {
             mode: input.config.copilotRuntimeMode,
@@ -43,6 +44,7 @@ export function encodeCapabilitiesResponse(input: {
               supported: true,
               waiter: 'polling',
             },
+            sse_resume: false,
           },
       backend: snapshot?.backend
         ? {
