@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
 import { ApprovalProvider } from '../../../src/approvals/provider';
+import type { IApprovalNotifier } from '../../../src/core/types';
 import { ShutdownController } from '../../../src/server/shutdown';
 import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
@@ -150,6 +151,39 @@ describe('ShutdownController', () => {
     const shutdown = new ShutdownController({
       server,
       stateStore: store,
+      gracefulStopTimeoutMs: 1,
+      cleanup: () => {
+        events.push('cleanup');
+      },
+    });
+
+    await expect(shutdown.shutdown()).resolves.toEqual({
+      interruptedTurnCount: 0,
+      abandonedSessionCount: 0,
+      abortedApprovalCount: 0,
+    });
+
+    expect(events).toEqual(['cleanup']);
+    expect(server.stopCalls).toEqual([false, true]);
+  });
+
+  test('continues cleanup and force-stop after approval drain timeout', async () => {
+    const store = createStore();
+    const server = new FakeServer();
+    const events: string[] = [];
+    const approvalNotifier: IApprovalNotifier = {
+      async resolveApproval() {
+        throw new Error('not used');
+      },
+      async abortPendingApprovals() {
+        await new Promise<void>(() => {});
+        return { abortedApprovalCount: 0 };
+      },
+    };
+    const shutdown = new ShutdownController({
+      server,
+      stateStore: store,
+      approvalNotifier,
       gracefulStopTimeoutMs: 1,
       cleanup: () => {
         events.push('cleanup');

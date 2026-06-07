@@ -49,6 +49,7 @@ export class ShutdownController implements IShutdownController {
     let abortedApprovalCount = 0;
     let gracefulStop: Promise<void> | undefined;
     let gracefulStopError: unknown;
+    let approvalAbortError: unknown;
     try {
       gracefulStop = Promise.resolve(this.#server.stop(false)).catch((error) => {
         gracefulStopError = error;
@@ -57,15 +58,24 @@ export class ShutdownController implements IShutdownController {
       errors.push(error);
     }
     try {
-      const approvalAbortResult = await this.#approvalNotifier?.abortPendingApprovals({
-        reason: 'shutdown',
-      });
-      abortedApprovalCount += approvalAbortResult?.abortedApprovalCount ?? 0;
+      const approvalAbort = Promise.resolve(
+        this.#approvalNotifier?.abortPendingApprovals({ reason: 'shutdown' }),
+      )
+        .then((approvalAbortResult) => {
+          abortedApprovalCount += approvalAbortResult?.abortedApprovalCount ?? 0;
+        })
+        .catch((error) => {
+          approvalAbortError = error;
+        });
+      await waitForPromise(approvalAbort, this.#gracefulStopTimeoutMs);
+      if (approvalAbortError) {
+        errors.push(approvalAbortError);
+      }
     } catch (error) {
       errors.push(error);
     }
     try {
-      await waitForGracefulStop(gracefulStop, this.#gracefulStopTimeoutMs);
+      await waitForPromise(gracefulStop, this.#gracefulStopTimeoutMs);
       if (gracefulStopError) {
         errors.push(gracefulStopError);
       }
@@ -91,6 +101,9 @@ export class ShutdownController implements IShutdownController {
     if (gracefulStopError && !errors.includes(gracefulStopError)) {
       errors.push(gracefulStopError);
     }
+    if (approvalAbortError && !errors.includes(approvalAbortError)) {
+      errors.push(approvalAbortError);
+    }
     if (errors.length === 1) {
       throw errors[0];
     }
@@ -108,20 +121,20 @@ export class ShutdownController implements IShutdownController {
   }
 }
 
-async function waitForGracefulStop(
-  gracefulStop: Promise<void> | undefined,
+async function waitForPromise(
+  promise: Promise<void> | undefined,
   timeoutMs: number,
 ): Promise<void> {
-  if (!gracefulStop) {
+  if (!promise) {
     return;
   }
   if (timeoutMs <= 0) {
-    await gracefulStop;
+    await promise;
     return;
   }
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, timeoutMs);
-    void gracefulStop.finally(() => {
+    void promise.finally(() => {
       clearTimeout(timer);
       resolve();
     });

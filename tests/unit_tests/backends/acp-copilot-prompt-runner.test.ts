@@ -899,34 +899,13 @@ describe('AcpCopilotPromptRunner', () => {
   });
 
   test('times out explicitly when ACP worker admission is exhausted', async () => {
+    const processes: FakeAcpProcess[] = [];
     const runner = new AcpCopilotPromptRunner({
       maxWorkers: 1,
       admissionTimeoutMs: 1,
       spawn: () => {
         const proc = new FakeAcpProcess();
-        return {
-          stdin: proc.stdin,
-          stdout: proc.stdout.stream,
-          stderr: proc.stderr.stream,
-          exited: proc.exited,
-          kill: (signal) => proc.kill(signal),
-        };
-      },
-    });
-
-    await collect(runner.run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp/a' }));
-    await expect(
-      collect(runner.run('prompt text', { backendSessionId: 'backend_2', cwd: '/tmp/b' })),
-    ).rejects.toMatchObject({ code: 'backend_worker_admission_timeout' });
-  });
-
-  test('admits queued ACP workers in FIFO order', async () => {
-    const processes: FakeAcpProcess[] = [];
-    const runner = new AcpCopilotPromptRunner({
-      maxWorkers: 1,
-      admissionTimeoutMs: 1000,
-      spawn: () => {
-        const proc = new FakeAcpProcess();
+        proc.promptMode = 'never';
         processes.push(proc);
         return {
           stdin: proc.stdin,
@@ -937,14 +916,56 @@ describe('AcpCopilotPromptRunner', () => {
         };
       },
     });
-    await collect(runner.run('first', { backendSessionId: 'backend_1', cwd: '/tmp/a' }));
+
+    const iterator = runner
+      .run('prompt text', { backendSessionId: 'backend_1', cwd: '/tmp/a' })
+      [Symbol.asyncIterator]();
+    const firstChunk = iterator.next().catch((error) => error);
+    await waitFor(() =>
+      processes.some((proc) => proc.inputs.join('\n').includes('session/prompt')),
+    );
+    await expect(
+      collect(runner.run('prompt text', { backendSessionId: 'backend_2', cwd: '/tmp/b' })),
+    ).rejects.toMatchObject({ code: 'backend_worker_admission_timeout' });
+    await runner.cancel('backend_1');
+    await firstChunk;
+  });
+
+  test('admits queued ACP workers in FIFO order', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const runner = new AcpCopilotPromptRunner({
+      maxWorkers: 1,
+      admissionTimeoutMs: 1000,
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        if (processes.length === 0) {
+          proc.promptMode = 'never';
+        }
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+    const firstIterator = runner
+      .run('first', { backendSessionId: 'backend_1', cwd: '/tmp/a' })
+      [Symbol.asyncIterator]();
+    const firstChunk = firstIterator.next().catch((error) => error);
+    await waitFor(() =>
+      processes.some((proc) => proc.inputs.join('\n').includes('session/prompt')),
+    );
 
     const second = collect(runner.run('second', { backendSessionId: 'backend_2', cwd: '/tmp/b' }));
     const third = collect(runner.run('third', { backendSessionId: 'backend_3', cwd: '/tmp/c' }));
     await Bun.sleep(0);
     expect(processes).toHaveLength(1);
 
-    await runner.dispose('backend_1');
+    await runner.cancel('backend_1');
+    await firstChunk;
     await expect(second).resolves.toEqual(['hello']);
     expect(processes).toHaveLength(2);
 
@@ -1251,6 +1272,49 @@ describe('AcpCopilotPromptRunner', () => {
       source: 'unknown',
       reason: 'backend_session_disposed',
     });
+  });
+
+  test('evicts an idle worker under admission pressure before queueing new sessions', async () => {
+    const processes: FakeAcpProcess[] = [];
+    const logger = new CapturingLogger();
+    const runner = new AcpCopilotPromptRunner({
+      maxWorkers: 1,
+      admissionTimeoutMs: 1,
+      logger,
+      spawn: () => {
+        const proc = new FakeAcpProcess();
+        processes.push(proc);
+        return {
+          stdin: proc.stdin,
+          stdout: proc.stdout.stream,
+          stderr: proc.stderr.stream,
+          exited: proc.exited,
+          kill: (signal) => proc.kill(signal),
+        };
+      },
+    });
+
+    await collect(runner.run('first', { backendSessionId: 'backend_1', cwd: '/tmp/a' }));
+    await expect(
+      collect(runner.run('second', { backendSessionId: 'backend_2', cwd: '/tmp/b' })),
+    ).resolves.toEqual(['hello']);
+
+    expect(processes).toHaveLength(2);
+    expect(processes[0]?.killed).toContain('SIGTERM');
+    expect(runner.snapshot()).toMatchObject({
+      activeWorkers: 1,
+      idleWorkers: 1,
+      admission: { active: 1, queueDepth: 0 },
+    });
+    expect(logger.entries).toContainEqual(
+      expect.objectContaining({
+        message: 'ACP idle worker reaped',
+        fields: expect.objectContaining({
+          event: 'backend.acp.worker.reaped',
+          trigger: 'admission_pressure',
+        }),
+      }),
+    );
   });
 
   test('evicts idle workers before enforcing the worker cap', async () => {
