@@ -205,9 +205,9 @@ Evidence:
 
 ## PR 6: HTTP app boundary cleanup
 
-- [ ] Extract stream lifecycle observer
-- [ ] Extract journal wrapper
-- [ ] Extract metrics collector
+- [x] Extract stream lifecycle observer
+- [x] Extract journal wrapper
+- [x] Extract metrics collector
 - [ ] Move OpenAI Responses error encoding into adapter package
 - [ ] Extract route handlers incrementally
 - [ ] Preserve current behavior with server/integration tests
@@ -215,8 +215,18 @@ Evidence:
 Acceptance evidence:
 
 - [ ] Route/status/SSE behavior unchanged
-- [ ] OpenAI error body encoding no longer lives in generic app transport logic
+- [x] OpenAI error body encoding no longer lives in generic app transport logic
 - [ ] No unrelated runtime behavior changes
+
+Evidence:
+
+- Extracted `StreamLifecycleContext` into `src/server/stream-lifecycle.ts`.
+- Extracted generic `asyncIterableToStream` into `src/server/readable-stream.ts`.
+- Extracted canonical journal stream helpers into `src/server/event-streams.ts`.
+- Extracted live-turn metrics into `src/server/turn-metrics.ts`.
+- Existing OpenAI error encoding remains in `src/northbound/openai-responses/adapter.ts`; no response schema or route behavior changed in this slice.
+- Validation:
+  - `bun test tests/unit_tests/server/app.test.ts tests/integration_tests/codex-cli-provider.test.ts && bun run check`
 
 ## PR 7: Event-driven approval wait
 
