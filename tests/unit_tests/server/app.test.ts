@@ -175,20 +175,45 @@ class ThrowingEncodeAdapter extends OpenAIResponsesAdapter {
 }
 
 function createDurableApp(stateStore: SQLiteStateStore, overrides: Partial<IAppDependencies> = {}) {
+  const approvalProvider = new ApprovalProvider({
+    store: stateStore,
+    policy: new DefaultApprovalPolicy({ timeoutMs: config.approvalTimeoutMs }),
+  });
   return createApp({
     config,
     stateStore,
     sessionManager: new DurableSessionManager({
       store: stateStore,
       backend: new MockBackend({ persistentSessions: true }),
-      approvalProvider: new ApprovalProvider({
-        store: stateStore,
-        policy: new DefaultApprovalPolicy({ timeoutMs: config.approvalTimeoutMs }),
-      }),
+      approvalProvider,
       cancelTimeoutMs: config.cancelTimeoutMs,
     }),
+    approvalNotifier: approvalProvider,
     ...overrides,
   });
+}
+
+async function createApprovalFixture(store: SQLiteStateStore) {
+  const workspace = await getProjectlessWorkspace(store);
+  const thread = await store.createThread({ workspaceId: workspace.id });
+  const session = await store.reserveBackendSession({
+    workspaceId: workspace.id,
+    threadId: thread.id,
+    backend: 'mock',
+  });
+  await store.activateBackendSession(session, { backendSessionId: 'backend_1' });
+  const turn = await store.createTurn({
+    threadId: thread.id,
+    bridgeSessionId: session.bridgeSessionId,
+    model: 'copilot-agent',
+  });
+  const approval = await store.createApproval({
+    turnId: turn.id,
+    bridgeSessionId: session.bridgeSessionId,
+    request: { action: 'shell:exec', scope: { command: 'bun test' } },
+    timeoutAt: Date.now() + 60_000,
+  });
+  return { workspace, thread, session, turn, approval };
 }
 
 class CapturingLogger implements ILogger {
@@ -424,6 +449,145 @@ describe('server app', () => {
       },
     });
     expect(sessionManager.cancelledTurnIds).toHaveLength(1);
+  });
+
+  test('resolves pending approvals through the Volare control endpoint', async () => {
+    const stateStore = createStateStore();
+    const { session, turn, approval } = await createApprovalFixture(stateStore);
+    const app = createDurableApp(stateStore);
+
+    const response = await app.fetch(
+      request(`/control/approvals/${approval.id}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({
+          turn_id: turn.id,
+          bridge_session_id: session.bridgeSessionId,
+          decision: { type: 'allow', scope: 'once' },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      approval_id: approval.id,
+      turn_id: turn.id,
+      bridge_session_id: session.bridgeSessionId,
+      status: 'resolved',
+      decision: { type: 'allow', scope: 'once' },
+    });
+    await expect(stateStore.getApproval(approval.id)).resolves.toMatchObject({
+      status: 'allowed',
+      decision: { type: 'allow', scope: 'once' },
+    });
+  });
+
+  test('rejects approval resolution with mismatched ownership', async () => {
+    const stateStore = createStateStore();
+    const { session, approval } = await createApprovalFixture(stateStore);
+    const other = await createApprovalFixture(stateStore);
+    const app = createDurableApp(stateStore);
+
+    const response = await app.fetch(
+      request(`/control/approvals/${approval.id}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({
+          turn_id: other.turn.id,
+          bridge_session_id: session.bridgeSessionId,
+          decision: { type: 'allow', scope: 'once' },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'approval_scope_mismatch',
+        message: 'Approval ownership does not match the request',
+      },
+    });
+    await expect(stateStore.getApproval(approval.id)).resolves.toMatchObject({
+      status: 'pending',
+    });
+  });
+
+  test('returns terminal approval decisions idempotently without mutating them', async () => {
+    const stateStore = createStateStore();
+    const { session, turn, approval } = await createApprovalFixture(stateStore);
+    const app = createDurableApp(stateStore);
+    const resolvePath = `/control/approvals/${approval.id}/resolve`;
+
+    const first = await app.fetch(
+      request(resolvePath, {
+        method: 'POST',
+        body: JSON.stringify({
+          turn_id: turn.id,
+          bridge_session_id: session.bridgeSessionId,
+          decision: { type: 'deny', scope: 'once', reason: 'manual' },
+        }),
+      }),
+    );
+    const eventCountAfterFirst = stateStore.database
+      .query<{ count: number }, [string]>('SELECT COUNT(*) AS count FROM events WHERE turn_id = ?')
+      .get(turn.id);
+    const second = await app.fetch(
+      request(resolvePath, {
+        method: 'POST',
+        body: JSON.stringify({
+          turn_id: turn.id,
+          bridge_session_id: session.bridgeSessionId,
+          decision: { type: 'allow', scope: 'once' },
+        }),
+      }),
+    );
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    await expect(second.json()).resolves.toEqual({
+      approval_id: approval.id,
+      turn_id: turn.id,
+      bridge_session_id: session.bridgeSessionId,
+      status: 'already_terminal',
+      decision: { type: 'deny', scope: 'once', reason: 'manual' },
+    });
+    await expect(stateStore.getApproval(approval.id)).resolves.toMatchObject({
+      status: 'denied',
+      decision: { type: 'deny', scope: 'once', reason: 'manual' },
+    });
+    expect(
+      stateStore.database
+        .query<{ count: number }, [string]>(
+          'SELECT COUNT(*) AS count FROM events WHERE turn_id = ?',
+        )
+        .get(turn.id),
+    ).toEqual(eventCountAfterFirst);
+  });
+
+  test('uses non-OpenAI error bodies for approval control endpoint failures', async () => {
+    const stateStore = createStateStore();
+    const { session, turn, approval } = await createApprovalFixture(stateStore);
+    const app = createDurableApp(stateStore);
+
+    const response = await app.fetch(
+      request(`/control/approvals/${approval.id}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({
+          turn_id: turn.id,
+          bridge_session_id: session.bridgeSessionId,
+          decision: { type: 'timeout', reason: 'client_requested' },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body).toEqual({
+      error: {
+        code: 'invalid_request',
+        message: 'Approval decision type must be allow or deny',
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain('rate_limit_error');
+    expect(JSON.stringify(body)).not.toContain('invalid_request_error');
   });
 
   test('serves a Codex-compatible models route', async () => {

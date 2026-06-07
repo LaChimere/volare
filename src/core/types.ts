@@ -178,10 +178,17 @@ export interface IApprovalPolicy {
   evaluate(request: IPermissionRequest, context: IApprovalContext): Promise<ApprovalEvaluation>;
 }
 
-export interface IApprovalProvider {
-  evaluate(request: IPermissionRequest, context: IApprovalContext): Promise<ApprovalEvaluation>;
-  resolve(approvalId: ApprovalId, decision: ApprovalDecision): Promise<IApprovalResolutionResult>;
+export interface IApprovalWaiter {
   awaitDecision(approvalId: ApprovalId, signal?: AbortSignal): Promise<ApprovalDecision>;
+}
+
+export interface IApprovalNotifier {
+  resolveApproval(input: IApprovalResolutionRequest): Promise<IApprovalResolutionResult>;
+  abortPendingApprovals(input: IApprovalAbortPendingInput): Promise<IApprovalAbortPendingResult>;
+}
+
+export interface IApprovalProvider extends IApprovalWaiter, IApprovalNotifier {
+  evaluate(request: IPermissionRequest, context: IApprovalContext): Promise<ApprovalEvaluation>;
 }
 
 export interface IJournalEvent {
@@ -222,14 +229,30 @@ export interface IApprovalResolutionInput {
   journalEvent: IJournalEvent;
 }
 
+export interface IApprovalResolutionRequest {
+  approvalId: ApprovalId;
+  turnId: TurnId;
+  bridgeSessionId: BridgeSessionId;
+  decision: ApprovalDecision;
+}
+
 export interface IApprovalResolutionResult {
   status: 'resolved' | 'already_terminal';
   decision: ApprovalDecision;
 }
 
+export interface IApprovalAbortPendingInput {
+  reason: string;
+}
+
+export interface IApprovalAbortPendingResult {
+  abortedApprovalCount: number;
+}
+
 export interface IStartupRecoveryResult {
   interruptedTurnCount: number;
   abandonedSessionCount: number;
+  abortedApprovalCount: number;
 }
 
 export interface IIdleSessionPruneResult {
@@ -391,8 +414,12 @@ export interface IStateStore {
     journalEvent?: IJournalEvent;
   }): Promise<IApprovalRecord>;
   getApproval(approvalId: ApprovalId): Promise<IApprovalRecord | null>;
+  listPendingApprovals(): Promise<IApprovalRecord[]>;
   resolveApprovalWithJournal(input: IApprovalResolutionInput): Promise<IApprovalResolutionResult>;
-  recoverStartupState(input?: { now?: number }): Promise<IStartupRecoveryResult>;
+  recoverStartupState(input?: {
+    now?: number;
+    approvalAbortReason?: string;
+  }): Promise<IStartupRecoveryResult>;
   pruneIdleBackendSessions(input: {
     updatedBefore: number;
     now?: number;

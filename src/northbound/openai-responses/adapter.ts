@@ -942,6 +942,8 @@ function statusForErrorCode(code: string): number {
     case 'session_lost':
     case 'workspace_changed':
       return 409;
+    case 'service_unavailable':
+      return 503;
     default:
       return 500;
   }

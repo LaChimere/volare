@@ -242,8 +242,12 @@ class StubApprovalProvider implements IApprovalProvider {
     return this.evaluation;
   }
 
-  async resolve() {
+  async resolveApproval() {
     return { status: 'resolved' as const, decision: this.awaitedDecision };
+  }
+
+  async abortPendingApprovals() {
+    return { abortedApprovalCount: 0 };
   }
 
   async awaitDecision(): Promise<ApprovalDecision> {

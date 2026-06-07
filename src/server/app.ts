@@ -6,6 +6,10 @@ import {
 } from '../core/grounding';
 import type {
   AgentEvent,
+  ApprovalDecision,
+  IApprovalNotifier,
+  IApprovalResolutionRequest,
+  IApprovalResolutionResult,
   IEventJournal,
   ISessionManager,
   IStateStore,
@@ -29,6 +33,7 @@ export interface IAppDependencies {
   adapter?: OpenAIResponsesAdapter;
   workspaceResolver?: IWorkspaceResolver;
   sessionManager?: ISessionManager;
+  approvalNotifier?: IApprovalNotifier;
   stateStore?: IStateStore;
   eventJournal?: IEventJournal;
   logger?: ILogger;
@@ -49,6 +54,7 @@ export function createApp(dependencies: IAppDependencies): {
   let requestsTotal = 0;
   const turnMetrics = createTurnMetrics();
   const sessionManager = dependencies.sessionManager;
+  const approvalNotifier = dependencies.approvalNotifier;
 
   return {
     async fetch(request: Request): Promise<Response> {
@@ -56,6 +62,7 @@ export function createApp(dependencies: IAppDependencies): {
       const requestStartedAt = performance.now();
       const requestId = crypto.randomUUID();
       const url = new URL(request.url);
+      const isControlPlaneRequest = url.pathname.startsWith('/control/');
       const logFields = {
         requestId,
         method: request.method,
@@ -94,6 +101,29 @@ export function createApp(dependencies: IAppDependencies): {
         }
 
         const openAIPath = openAIResponsesPath(url.pathname);
+
+        const approvalResolveMatch = url.pathname.match(/^\/control\/approvals\/([^/]+)\/resolve$/);
+        if (request.method === 'POST' && approvalResolveMatch?.[1]) {
+          if (!approvalNotifier) {
+            return logHttpResponse(
+              logger,
+              logFields,
+              requestStartedAt,
+              encodeControlPlaneError(
+                new VolareError('internal_error', 'Approval notifier is not configured'),
+              ),
+            );
+          }
+          const body = await parseJsonBody(request);
+          const resolutionInput = parseApprovalResolutionRequest(approvalResolveMatch[1], body);
+          const result = await approvalNotifier.resolveApproval(resolutionInput);
+          return logHttpResponse(
+            logger,
+            logFields,
+            requestStartedAt,
+            Response.json(encodeApprovalResolutionResponse(resolutionInput, result)),
+          );
+        }
 
         if (request.method === 'GET' && openAIPath === '/models') {
           return logHttpResponse(
@@ -370,14 +400,19 @@ export function createApp(dependencies: IAppDependencies): {
           );
         }
 
+        const routeNotFound = new VolareError('not_found', 'Route not found');
         return logHttpResponse(
           logger,
           logFields,
           requestStartedAt,
-          encodeOpenAIError(new VolareError('not_found', 'Route not found')),
+          isControlPlaneRequest
+            ? encodeControlPlaneError(routeNotFound)
+            : encodeOpenAIError(routeNotFound),
         );
       } catch (error) {
-        const response = encodeOpenAIError(error);
+        const response = isControlPlaneRequest
+          ? encodeControlPlaneError(error)
+          : encodeOpenAIError(error);
         const agentError = toVolareError(error);
         return logHttpResponse(logger, logFields, requestStartedAt, response, {
           errorCode: agentError.code,
@@ -394,6 +429,99 @@ function openAIResponsesPath(pathname: string): string | undefined {
     }
   }
   return undefined;
+}
+
+function parseApprovalResolutionRequest(
+  approvalId: string,
+  body: unknown,
+): IApprovalResolutionRequest {
+  if (!isRecord(body)) {
+    throw new VolareError('invalid_request', 'Approval resolution body must be a JSON object');
+  }
+  return {
+    approvalId,
+    turnId: requiredStringField(body, 'turn_id'),
+    bridgeSessionId: requiredStringField(body, 'bridge_session_id'),
+    decision: parseManualApprovalDecision(body['decision']),
+  };
+}
+
+function parseManualApprovalDecision(value: unknown): ApprovalDecision {
+  if (!isRecord(value)) {
+    throw new VolareError('invalid_request', 'Approval decision must be a JSON object');
+  }
+  const type = value['type'];
+  if (type !== 'allow' && type !== 'deny') {
+    throw new VolareError('invalid_request', 'Approval decision type must be allow or deny');
+  }
+  const scope = value['scope'];
+  if (scope !== 'once' && scope !== 'always') {
+    throw new VolareError('invalid_request', 'Approval decision scope must be once or always');
+  }
+  if (type === 'allow') {
+    return { type, scope };
+  }
+  const reason = value['reason'];
+  return {
+    type,
+    scope,
+    ...(typeof reason === 'string' && reason.length > 0 ? { reason } : {}),
+  };
+}
+
+function requiredStringField(body: Record<string, unknown>, field: string): string {
+  const value = body[field];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new VolareError('invalid_request', `Approval resolution ${field} is required`);
+  }
+  return value;
+}
+
+function encodeApprovalResolutionResponse(
+  input: IApprovalResolutionRequest,
+  result: IApprovalResolutionResult,
+): unknown {
+  return {
+    approval_id: input.approvalId,
+    turn_id: input.turnId,
+    bridge_session_id: input.bridgeSessionId,
+    status: result.status,
+    decision: result.decision,
+  };
+}
+
+function encodeControlPlaneError(error: unknown): Response {
+  const agentError = toVolareError(error);
+  return Response.json(
+    {
+      error: {
+        code: agentError.code,
+        message: agentError.message,
+      },
+    },
+    { status: controlPlaneStatusForErrorCode(agentError.code) },
+  );
+}
+
+function controlPlaneStatusForErrorCode(code: string): number {
+  switch (code) {
+    case 'invalid_request':
+    case 'unsupported_parameter':
+      return 400;
+    case 'unauthorized':
+      return 401;
+    case 'workspace_forbidden':
+      return 403;
+    case 'approval_not_found':
+    case 'not_found':
+      return 404;
+    case 'approval_scope_mismatch':
+      return 409;
+    case 'service_unavailable':
+      return 503;
+    default:
+      return 500;
+  }
 }
 
 async function parseJsonBody(request: Request): Promise<unknown> {

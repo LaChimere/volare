@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
+import { permissionResolvedJournalEvent } from '../core/approval-events';
 import { VolareError } from '../core/errors';
 import { createId } from '../core/ids';
 import type {
@@ -378,6 +379,18 @@ export class SQLiteStateStore implements IStateStore {
     return row ? approvalFromRow(row) : null;
   }
 
+  async listPendingApprovals(): Promise<IApprovalRecord[]> {
+    return this.database
+      .query<ApprovalRow, []>(
+        `SELECT id, turn_id, bridge_session_id, status, redacted_request_json, decision_json,
+                timeout_at, created_at, decided_at
+         FROM approvals WHERE status = 'pending'
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all()
+      .map(approvalFromRow);
+  }
+
   async resolveApprovalWithJournal(
     input: IApprovalResolutionInput,
   ): Promise<IApprovalResolutionResult> {
@@ -414,8 +427,11 @@ export class SQLiteStateStore implements IStateStore {
     return transaction();
   }
 
-  async recoverStartupState(input: { now?: number } = {}): Promise<IStartupRecoveryResult> {
+  async recoverStartupState(
+    input: { now?: number; approvalAbortReason?: string } = {},
+  ): Promise<IStartupRecoveryResult> {
     const now = input.now ?? Date.now();
+    const approvalAbortReason = input.approvalAbortReason ?? 'startup_recovery';
     const transaction = this.database.transaction(() => {
       const interruptedTurns = this.database
         .query(
@@ -431,9 +447,15 @@ export class SQLiteStateStore implements IStateStore {
            WHERE status IN ('initializing', 'active', 'idle', 'disposing', 'stale')`,
         )
         .run(now);
+      const abortedApprovalCount = abortPendingApprovalsForRecovery(
+        this.database,
+        now,
+        approvalAbortReason,
+      );
       return {
         interruptedTurnCount: interruptedTurns.changes,
         abandonedSessionCount: abandonedSessions.changes,
+        abortedApprovalCount,
       };
     });
     return transaction();
@@ -527,6 +549,42 @@ function approvalStatusForDecision(decision: ApprovalDecision): ApprovalStatus {
     case 'aborted':
       return 'aborted';
   }
+}
+
+function abortPendingApprovalsForRecovery(database: Database, now: number, reason: string): number {
+  const pendingApprovals = database
+    .query<ApprovalRow, []>(
+      `SELECT id, turn_id, bridge_session_id, status, redacted_request_json, decision_json,
+              timeout_at, created_at, decided_at
+       FROM approvals WHERE status = 'pending'
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all();
+  let abortedApprovalCount = 0;
+  const decision = { type: 'aborted', reason } satisfies ApprovalDecision;
+  for (const approval of pendingApprovals) {
+    const result = database
+      .query(
+        `UPDATE approvals
+         SET status = 'aborted', decision_json = ?, decided_at = ?
+         WHERE id = ? AND status = 'pending'`,
+      )
+      .run(JSON.stringify(decision), now, approval.id);
+    if (result.changes !== 1) {
+      continue;
+    }
+    abortedApprovalCount += 1;
+    insertJournalEvent(
+      database,
+      {
+        turnId: approval.turn_id,
+        kind: 'canonical',
+        canonicalJson: permissionResolvedJournalEvent(approval.turn_id, approval.id, decision),
+      },
+      now,
+    );
+  }
+  return abortedApprovalCount;
 }
 
 function parseJson<T>(value: string | null): T {

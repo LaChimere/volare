@@ -262,10 +262,17 @@ describe('SQLiteStateStore', () => {
       backend: 'mock',
     });
     await store.updateBackendSessionStatus(staleSession.bridgeSessionId, 'initializing', 'stale');
+    const approval = await store.createApproval({
+      turnId: turn.id,
+      bridgeSessionId: session.bridgeSessionId,
+      request: { action: 'shell:exec', scope: { command: 'bun test' } },
+      timeoutAt: 999,
+    });
 
     await expect(store.recoverStartupState({ now: 222 })).resolves.toEqual({
       interruptedTurnCount: 1,
       abandonedSessionCount: 2,
+      abortedApprovalCount: 1,
     });
 
     await expect(store.getTurn(turn.id)).resolves.toMatchObject({
@@ -282,9 +289,27 @@ describe('SQLiteStateStore', () => {
     await expect(store.getBackendSession(staleSession.bridgeSessionId)).resolves.toMatchObject({
       status: 'abandoned',
     });
+    await expect(store.getApproval(approval.id)).resolves.toMatchObject({
+      status: 'aborted',
+      decision: { type: 'aborted', reason: 'startup_recovery' },
+    });
+    expect(
+      store.database
+        .query<{ canonical_json: string }, [string]>(
+          'SELECT canonical_json FROM events WHERE turn_id = ? ORDER BY seq',
+        )
+        .all(turn.id)
+        .map((row) => JSON.parse(row.canonical_json)),
+    ).toContainEqual({
+      type: 'permission.resolved',
+      turnId: turn.id,
+      approvalId: approval.id,
+      decision: 'deny',
+    });
     await expect(store.recoverStartupState({ now: 333 })).resolves.toEqual({
       interruptedTurnCount: 0,
       abandonedSessionCount: 0,
+      abortedApprovalCount: 0,
     });
   });
 
