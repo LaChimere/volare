@@ -2,7 +2,7 @@
 
 ## Status
 
-Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, PR 3 runtime capability registry, PR 4 ACP worker admission queue, PR 5 ACP worker observability / idle reaper, and PR 6 HTTP app boundary cleanup have been completed.
+Execution in progress. PR 0 baseline, PR 1 active-turn capacity, PR 2 approval resolution, PR 3 runtime capability registry, PR 4 ACP worker admission queue, PR 5 ACP worker observability / idle reaper, PR 6 HTTP app boundary cleanup, and PR 7 event-driven approval wait have been completed.
 
 ## PR 0: Runtime-control baseline
 
@@ -231,17 +231,27 @@ Evidence:
 
 ## PR 7: Event-driven approval wait
 
-- [ ] Add in-process approval notification path
-- [ ] Preserve SQLite polling fallback
-- [ ] Preserve timeout and abort behavior
-- [ ] Add same-process wake tests
-- [ ] Add restart/cross-process fallback tests or documented surrogate
+- [x] Add in-process approval notification path
+- [x] Preserve SQLite polling fallback
+- [x] Preserve timeout and abort behavior
+- [x] Add same-process wake tests
+- [x] Add restart/cross-process fallback tests or documented surrogate
 
 Acceptance evidence:
 
-- [ ] Same-process decision wakes without polling delay
-- [ ] Polling fallback still observes SQLite decisions
-- [ ] Terminal approval states remain durable and idempotent
+- [x] Same-process decision wakes without polling delay
+- [x] Polling fallback still observes SQLite decisions
+- [x] Terminal approval states remain durable and idempotent
+
+Evidence:
+
+- Added in-process approval waiters in `ApprovalProvider`, notified only after `resolveApprovalWithJournal` commits the terminal decision.
+- Same-process waiters register for notifications and immediately re-check SQLite after registration to close missed-wakeup windows.
+- Cross-provider/cross-process fallback remains SQLite polling through the existing poll interval.
+- Timeout, abort, duplicate terminal resolution, and shutdown abort paths continue to write durable terminal approval states.
+- Tests cover same-process wake without waiting for a long poll interval and cross-provider SQLite fallback.
+- Validation:
+  - `bun test tests/unit_tests/approvals/provider.test.ts tests/unit_tests/core/durable-session-manager.test.ts && bun run check`
 
 ## PR 8: Capabilities endpoint
 

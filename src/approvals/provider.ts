@@ -34,6 +34,7 @@ export class ApprovalProvider implements IApprovalProvider {
   #drainingReason: string | null = null;
   #activeEvaluations = 0;
   readonly #evaluationDrainWaiters = new Set<() => void>();
+  readonly #approvalWaiters = new Map<string, Set<() => void>>();
 
   constructor(options: IApprovalProviderOptions) {
     this.#store = options.store;
@@ -187,7 +188,7 @@ export class ApprovalProvider implements IApprovalProvider {
           })
         ).decision;
       }
-      await sleep(this.#pollMs, signal);
+      await this.#waitForApprovalChange(approvalId, signal);
     }
   }
 
@@ -195,7 +196,7 @@ export class ApprovalProvider implements IApprovalProvider {
     approval: IApprovalRecord,
     decision: ApprovalDecision,
   ): Promise<IApprovalResolutionResult> {
-    return await this.#store.resolveApprovalWithJournal({
+    const result = await this.#store.resolveApprovalWithJournal({
       approvalId: approval.id,
       decision,
       journalEvent: {
@@ -204,6 +205,8 @@ export class ApprovalProvider implements IApprovalProvider {
         canonicalJson: permissionResolvedJournalEvent(approval.turnId, approval.id, decision),
       },
     });
+    this.#notifyApprovalWaiters(approval.id);
+    return result;
   }
 
   async #assertApprovalOwnership(approval: IApprovalRecord, input: IApprovalResolutionRequest) {
@@ -261,6 +264,48 @@ export class ApprovalProvider implements IApprovalProvider {
     }
     return approval;
   }
+
+  async #waitForApprovalChange(approvalId: string, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      return;
+    }
+    let cleanup = () => {};
+    const wait = new Promise<void>((resolve) => {
+      let timeout: Timer | undefined;
+      const waiters = this.#approvalWaiters.get(approvalId) ?? new Set<() => void>();
+      this.#approvalWaiters.set(approvalId, waiters);
+      cleanup = () => {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        signal?.removeEventListener('abort', cleanup);
+        waiters.delete(cleanup);
+        if (waiters.size === 0) {
+          this.#approvalWaiters.delete(approvalId);
+        }
+        resolve();
+      };
+      waiters.add(cleanup);
+      signal?.addEventListener('abort', cleanup, { once: true });
+      timeout = setTimeout(cleanup, this.#pollMs);
+    });
+    const approval = await this.#store.getApproval(approvalId);
+    if (approval?.decision) {
+      cleanup();
+      return;
+    }
+    await wait;
+  }
+
+  #notifyApprovalWaiters(approvalId: string): void {
+    const waiters = this.#approvalWaiters.get(approvalId);
+    if (!waiters) {
+      return;
+    }
+    for (const resolve of [...waiters]) {
+      resolve();
+    }
+  }
 }
 
 function permissionRequiredEvent(turnId: string, approvalId: string, request: IPermissionRequest) {
@@ -270,22 +315,4 @@ function permissionRequiredEvent(turnId: string, approvalId: string, request: IP
     approvalId,
     action: request.action,
   };
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    const timeout = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timeout);
-        resolve();
-      },
-      { once: true },
-    );
-  });
 }
