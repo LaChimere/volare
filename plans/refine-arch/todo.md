@@ -2,25 +2,39 @@
 
 ## Status
 
-Planning scope only. Do not implement until `plans/refine-arch/plan.md` is approved.
+Execution in progress. PR 0 baseline has been captured.
 
 ## PR 0: Runtime-control baseline
 
-- [ ] Record baseline metric collection commands
-- [ ] Capture backend turn latency by runtime mode, or document why unavailable
-- [ ] Capture first assistant delta latency, or document why unavailable
-- [ ] Capture cancellation outcome distribution
-- [ ] Capture active-turn/worker pressure behavior
-- [ ] Capture approval wait behavior
-- [ ] Capture journal append cost on synthetic/high-delta workload
-- [ ] Add baseline evidence to this slug
+- [x] Record baseline metric collection commands
+- [x] Capture backend turn latency by runtime mode, or document why unavailable
+- [x] Capture first assistant delta latency, or document why unavailable
+- [x] Capture cancellation outcome distribution
+- [x] Capture active-turn/worker pressure behavior
+- [x] Capture approval wait behavior
+- [x] Capture journal append cost on synthetic/high-delta workload
+- [x] Add baseline evidence to this slug
 
 Acceptance evidence:
 
-- [ ] Baseline includes sample counts or confidence caveats
-- [ ] Synthetic baseline satisfies `design.md` sample guidance; each exception documents a concrete blocker
-- [ ] Cancellation outcomes, worker pressure/cap behavior, approval wait behavior, and journal append cost have mandatory synthetic baselines or documented blockers
-- [ ] No production behavior changes
+- [x] Baseline includes sample counts or confidence caveats
+- [x] Synthetic baseline satisfies `design.md` sample guidance; each exception documents a concrete blocker
+- [x] Cancellation outcomes, worker pressure/cap behavior, approval wait behavior, and journal append cost have mandatory synthetic baselines or documented blockers
+- [x] No production behavior changes
+
+Evidence:
+
+- Command: `bun /tmp/refine-arch-baseline.ts`
+- Environment: Bun `1.3.14`, Darwin.
+- Live Copilot latency was not run in this PR 0 slice to avoid external-service noise; prior ACP live probe evidence remains in `plans/copilot-backend-runtime/`.
+
+| Metric | Samples | p50 | p90 | Max | Notes |
+|---|---:|---:|---:|---:|---|
+| Synthetic turn lifecycle | 30 | 0.05ms | 0.08ms | 1.19ms | In-memory backend through `DurableSessionManager` |
+| Cancellation | 20 | 0.02ms | 0.03ms | 0.30ms | Outcomes: `cancelled=20` |
+| Approval wait | 20 | 1.16ms | 1.20ms | 2.32ms | `ApprovalProvider` with `pollMs=1`; resolve scheduled after 1ms |
+| Journal append | 1000 | 0.01ms | 0.01ms | 0.40ms | Total 8.02ms for 1000 canonical events |
+| ACP worker cap pressure | 6 attempts | n/a | n/a | n/a | `cap=2`; fulfilled=2, `backend_worker_cap_exhausted=4` |
 
 ## PR 1: Active-turn capacity
 
