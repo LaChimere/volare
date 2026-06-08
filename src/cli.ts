@@ -532,7 +532,7 @@ function parseStart(args: string[]): Extract<ICliCommand, { type: 'start' }> {
       const parsed = readFlagValue(args, index, '--copilot-mcp-mode');
       if (!isCopilotMcpMode(parsed.value)) {
         throw new CliUsageError(
-          `--copilot-mcp-mode "${parsed.value}" is not valid. Valid modes: disabled or unmediated. Example: bunx @lachimere/volare start --copilot-mcp-mode unmediated --copilot-permission-mode web`,
+          `--copilot-mcp-mode "${parsed.value}" is not valid. Valid modes: disabled or unmediated. Example: VOLARE_COPILOT_RUNTIME_MODE=process bunx @lachimere/volare start --copilot-mcp-mode unmediated --copilot-permission-mode web`,
         );
       }
       env.VOLARE_COPILOT_MCP_MODE = parsed.value;

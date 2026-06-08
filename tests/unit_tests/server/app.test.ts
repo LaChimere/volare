@@ -33,6 +33,7 @@ const config = createServerRuntimeConfig({
 const unmediatedConfig = createServerRuntimeConfig({
   VOLARE_API_KEY: '0123456789abcdef',
   VOLARE_WORKSPACE_ROOT: process.cwd(),
+  VOLARE_COPILOT_RUNTIME_MODE: 'process',
   VOLARE_COPILOT_MCP_MODE: 'unmediated',
   VOLARE_COPILOT_PERMISSION_MODE: 'web',
 });
@@ -1981,7 +1982,7 @@ describe('server app', () => {
         CURL_CA_BUNDLE: '/tmp/cacert.pem',
       },
     });
-    expect(createServerRuntimeConfig({}).copilotRuntimeMode).toBe('process');
+    expect(createServerRuntimeConfig({}).copilotRuntimeMode).toBe('acp');
     expect(createServerRuntimeConfig({}).copilotAcpMaxWorkers).toBe(10);
     expect(createServerRuntimeConfig({}).copilotAcpAdmissionTimeoutMs).toBe(30_000);
     expect(createServerRuntimeConfig({}).copilotAcpCancelStrategy).toBe('kill');

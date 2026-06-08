@@ -8,30 +8,26 @@ import { createCopilotPromptRunner, mergeRuntimeEnv } from '../../../src/runtime
 import { createServerRuntimeConfig } from '../../../src/server/config';
 
 describe('runtime server wiring', () => {
-  test('keeps process runner as the default', () => {
+  test('uses ACP runner by default', () => {
     const config = createServerRuntimeConfig({});
-
-    expect(createCopilotPromptRunner(config, new NoopLogger())).toBeInstanceOf(
-      BunCopilotPromptRunner,
-    );
-  });
-
-  test('creates ACP runner only when explicitly configured', () => {
-    const config = createServerRuntimeConfig({
-      VOLARE_COPILOT_RUNTIME_MODE: 'acp',
-      VOLARE_COPILOT_ACP_MAX_WORKERS: '2',
-      VOLARE_MAX_ACTIVE_SESSIONS: '3',
-    });
 
     expect(createCopilotPromptRunner(config, new NoopLogger())).toBeInstanceOf(
       AcpCopilotPromptRunner,
     );
   });
 
-  test('wires ACP runner capability observations into the internal registry', () => {
+  test('keeps process runner available as an explicit rollback path', () => {
     const config = createServerRuntimeConfig({
-      VOLARE_COPILOT_RUNTIME_MODE: 'acp',
+      VOLARE_COPILOT_RUNTIME_MODE: 'process',
     });
+
+    expect(createCopilotPromptRunner(config, new NoopLogger())).toBeInstanceOf(
+      BunCopilotPromptRunner,
+    );
+  });
+
+  test('wires ACP runner capability observations into the internal registry', () => {
+    const config = createServerRuntimeConfig({});
     const registry = new RuntimeCapabilityRegistry({
       runtimeMode: config.copilotRuntimeMode,
       maxActiveTurns: config.maxActiveSessions,

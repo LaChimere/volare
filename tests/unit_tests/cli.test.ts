@@ -547,7 +547,9 @@ describe('Volare CLI', () => {
     expect(calls).toEqual([]);
     expect(stderr.text()).toContain('--copilot-mcp-mode "auto" is not valid');
     expect(stderr.text()).toContain('Valid modes: disabled or unmediated');
-    expect(stderr.text()).toContain('bunx @lachimere/volare start --copilot-mcp-mode unmediated');
+    expect(stderr.text()).toContain(
+      'VOLARE_COPILOT_RUNTIME_MODE=process bunx @lachimere/volare start --copilot-mcp-mode unmediated',
+    );
   });
 
   test('rejects missing start option values before daemon startup', async () => {
