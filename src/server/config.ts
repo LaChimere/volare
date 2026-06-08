@@ -254,7 +254,7 @@ function pickChildProcessEnv(env: Partial<IServerRuntimeEnv>): Record<string, st
 }
 
 function parseCopilotRuntimeMode(value: string | undefined): CopilotRuntimeMode {
-  const mode = value?.trim() ?? 'process';
+  const mode = value?.trim() ?? 'acp';
   if (isCopilotRuntimeMode(mode)) {
     return mode;
   }
