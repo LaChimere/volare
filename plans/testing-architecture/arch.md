@@ -13,7 +13,7 @@ Volare's tests should become a **contract-driven runtime test architecture**. Th
 - security/privacy non-leakage
 - CLI/config and real-client interoperability
 
-The current test suite already covers many of these concerns. The target architecture formalizes the layers and introduces shared harnesses gradually, only where repeated setup already exists or a new feature needs the same helper in more than one place. This should reduce duplicate setup, fragile sleeps, inconsistent fake backends, and one-off redaction assertions without creating unused harness files.
+The current test suite already covers many of these concerns. The target architecture formalizes the layers and introduces shared harnesses only where repeated setup already exists or an accepted migration slice needs the same helper. The implementation strategy is the coverage-preserving structural rewrite in `plans/testing-architecture/design.md`: build the target layout, prove parity for existing cases, and then retire the legacy `tests/unit_tests` and `tests/integration_tests` layout. This should reduce duplicate setup, fragile sleeps, inconsistent fake backends, and one-off redaction assertions without creating unused harness files.
 
 ## Target test stack
 
@@ -162,9 +162,8 @@ Real E2E tests should be few but valuable:
 - `/openai/v1` and `/v1` base paths work
 - workspace allowlist and projectless isolation hold
 - no unrelated repository context leaks into the backend
-- packaged Volare binary starts and reports help/version when package behavior changes
 
-These tests are slower and should be isolated from the fast deterministic CI lane.
+These tests are slower and should be isolated from the fast deterministic CI lane. Compiled-binary startup and packed package / `bunx` behavior belong to the separate package-smoke lane.
 
 ### Golden / contract tests
 
@@ -296,18 +295,21 @@ Responsibilities:
 
 ## Existing-to-target mapping
 
-The first implementation step should not move every test file. Start by mapping the current layout to the target layers:
+The implementation design owns the case-level migration map and parity ledger. At the architecture level, current coverage should move toward these target homes:
 
-| Current location | Near-term role | Future split trigger |
+| Current location | Target role | Migration rule |
 |---|---|---|
-| `tests/unit_tests/core/` | Unit + component runtime semantics | Move only socket/server cases out if they appear |
-| `tests/unit_tests/server/app.test.ts` | HTTP integration despite living under `unit_tests` today | Split when `app-harness.ts` exists and route groups can move safely |
-| `tests/unit_tests/backends/acp-copilot-prompt-runner.test.ts` | Backend integration | Keep here; extract fake process only after a second consumer appears |
-| `tests/unit_tests/state/` and `tests/unit_tests/events/` | Unit/component state and journal tests | Add file-backed durability tests under `integration_tests/state/` |
-| `tests/integration_tests/codex-cli-provider.test.ts` | HTTP/config integration | Keep as mock integration |
-| `tests/integration_tests/codex-cli-e2e.test.ts` | Real Codex CLI E2E | Move to a dedicated script/lane when CI splits |
+| `tests/unit_tests/core/` | Unit + component runtime semantics | Split pure invariants from cross-module seams |
+| `tests/unit_tests/server/app.test.ts` | HTTP integration plus contract/security where stable wire or no-leak invariants exist | Split around `app-harness` and `sse` helpers |
+| `tests/unit_tests/server/shutdown.test.ts` | Component shutdown orchestration, with future durable recovery cases where file-backed state matters | Preserve lifecycle and cleanup invariants during migration |
+| `tests/unit_tests/backends/*` | Unit/component/backend integration depending on boundary | Keep ACP fake-process behavior in backend integration |
+| `tests/unit_tests/state/` and `tests/unit_tests/events/` | Unit/component/durability/contract | Add file-backed restart/recovery and future journal contracts under target layers |
+| `tests/unit_tests/approvals/`, `runtime/`, `logging/`, `northbound/`, `scripts/`, `cli.test.ts` | Unit/component/contract/security/E2E by boundary | Classify by runtime boundary, not historical directory |
+| `tests/support/*` and `tests/fixtures/*` | Support helpers and fixtures | Preserve useful fixtures; consolidate only when real migrated consumers need it |
+| `tests/integration_tests/codex-cli-provider.test.ts` | Deterministic HTTP/config integration | Keep out of real-client E2E |
+| `tests/integration_tests/codex-cli-e2e.test.ts` | Real Codex CLI E2E | Move to a dedicated real-client lane early |
 
-Until CI scripts are split, names such as `integration-mock` and `real-codex-e2e` are target lanes, not existing commands.
+Until scripts are added, names such as `integration-mock`, `real-codex-e2e`, and `package-smoke` are target lanes, not existing commands.
 
 ## Capability-to-test matrix
 
@@ -334,7 +336,12 @@ Legend: `P` = layer-level primary coverage for that boundary, `S` = secondary/re
 graph LR
   PR[Pull request] --> Static[static\\nbun run check]
   PR --> Unit[unit\\nbun run test:unit]
-  PR --> MockIT[integration-mock\\nHTTP/state/fake backend]
+  PR --> Component[component]
+  PR --> HTTPIT[integration-http]
+  PR --> Durable[integration-durable]
+  PR --> BackendIT[integration-backend]
+  PR --> Contract[contract]
+  PR --> Security[security]
   PR --> Package[package-smoke\\nwhen CLI/package changes]
   Main[main/nightly] --> RealCodex[real-codex-e2e]
   Manual[manual] --> Live[ACP/Copilot live probes]
@@ -346,80 +353,36 @@ Recommended lanes:
 |---|---|---|---|
 | `static` | every PR | yes | Biome + TypeScript |
 | `unit` | every PR | yes | fast deterministic module tests |
-| `integration-mock` | every PR | yes | HTTP/state/SSE/fake backend behavior |
+| `component` | every PR | yes | protocol-neutral cross-module seams |
+| `integration-http` | every PR | yes | HTTP/auth/SSE/route behavior |
+| `integration-durable` | every PR | yes | file-backed SQLite/restart/replay behavior |
+| `integration-backend` | every PR | yes | fake process / ACP runner behavior |
+| `contract` | every PR | yes | stable wire/schema/replay artifacts |
+| `security` | every PR | yes | sentinel-based no-leak coverage |
 | `package-smoke` | CLI/package changes | yes | compiled binary / bunx behavior |
 | `real-codex-e2e` | main/nightly/manual | maybe | real Codex compatibility |
 | `live-copilot-probes` | manual/nightly | no | external Copilot/ACP behavior |
 
 CI should upload logs/artifacts on failure, set job-level timeouts, and avoid broad retries. Real Codex/Copilot checks should be separated from deterministic PR gates unless they become highly stable and pinned.
 
-Before Phase 4 can be implemented, add exact scripts such as:
-
-- `test:integration:mock`
-- `test:e2e:codex`
-- `test:package-smoke`
+During migration, `test:integration:mock` may exist as a temporary split for current integration tests. The end-state scripts should follow `plans/testing-architecture/design.md`: `test:integration:http`, `test:integration:durable`, `test:integration:backend`, `test:contract`, `test:security`, `test:e2e:codex`, and `test:package-smoke`.
 
 The real Codex CLI version should be pinned or recorded for release-blocking jobs. A nightly `latest` compatibility job may exist, but failures there should open a labeled issue and block the next release only after triage.
 
 ## Prioritized rollout
 
-### Phase 1: Document the current testing contract
+The detailed rollout is defined in `plans/testing-architecture/design.md`. The architecture-level sequence is:
 
-Create `docs/testing.md` with:
+1. Inventory current coverage, create the parity ledger, and document the current testing contract.
+2. Split deterministic integration from real Codex E2E before deterministic rewrites.
+3. Create the target layout and rewrite/split legacy tests by layer with parity evidence.
+4. Move real E2E and package smoke into target lanes.
+5. Add the highest-risk contract and security suites.
+6. Delete legacy test directories only after parity is terminal and split CI into explicit lanes.
 
-- test layers
-- command matrix
-- fixture rules
-- golden/snapshot rules
-- no-secret assertions
-- CI lane definitions
-
-This first document should describe current commands and existing file locations honestly. Future sections may be added as support harnesses and CI scripts land.
-
-Do not document target-only script names such as `test:integration:mock`, `test:e2e:codex`, or `test:package-smoke` as if they exist. Mention them only as planned lanes until the scripts are added.
-
-### Phase 1.5: Separate deterministic integration from real Codex E2E
-
-Before extracting larger harnesses, split the current mixed integration command so deterministic HTTP/config integration can run without requiring a real `codex` binary:
-
-1. Add `test:integration:mock` for integration tests that use fake/mock backends and local app/server fixtures.
-2. Add `test:e2e:codex` for the real Codex CLI E2E file.
-3. Keep `test:integration` as an aggregate during transition, or update CI explicitly to call both lanes where appropriate.
-
-This prevents harness work from being gated by an external CLI while still preserving real-client coverage.
-
-### Phase 2: Extract support harnesses
-
-Create the first support helpers:
-
-1. `tests/support/sse.ts`
-2. `tests/support/app-harness.ts`
-3. `tests/support/durable-harness.ts`
-4. `tests/support/assertions.ts`
-5. `tests/support/security-assertions.ts`
-
-Do not create a harness file until at least two existing tests or one imminent feature clearly need it. The first extraction should be mechanical: move duplicated helpers without changing behavior.
-
-### Phase 3: Add highest-risk missing contract suites
-
-1. file-backed SQLite restart/recovery
-2. raw SSE byte/golden tests
-3. approval end-to-end flow
-4. capabilities/schema golden
-5. secret/path leakage corpus across all output surfaces
+Support helpers should be created with concrete consumers: at least two existing consumers, or one accepted migration slice / imminent feature with clear acceptance criteria. The first extraction should be mechanical and should preserve behavior.
 
 Defer `envelope_schema_version` fixture loaders and upcaster golden files until the first actual event-envelope migration is implemented. Until then, keep the design in `plans/refine-arch/design.md` as the contract.
-
-### Phase 4: CI split
-
-Split current all-in-one validation into explicit jobs:
-
-- `static`
-- `unit`
-- `integration-mock`
-- `package-smoke`
-- `real-codex-e2e`
-- optional/manual live probes
 
 ## Non-goals
 
