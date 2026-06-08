@@ -147,9 +147,9 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T089 | 15 | exposes the Phase 0 approval capability metadata shape | unit | `tests/unit/backends/mock-backend.test.ts` | pending | Test support fake backend invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T090 | 28 | echoes a deterministic text response for contract tests | unit | `tests/unit/backends/mock-backend.test.ts` | pending | Test support fake backend invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T091 | 64 | fails closed on workspace or thread mismatch | unit | `tests/unit/backends/mock-backend.test.ts` | pending | Test support fake backend invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T089 | 15 | exposes the Phase 0 approval capability metadata shape | unit | `tests/unit/backends/mock-backend.test.ts` | rewritten | Preserved mock backend capability metadata shape assertions in target unit test. |
+| T090 | 28 | echoes a deterministic text response for contract tests | unit | `tests/unit/backends/mock-backend.test.ts` | rewritten | Preserved deterministic text delta, succeeded event, and estimated usage assertions in target unit test. |
+| T091 | 64 | fails closed on workspace or thread mismatch | unit | `tests/unit/backends/mock-backend.test.ts` | rewritten | Preserved workspace/thread mismatch failure event assertion in target unit test. |
 
 ### `tests/unit_tests/cli.test.ts`
 
