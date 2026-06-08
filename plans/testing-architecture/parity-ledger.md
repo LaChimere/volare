@@ -130,11 +130,11 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T082 | 15 | keeps text-only fixture as answer text | unit | `tests/unit/backends/copilot-frame-fixtures.test.ts` | pending | Fixture builder invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T083 | 22 | does not emit unknown unmediated MCP frames as answer text | unit | `tests/unit/backends/copilot-frame-fixtures.test.ts` | pending | Fixture builder invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T084 | 29 | redacts poisoned fixture input before writing | unit | `tests/unit/backends/copilot-frame-fixtures.test.ts` | pending | Fixture builder invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T085 | 57 | does not reject safe HTTP URL paths that resemble filesystem roots | unit | `tests/unit/backends/copilot-frame-fixtures.test.ts` | pending | Fixture builder invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T086 | 65 | deletes candidate fixture when redaction or post-write safety checks fail | unit | `tests/unit/backends/copilot-frame-fixtures.test.ts` | pending | Fixture builder invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T082 | 15 | keeps text-only fixture as answer text | unit | `tests/unit/backends/copilot-frame-fixtures.test.ts` | rewritten | Preserved text-only fixture safety and extracted answer text assertions in target unit test. |
+| T083 | 22 | does not emit unknown unmediated MCP frames as answer text | unit | `tests/unit/backends/copilot-frame-fixtures.test.ts` | rewritten | Preserved unmediated MCP fixture safety and ignored-frame answer text assertions in target unit test. |
+| T084 | 29 | redacts poisoned fixture input before writing | unit | `tests/unit/backends/copilot-frame-fixtures.test.ts` | rewritten | Preserved forbidden-pattern redaction checks and redacted marker assertion in target unit test. |
+| T085 | 57 | does not reject safe HTTP URL paths that resemble filesystem roots | unit | `tests/unit/backends/copilot-frame-fixtures.test.ts` | rewritten | Preserved safe HTTP URL path acceptance assertion in target unit test. |
+| T086 | 65 | deletes candidate fixture when redaction or post-write safety checks fail | unit | `tests/unit/backends/copilot-frame-fixtures.test.ts` | rewritten | Preserved unsafe fixture cleanup and redaction-failure cleanup assertions in target unit test. |
 
 ### `tests/unit_tests/backends/copilot-process-identity.test.ts`
 
