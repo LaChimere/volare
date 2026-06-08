@@ -228,10 +228,10 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T150 | 11 | estimates ASCII and non-ASCII text tokens conservatively | unit | `tests/unit/core/usage.test.ts` | pending | Pure usage estimation. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T151 | 17 | estimates agent input from system, history, and latest message text | unit | `tests/unit/core/usage.test.ts` | pending | Pure usage estimation. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T152 | 27 | creates explicit estimated usage metadata for internal events | unit | `tests/unit/core/usage.test.ts` | pending | Pure usage estimation. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T153 | 37 | rejects invalid token counts | unit | `tests/unit/core/usage.test.ts` | pending | Pure usage estimation. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T150 | 11 | estimates ASCII and non-ASCII text tokens conservatively | unit | `tests/unit/core/usage.test.ts` | rewritten | Preserved empty, ASCII, and non-ASCII conservative token estimates in target unit test. |
+| T151 | 17 | estimates agent input from system, history, and latest message text | unit | `tests/unit/core/usage.test.ts` | rewritten | Preserved system/history/latest-message input estimate coverage in target unit test. |
+| T152 | 27 | creates explicit estimated usage metadata for internal events | unit | `tests/unit/core/usage.test.ts` | rewritten | Preserved input/output/total token metadata and estimated/source assertions in target unit test. |
+| T153 | 37 | rejects invalid token counts | unit | `tests/unit/core/usage.test.ts` | rewritten | Preserved negative, fractional, and NaN token validation assertions in target unit test. |
 
 ### `tests/unit_tests/core/workspace-resolver.test.ts`
 
