@@ -53,7 +53,9 @@
     "ci": "biome ci . && tsc --noEmit && bun run test:unit && bun run test:integration",
     "test": "bun run test:unit && bun run test:integration",
     "test:unit": "bun test tests/unit_tests --pass-with-no-tests",
-    "test:integration": "bun test tests/integration_tests --timeout=30000 --pass-with-no-tests"
+    "test:integration": "bun test tests/integration_tests --timeout=30000 --pass-with-no-tests",
+    "test:integration:mock": "bun test tests/integration_tests/codex-cli-provider.test.ts --timeout=30000",
+    "test:e2e:codex": "bun test tests/integration_tests/codex-cli-e2e.test.ts --timeout=30000"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.13",
