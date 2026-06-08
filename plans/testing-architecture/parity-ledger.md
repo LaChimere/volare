@@ -423,14 +423,14 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T290 | 17 | stops accepting requests and interrupts leftover state idempotently | component | `tests/component/server/shutdown.test.ts` | pending | Shutdown controller/store/notifier seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T291 | 58 | force-stops the server when state recovery fails | component | `tests/component/server/shutdown.test.ts` | pending | Shutdown controller/store/notifier seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T292 | 70 | force-stops and recovers state when graceful stop fails | component | `tests/component/server/shutdown.test.ts` | pending | Shutdown controller/store/notifier seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T293 | 97 | force-stops and recovers state when cleanup fails | component | `tests/component/server/shutdown.test.ts` | pending | Shutdown controller/store/notifier seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T294 | 113 | waits for graceful stop before cleanup | component | `tests/component/server/shutdown.test.ts` | pending | Shutdown controller/store/notifier seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T295 | 145 | continues cleanup and force-stop after graceful stop timeout | component | `tests/component/server/shutdown.test.ts` | pending | Shutdown controller/store/notifier seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T296 | 170 | continues cleanup and force-stop after approval drain timeout | component | `tests/component/server/shutdown.test.ts` | pending | Shutdown controller/store/notifier seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T297 | 203 | aborts pending approvals before waiting for graceful stop completion | component | `tests/component/server/shutdown.test.ts` | pending | Shutdown controller/store/notifier seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T290 | 17 | stops accepting requests and interrupts leftover state idempotently | component | `tests/component/server/shutdown.test.ts` | rewritten | Preserved idempotent shutdown, graceful/force stop order, cleanup call, interrupted turn, and abandoned backend session assertions in target component test. |
+| T291 | 58 | force-stops the server when state recovery fails | component | `tests/component/server/shutdown.test.ts` | rewritten | Preserved force-stop behavior and surfaced recovery failure assertion in target component test. |
+| T292 | 70 | force-stops and recovers state when graceful stop fails | component | `tests/component/server/shutdown.test.ts` | rewritten | Preserved graceful-stop failure, force-stop, interrupted turn, and abandoned session assertions in target component test. |
+| T293 | 97 | force-stops and recovers state when cleanup fails | component | `tests/component/server/shutdown.test.ts` | rewritten | Preserved cleanup failure propagation and force-stop assertion in target component test. |
+| T294 | 113 | waits for graceful stop before cleanup | component | `tests/component/server/shutdown.test.ts` | rewritten | Preserved graceful-stop-before-cleanup ordering, terminal counts, and force-stop assertion in target component test. |
+| T295 | 145 | continues cleanup and force-stop after graceful stop timeout | component | `tests/component/server/shutdown.test.ts` | rewritten | Preserved graceful-stop timeout cleanup continuation and terminal count assertions in target component test. |
+| T296 | 170 | continues cleanup and force-stop after approval drain timeout | component | `tests/component/server/shutdown.test.ts` | rewritten | Preserved approval drain timeout cleanup continuation and force-stop assertions in target component test. |
+| T297 | 203 | aborts pending approvals before waiting for graceful stop completion | component | `tests/component/server/shutdown.test.ts` | rewritten | Preserved pending approval abort ordering, service unavailable evaluation, interrupted/abandoned counts, and waiter resolution assertions in target component test. |
 
 ### `tests/unit_tests/state/sqlite-store.test.ts`
 
