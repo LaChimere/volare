@@ -24,10 +24,10 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T001 | 38 | allows read-only filesystem requests after canonicalizing paths | unit | `tests/unit/approvals/policy.test.ts` | pending | Pure approval policy decisions. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T002 | 55 | asks for writes and shell by default | unit | `tests/unit/approvals/policy.test.ts` | pending | Pure approval policy decisions. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T003 | 83 | denies destructive actions by default | unit | `tests/unit/approvals/policy.test.ts` | pending | Pure approval policy decisions. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T004 | 94 | denies paths outside the workspace and canonicalization failures | unit | `tests/unit/approvals/policy.test.ts` | pending | Pure approval policy decisions. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T001 | 38 | allows read-only filesystem requests after canonicalizing paths | unit | `tests/unit/approvals/policy.test.ts` | rewritten | Preserved read-only allow decision and canonicalized path assertion in target unit test. |
+| T002 | 55 | asks for writes and shell by default | unit | `tests/unit/approvals/policy.test.ts` | rewritten | Preserved existing/new-file write ask decisions, shell ask decision, and timeout assertion in target unit test. |
+| T003 | 83 | denies destructive actions by default | unit | `tests/unit/approvals/policy.test.ts` | rewritten | Preserved destructive action deny reason assertion in target unit test. |
+| T004 | 94 | denies paths outside the workspace and canonicalization failures | unit | `tests/unit/approvals/policy.test.ts` | rewritten | Preserved symlink-outside-workspace denial and missing-path canonicalization denial assertions in target unit test. |
 
 ### `tests/unit_tests/approvals/provider.test.ts`
 

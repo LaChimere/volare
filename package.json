@@ -52,7 +52,9 @@
     "hooks:run": "lefthook run pre-commit --force",
     "ci": "biome ci . && tsc --noEmit && bun run test:unit && bun run test:integration",
     "test": "bun run test:unit && bun run test:integration",
-    "test:unit": "bun test tests/unit_tests --pass-with-no-tests",
+    "test:unit": "bun run test:unit:legacy && bun run test:unit:target",
+    "test:unit:legacy": "bun test tests/unit_tests --pass-with-no-tests",
+    "test:unit:target": "test -n \"$(find tests/unit -name '*.test.ts' -print -quit)\" && bun test $(find tests/unit -name '*.test.ts' -print)",
     "test:integration": "bun test tests/integration_tests --timeout=30000 --pass-with-no-tests",
     "test:integration:mock": "bun test tests/integration_tests/codex-cli-provider.test.ts --timeout=30000",
     "test:e2e:codex": "bun test tests/integration_tests/codex-cli-e2e.test.ts --timeout=30000"

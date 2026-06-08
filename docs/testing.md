@@ -9,6 +9,8 @@ These commands exist today:
 ```bash
 bun run check
 bun run test:unit
+bun run test:unit:legacy
+bun run test:unit:target
 bun run test:integration
 bun run test:integration:mock
 bun run test:e2e:codex
@@ -17,7 +19,9 @@ bun run ci
 ```
 
 - `bun run check` runs Biome and TypeScript.
-- `bun run test:unit` runs `bun test tests/unit_tests --pass-with-no-tests`.
+- `bun run test:unit` runs both legacy unit tests and populated target unit tests during migration.
+- `bun run test:unit:legacy` runs `bun test tests/unit_tests --pass-with-no-tests`.
+- `bun run test:unit:target` runs the populated `tests/unit/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:integration` runs `bun test tests/integration_tests --timeout=30000 --pass-with-no-tests`.
 - `bun run test:integration:mock` runs the deterministic Codex provider integration file without requiring `codex` on `PATH`.
 - `bun run test:e2e:codex` runs the current real Codex CLI E2E file and fails if that file path drifts.
