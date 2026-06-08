@@ -306,10 +306,10 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T198 | 12 | writes and reads a persisted Volare API key | unit | `tests/unit/runtime/persistent-env.test.ts` | pending | Persistent env parsing/writing boundary. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T199 | 33 | reads persisted certificate bundle environment overrides | unit | `tests/unit/runtime/persistent-env.test.ts` | pending | Persistent env parsing/writing boundary. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T200 | 61 | preserves persisted certificate bundle variables when writing API key | unit | `tests/unit/runtime/persistent-env.test.ts` | pending | Persistent env parsing/writing boundary. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T201 | 89 | round-trips escaped persistent environment values | unit | `tests/unit/runtime/persistent-env.test.ts` | pending | Persistent env parsing/writing boundary. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T198 | 12 | writes and reads a persisted Volare API key | unit | `tests/unit/runtime/persistent-env.test.ts` | rewritten | Preserved API key file path, permissions, file content, and readback assertions in target unit test. |
+| T199 | 33 | reads persisted certificate bundle environment overrides | unit | `tests/unit/runtime/persistent-env.test.ts` | rewritten | Preserved certificate bundle env readback and ignored secret filtering assertions in target unit test. |
+| T200 | 61 | preserves persisted certificate bundle variables when writing API key | unit | `tests/unit/runtime/persistent-env.test.ts` | rewritten | Preserved certificate bundle preservation assertions when rewriting API key in target unit test. |
+| T201 | 89 | round-trips escaped persistent environment values | unit | `tests/unit/runtime/persistent-env.test.ts` | rewritten | Preserved escaped persistent env parsing/writing assertion in target unit test. |
 
 ### `tests/unit_tests/runtime/server.test.ts`
 
