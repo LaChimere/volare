@@ -237,13 +237,13 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T154 | 10 | canonicalizes the configured workspace root | unit | `tests/unit/core/workspace-resolver.test.ts` | pending | Workspace resolver boundary decisions with fake inputs. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T155 | 26 | uses an isolated projectless workspace for process-cwd requests | unit | `tests/unit/core/workspace-resolver.test.ts` | pending | Workspace resolver boundary decisions with fake inputs. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T156 | 47 | allows projectless workspace when an allowlist is configured | unit | `tests/unit/core/workspace-resolver.test.ts` | pending | Workspace resolver boundary decisions with fake inputs. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T157 | 67 | uses explicit client metadata instead of the projectless workspace | unit | `tests/unit/core/workspace-resolver.test.ts` | pending | Workspace resolver boundary decisions with fake inputs. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T158 | 87 | permits explicit requested roots when no allowlist is configured | unit | `tests/unit/core/workspace-resolver.test.ts` | pending | Workspace resolver boundary decisions with fake inputs. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T159 | 104 | warns when explicit roots are accepted without an allowlist | unit | `tests/unit/core/workspace-resolver.test.ts` | pending | Workspace resolver boundary decisions with fake inputs. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T160 | 130 | rejects requested roots outside the allowlist | unit | `tests/unit/core/workspace-resolver.test.ts` | pending | Workspace resolver boundary decisions with fake inputs. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T154 | 10 | canonicalizes the configured workspace root | unit | `tests/unit/core/workspace-resolver.test.ts` | rewritten | Preserved configured workspace canonicalization and generated workspace id assertions in target unit test. |
+| T155 | 26 | uses an isolated projectless workspace for process-cwd requests | unit | `tests/unit/core/workspace-resolver.test.ts` | rewritten | Preserved projectless workspace selection over default workspace assertions in target unit test. |
+| T156 | 47 | allows projectless workspace when an allowlist is configured | unit | `tests/unit/core/workspace-resolver.test.ts` | rewritten | Preserved allowlisted environment with projectless workspace selection assertion in target unit test. |
+| T157 | 67 | uses explicit client metadata instead of the projectless workspace | unit | `tests/unit/core/workspace-resolver.test.ts` | rewritten | Preserved explicit metadata workspace selection over projectless workspace assertion in target unit test. |
+| T158 | 87 | permits explicit requested roots when no allowlist is configured | unit | `tests/unit/core/workspace-resolver.test.ts` | rewritten | Preserved permissive explicit root behavior without allowlist in target unit test. |
+| T159 | 104 | warns when explicit roots are accepted without an allowlist | unit | `tests/unit/core/workspace-resolver.test.ts` | rewritten | Preserved permissive workspace warning log assertions in target unit test. |
+| T160 | 130 | rejects requested roots outside the allowlist | unit | `tests/unit/core/workspace-resolver.test.ts` | rewritten | Preserved forbidden workspace rejection assertion in target unit test. |
 
 ### `tests/unit_tests/events/redaction.test.ts`
 
