@@ -30,7 +30,7 @@ bun run test
 bun run package
 ```
 
-`bun run check` runs Biome and TypeScript. `bun run test` runs unit and integration tests. `bun run package` compiles `src/cli.ts` to `builds/volare`.
+`bun run check` runs Biome and TypeScript. `bun run test` runs unit and integration tests. `bun run package` compiles `src/cli.ts` to `builds/volare`. See [Testing](testing.md) for the current test commands and layered migration contract.
 Hook installation is explicit so the published CLI package has no install-time side effects.
 
 ## PR and release automation
@@ -55,6 +55,8 @@ Prefer explicit, typed errors using `VolareError` or `toVolareError`. Do not add
 Use the `ILogger` abstraction and structured fields. Avoid ad hoc `console` output in runtime code. CLI/user-facing output is the exception.
 
 ## Testing guidance
+
+The canonical testing guide is [Testing](testing.md). This section keeps the short development checklist.
 
 Add targeted unit tests for behavior changes. Important coverage areas include:
 
