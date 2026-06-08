@@ -249,9 +249,9 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T161 | 6 | redacts sensitive headers while preserving safe headers | unit | `tests/unit/events/redaction.test.ts` | pending | Redaction helper invariants; later security suite reuses sentinel ideas. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T162 | 33 | summarizes commands, urls, environment variables, prompts, and file contents | unit | `tests/unit/events/redaction.test.ts` | pending | Redaction helper invariants; later security suite reuses sentinel ideas. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T163 | 76 | strips URL userinfo and summarizes unsafe URL forms | unit | `tests/unit/events/redaction.test.ts` | pending | Redaction helper invariants; later security suite reuses sentinel ideas. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T161 | 6 | redacts sensitive headers while preserving safe headers | unit | `tests/unit/events/redaction.test.ts` | rewritten | Preserved sensitive header redaction and safe header preservation assertions in target unit test. |
+| T162 | 33 | summarizes commands, urls, environment variables, prompts, and file contents | unit | `tests/unit/events/redaction.test.ts` | rewritten | Preserved command, URL, env, prompt, and file content redaction summary assertions in target unit test. |
+| T163 | 76 | strips URL userinfo and summarizes unsafe URL forms | unit | `tests/unit/events/redaction.test.ts` | rewritten | Preserved URL userinfo stripping, unsafe scheme summaries, control-character handling, and long URL summary assertions in target unit test. |
 
 ### `tests/unit_tests/events/sqlite-event-journal.test.ts`
 
