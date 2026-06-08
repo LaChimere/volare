@@ -315,11 +315,11 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T202 | 11 | uses ACP runner by default | component | `tests/component/runtime/server.test.ts` | pending | Runtime wiring seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T203 | 19 | keeps process runner available as an explicit rollback path | component | `tests/component/runtime/server.test.ts` | pending | Runtime wiring seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T204 | 29 | wires ACP runner capability observations into the internal registry | component | `tests/component/runtime/server.test.ts` | pending | Runtime wiring seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T205 | 49 | merges and invalidates internal runtime capability snapshots | component | `tests/component/runtime/server.test.ts` | pending | Runtime wiring seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T206 | 135 | merges runtime env without overwriting persisted values with undefined | component | `tests/component/runtime/server.test.ts` | pending | Runtime wiring seam. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T202 | 11 | uses ACP runner by default | component | `tests/component/runtime/server.test.ts` | rewritten | Preserved default ACP runner wiring assertion in target component test. |
+| T203 | 19 | keeps process runner available as an explicit rollback path | component | `tests/component/runtime/server.test.ts` | rewritten | Preserved explicit process runtime rollback wiring assertion in target component test. |
+| T204 | 29 | wires ACP runner capability observations into the internal registry | component | `tests/component/runtime/server.test.ts` | rewritten | Preserved ACP runner capability registry observation assertions in target component test. |
+| T205 | 49 | merges and invalidates internal runtime capability snapshots | component | `tests/component/runtime/server.test.ts` | rewritten | Preserved runtime capability snapshot merge, update, invalidation, and shutdown assertions in target component test. |
+| T206 | 135 | merges runtime env without overwriting persisted values with undefined | component | `tests/component/runtime/server.test.ts` | rewritten | Preserved runtime environment merge precedence and undefined-skip assertions in target component test. |
 
 ### `tests/unit_tests/scripts/config-codex.test.ts`
 
