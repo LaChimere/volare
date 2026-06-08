@@ -140,8 +140,8 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T087 | 9 | accepts matching process identity metadata | unit | `tests/unit/backends/copilot-process-identity.test.ts` | pending | Pure process identity invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T088 | 16 | rejects PID mismatch and reused PID metadata | unit | `tests/unit/backends/copilot-process-identity.test.ts` | pending | Pure process identity invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T087 | 9 | accepts matching process identity metadata | unit | `tests/unit/backends/copilot-process-identity.test.ts` | rewritten | Preserved matching PID/process-start metadata acceptance assertion in target unit test. |
+| T088 | 16 | rejects PID mismatch and reused PID metadata | unit | `tests/unit/backends/copilot-process-identity.test.ts` | rewritten | Preserved PID mismatch and reused PID timestamp rejection assertions in target unit test. |
 
 ### `tests/unit_tests/backends/mock-backend.test.ts`
 
