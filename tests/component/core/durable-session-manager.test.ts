@@ -44,10 +44,27 @@ class StreamStartFailingStore extends SQLiteStateStore {
   }
 }
 
+class BackendLookupFailingStore extends SQLiteStateStore {
+  failingBridgeSessionId: string | undefined;
+
+  override async getBackendSession(bridgeSessionId: string) {
+    if (bridgeSessionId === this.failingBridgeSessionId) {
+      throw new Error('backend session lookup should not happen');
+    }
+    return await super.getBackendSession(bridgeSessionId);
+  }
+}
+
 function createStreamStartFailingStore(): StreamStartFailingStore {
   const database = new Database(':memory:');
   migrate(database);
   return new StreamStartFailingStore(database);
+}
+
+function createBackendLookupFailingStore(): BackendLookupFailingStore {
+  const database = new Database(':memory:');
+  migrate(database);
+  return new BackendLookupFailingStore(database);
 }
 
 function capabilities(): IBackendCapabilities {
@@ -66,6 +83,7 @@ class TerminalOmittingBackend implements IAgentBackend {
   resumeCount = 0;
   cancelCount = 0;
   disposeCount = 0;
+  sendCount = 0;
   cancelResult: ICancelResult = { status: 'cancelled' };
 
   capabilities(): IBackendCapabilities {
@@ -91,6 +109,7 @@ class TerminalOmittingBackend implements IAgentBackend {
   }
 
   async *send(_session: IBackendSession, request: IAgentRequest): AsyncIterable<AgentEvent> {
+    this.sendCount += 1;
     yield { type: 'text.delta', turnId: request.turnId, delta: 'partial' } satisfies AgentEvent;
   }
 
@@ -468,17 +487,23 @@ describe('DurableSessionManager', () => {
     }
   });
 
-  test('delegates non-terminal turn cancellation to the backend', async () => {
+  test('delegates running turn cancellation to the backend', async () => {
     const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
     const store = createStore();
     const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
     const backend = new TerminalOmittingBackend();
     const manager = new DurableSessionManager({ store, backend });
+    let iterator: AsyncIterator<AgentEvent> | undefined;
     try {
       const resolved = await manager.startTurn(
         { model: 'copilot-agent', input: { message: 'hello' } },
         { workspaceId: workspace.id, requestId: 'request_1' },
       );
+      iterator = manager.streamTurn(resolved)[Symbol.asyncIterator]();
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: 'turn.created' },
+      });
 
       await expect(manager.cancelTurn(resolved.turn.id)).resolves.toEqual({ status: 'cancelled' });
 
@@ -488,6 +513,35 @@ describe('DurableSessionManager', () => {
         type: 'turn.cancelled',
         turnId: resolved.turn.id,
       });
+    } finally {
+      await iterator?.return?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('cancels queued turns without starting backend work', async () => {
+    const root = await mkdtemp(path.join(import.meta.dir, 'durable-workspace-'));
+    const store = createBackendLookupFailingStore();
+    const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
+    const backend = new TerminalOmittingBackend();
+    const manager = new DurableSessionManager({ store, backend });
+    try {
+      const resolved = await manager.startTurn(
+        { model: 'copilot-agent', input: { message: 'cancel before stream' } },
+        { workspaceId: workspace.id, requestId: 'request_1' },
+      );
+      store.failingBridgeSessionId = resolved.session.bridgeSessionId;
+
+      await expect(manager.cancelTurn(resolved.turn.id)).resolves.toEqual({ status: 'cancelled' });
+      const events = await Array.fromAsync(manager.streamTurn(resolved));
+
+      expect(events).toEqual([{ type: 'turn.cancelled', turnId: resolved.turn.id }]);
+      expect(backend.cancelCount).toBe(0);
+      expect(backend.sendCount).toBe(0);
+      await expect(store.getTurn(resolved.turn.id)).resolves.toMatchObject({ status: 'cancelled' });
+      expect(manager.getEvents(resolved.turn.id)).toEqual([
+        { type: 'turn.cancelled', turnId: resolved.turn.id },
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -617,11 +671,17 @@ describe('DurableSessionManager', () => {
     const workspace = await store.getOrCreateWorkspace({ rootPath: await realpath(root) });
     const backend = new DeferredCancelBackend();
     const manager = new DurableSessionManager({ store, backend, maxActiveTurns: 1 });
+    let iterator: AsyncIterator<AgentEvent> | undefined;
     try {
       const resolved = await manager.startTurn(
         { model: 'copilot-agent', input: { message: 'first' } },
         { workspaceId: workspace.id, requestId: 'request_1' },
       );
+      iterator = manager.streamTurn(resolved)[Symbol.asyncIterator]();
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: 'turn.created' },
+      });
       const cancel = manager.cancelTurn(resolved.turn.id);
       await backend.cancelStarted;
 
@@ -641,6 +701,7 @@ describe('DurableSessionManager', () => {
         ),
       ).resolves.toMatchObject({ turn: { status: 'queued' } });
     } finally {
+      await iterator?.return?.();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -769,11 +830,17 @@ describe('DurableSessionManager', () => {
     const backend = new TerminalOmittingBackend();
     backend.cancelResult = { status: 'timed_out' };
     const manager = new DurableSessionManager({ store, backend });
+    let iterator: AsyncIterator<AgentEvent> | undefined;
     try {
       const resolved = await manager.startTurn(
         { model: 'copilot-agent', input: { message: 'hello' } },
         { workspaceId: workspace.id, requestId: 'request_1' },
       );
+      iterator = manager.streamTurn(resolved)[Symbol.asyncIterator]();
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: 'turn.created' },
+      });
 
       await expect(manager.cancelTurn(resolved.turn.id)).resolves.toEqual({ status: 'timed_out' });
 
@@ -793,6 +860,7 @@ describe('DurableSessionManager', () => {
         reason: 'force_cancel_timeout_exceeded',
       });
     } finally {
+      await iterator?.return?.();
       await rm(root, { recursive: true, force: true });
     }
   });
