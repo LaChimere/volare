@@ -82,6 +82,7 @@ Layer ownership:
 - Do not use `--pass-with-no-tests` for explicit populated target scripts; a wrong target path should fail loudly.
 - Move one legacy file or one tightly related split group per PR.
 - If legacy and target tests disagree before a ledger entry is terminal, legacy behavior remains the baseline unless the PR explicitly documents an intentional behavior correction.
+- Temporary legacy bridge files may import moved target tests while a mixed legacy file is being split across layers. They intentionally duplicate execution across legacy and target lanes until the corresponding ledger entries are terminal.
 
 ## Fixture and golden rules
 
