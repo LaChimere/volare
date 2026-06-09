@@ -1,21 +1,17 @@
 # Testing
 
-Volare's test suite is being migrated from the legacy `tests/unit_tests` / `tests/integration_tests` layout to a layered, contract-driven layout. The migration is coverage-preserving: legacy tests remain active until their parity ledger entries prove that target tests preserve, broaden, or intentionally retire the old assertions.
+Volare's test suite is organized by runtime boundary and verification level. Use the narrowest lane that covers your change while iterating, then run the aggregate validation before committing.
 
-## Current commands
-
-These commands exist today:
+## Commands
 
 ```bash
 bun run check
 bun run test:unit
-bun run test:unit:target
 bun run test:component
 bun run test:integration
 bun run test:integration:http
 bun run test:integration:backend
 bun run test:integration:durable
-bun run test:integration:mock
 bun run test:e2e:codex
 bun run test:contract
 bun run test:security
@@ -25,24 +21,22 @@ bun run ci
 ```
 
 - `bun run check` runs Biome and TypeScript.
-- `bun run test:unit` runs the populated target unit tests.
-- `bun run test:unit:target` runs the populated `tests/unit/**/*.test.ts` files and fails if the target lane is empty.
-- `bun run test:component` runs the populated `tests/component/**/*.test.ts` files and fails if the target lane is empty.
-- `bun run test:integration` runs the populated HTTP, backend, and durable target integration lanes.
-- `bun run test:integration:http` runs the populated `tests/integration/http/**/*.test.ts` files and fails if the target lane is empty.
-- `bun run test:integration:backend` runs the populated `tests/integration/backend/**/*.test.ts` files and fails if the target lane is empty.
-- `bun run test:integration:durable` runs the populated `tests/integration/durable/**/*.test.ts` files and fails if the target lane is empty.
-- `bun run test:integration:mock` aliases `test:integration:http` while the migration still uses the mock lane name.
-- `bun run test:e2e:codex` runs the real Codex CLI E2E lane and fails if that file path drifts.
-- `bun run test:contract` runs the populated `tests/contract/**/*.test.ts` files and fails if the target lane is empty.
-- `bun run test:security` runs the populated `tests/security/**/*.test.ts` files and fails if the target lane is empty.
+- `bun run test:unit` runs `tests/unit/**/*.test.ts`.
+- `bun run test:component` runs `tests/component/**/*.test.ts`.
+- `bun run test:integration` runs the HTTP, backend, and durable integration lanes.
+- `bun run test:integration:http` runs `tests/integration/http/**/*.test.ts`.
+- `bun run test:integration:backend` runs `tests/integration/backend/**/*.test.ts`.
+- `bun run test:integration:durable` runs `tests/integration/durable/**/*.test.ts`.
+- `bun run test:e2e:codex` runs the real Codex CLI E2E lane.
+- `bun run test:contract` runs `tests/contract/**/*.test.ts`.
+- `bun run test:security` runs `tests/security/**/*.test.ts`.
 - `bun run test:package-smoke` verifies the compiled binary, npm pack dry-run, packed tarball install, and `bunx --bun volare help`, then removes generated package artifacts.
-- `bun run test` runs unit, component, target integration, contract, and security scripts.
-- `bun run ci` runs Biome, TypeScript, unit tests, component tests, target integration tests, contract tests, and security tests.
+- `bun run test` runs unit, component, integration, contract, and security lanes.
+- `bun run ci` runs Biome, TypeScript, unit, component, integration, contract, and security lanes.
 
-All planned target lane names now have package scripts. Keep new target scripts fail-loud once populated; do not add `--pass-with-no-tests` to target lanes.
+All populated lane scripts fail loudly when their test path is missing or empty. Do not add `--pass-with-no-tests` to test lanes.
 
-## Target layout
+## Layout
 
 ```text
 tests/
@@ -55,9 +49,9 @@ tests/
   e2e/
     codex/
   contract/
+    capabilities/
     openai/
     journal/
-    capabilities/
   security/
   support/
   fixtures/
@@ -76,16 +70,6 @@ Layer ownership:
 | `contract` | Stable wire, schema, and replay artifacts with dynamic data normalized. |
 | `security` | Sentinel-based no-leak assertions across public/debug/log/metric surfaces and subprocess environment handling. |
 
-## Migration rules
-
-- Keep the migration parity ledger current before deleting or disabling any legacy test.
-- A legacy test file can be removed only when every ledger entry for that file is `rewritten`, `split`, or `retired`.
-- During migration, aggregate `test` and `ci` scripts must run all still-active legacy lanes plus any populated target lanes.
-- Do not use `--pass-with-no-tests` for explicit populated target scripts; a wrong target path should fail loudly.
-- Move one legacy file or one tightly related split group per PR.
-- If legacy and target tests disagree before a ledger entry is terminal, legacy behavior remains the baseline unless the PR explicitly documents an intentional behavior correction.
-- Temporary legacy bridge files may import moved target tests while a mixed legacy file is being split across layers. They intentionally duplicate execution across legacy and target lanes until the corresponding ledger entries are terminal.
-
 ## Fixture and golden rules
 
 - Golden tests lock stable external wire/schema/replay artifacts only.
@@ -95,14 +79,11 @@ Layer ownership:
 
 ## Support helper rules
 
-Create support helpers only with concrete consumers. A helper should have at least two existing consumers, or one accepted migration slice / imminent feature with clear acceptance criteria. The first extraction should be mechanical and preserve behavior.
+Create support helpers only with concrete consumers. A helper should have at least two existing consumers, or one accepted feature with clear acceptance criteria. The first extraction should be mechanical and preserve behavior.
 
-Initial helper candidates are:
+Current shared helpers include:
 
 - `tests/support/app-harness.ts`
-- `tests/support/sse.ts`
-- `tests/support/durable-harness.ts`
-- `tests/support/assertions.ts`
-- `tests/support/security-assertions.ts`
-
-Deferred helpers such as `fake-backends`, `fake-acp-process`, and `snapshots` should land only when target tests need them.
+- `tests/support/backends/copilot-cli-backend-harness.ts`
+- `tests/support/backends/mock-backend.ts`
+- `tests/support/copilot-frame-fixtures.ts`

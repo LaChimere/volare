@@ -343,7 +343,7 @@ graph LR
   PR --> BackendIT[integration-backend]
   PR --> Contract[contract]
   PR --> Security[security]
-  PR --> Package[package-smoke\\nwhen CLI/package changes]
+  PR --> Package[package-smoke]
   Main[main/nightly] --> RealCodex[real-codex-e2e]
   Manual[manual] --> Live[ACP/Copilot live probes]
 ```
@@ -360,7 +360,7 @@ Recommended lanes:
 | `integration-backend` | every PR | yes | fake process / ACP runner behavior |
 | `contract` | every PR | yes | stable wire/schema/replay artifacts |
 | `security` | every PR | yes | sentinel-based no-leak coverage |
-| `package-smoke` | CLI/package changes | yes | compiled binary / bunx behavior |
+| `package-smoke` | every PR | yes | compiled binary / bunx behavior |
 | `real-codex-e2e` | main/nightly/manual | maybe | real Codex compatibility |
 | `live-copilot-probes` | manual/nightly | no | external Copilot/ACP behavior |
 
