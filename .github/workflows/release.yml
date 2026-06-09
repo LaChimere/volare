@@ -49,9 +49,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Codex CLI
-        run: npm install --global @openai/codex@latest
-
       - name: Verify tag matches package version
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
@@ -68,20 +65,8 @@ jobs:
       - name: Test
         run: bun run test
 
-      - name: Build standalone binary
-        run: bun run package
-
-      - name: Smoke-test packed CLI with bunx
-        run: |
-          packed_package="$(npm pack --silent)"
-          packed_name="$(basename "${packed_package}")"
-          smoke_dir="$(mktemp -d)"
-          cp "${packed_package}" "${smoke_dir}/${packed_name}"
-          (
-            cd "${smoke_dir}"
-            bun install "./${packed_name}"
-            bunx --bun volare help
-          )
+      - name: Package smoke
+        run: bun run test:package-smoke
 
       - name: Publish dry run
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}

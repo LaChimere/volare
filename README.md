@@ -36,7 +36,7 @@ This clears Bun's global package cache and resolves `@lachimere/volare@latest`, 
 - [Configuration](docs/configuration.md) - environment variables, CLI options, auth, workspace selection, and daemon paths.
 - [Codex integration](docs/codex-integration.md) - Codex provider setup, supported Responses behavior, and current compatibility scope.
 - [Operations](docs/operations.md) - health checks, logs, metrics, debug journal, shutdown, and troubleshooting.
-- [Testing](docs/testing.md) - current test commands and the layered migration contract.
+- [Testing](docs/testing.md) - current test commands and layer ownership.
 - [Development](docs/development.md) - repository workflow, tests, naming conventions, packaging, and review expectations.
 
 ## Useful endpoints

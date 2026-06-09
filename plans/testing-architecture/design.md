@@ -131,8 +131,7 @@ Compatibility rules:
 
 - run `bun run package`;
 - verify the compiled binary starts;
-- run `npm pack --dry-run`;
-- pack the package, install the produced tarball in a temporary directory, and run `bunx --bun volare help`;
+- create a real package tarball with `npm pack`, install it in a temporary directory, and run `bunx --bun volare help`;
 - clean up the generated tarball and temporary install directory on success or failure;
 - avoid committing or leaving generated package artifacts in the repository checkout.
 

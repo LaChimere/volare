@@ -1,15 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { AgentEvent, IAgentRequest, IWorkspace } from '../../../src/core/types';
+import type { IAgentRequest, IWorkspace } from '../../../src/core/types';
+import { collectEvents } from '../../support/agent-events';
 import { MockBackend } from '../../support/backends/mock-backend';
-
-async function collectEvents(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
-  const collected: AgentEvent[] = [];
-  for await (const event of events) {
-    collected.push(event);
-  }
-  return collected;
-}
 
 describe('MockBackend', () => {
   test('exposes the Phase 0 approval capability metadata shape', () => {
