@@ -7,6 +7,7 @@ import { createServerRuntimeConfig } from '../../src/server/config';
 import {
   CapturingLogger,
   createDurableApp,
+  createInMemoryApp,
   createStateStore,
   request,
   testConfig,
@@ -20,7 +21,7 @@ describe('server app security', () => {
       Origin: 'https://evil.example',
     };
 
-    const [missing, invalidJson, debug] = await Promise.all([
+    const [missing, invalidJson, debug, health, metrics] = await Promise.all([
       app.fetch(new Request('http://127.0.0.1:8000/openai/v1/models')),
       app.fetch(
         request('/openai/v1/responses', {
@@ -30,13 +31,46 @@ describe('server app security', () => {
         }),
       ),
       app.fetch(request('/debug/turns/turn_missing/events', { headers: originHeaders })),
+      app.fetch(new Request('http://127.0.0.1:8000/healthz')),
+      app.fetch(new Request('http://127.0.0.1:8000/metrics')),
     ]);
 
     expect(missing.status).toBe(401);
     expect(invalidJson.status).toBe(403);
     expect(debug.status).toBe(403);
+    expect(health.status).toBe(401);
+    expect(metrics.status).toBe(401);
     expect(invalidJson.headers.has('access-control-allow-origin')).toBe(false);
     expect(debug.headers.has('access-control-allow-origin')).toBe(false);
+  });
+
+  test('keeps metrics and turn audit free of prompt and local path data', async () => {
+    const logger = new CapturingLogger();
+    const app = createInMemoryApp({ logger });
+    const promptSecret = 'prompt-secret-do-not-leak';
+
+    const response = await app.fetch(
+      request('/openai/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'copilot-agent',
+          input: `${promptSecret} ${process.cwd()} https://secret.example/report [1]`,
+        }),
+      }),
+    );
+    await response.text();
+
+    const metrics = await (await app.fetch(request('/metrics'))).text();
+    const audits = JSON.stringify(
+      logger.entries.filter((entry) => entry.fields['event'] === 'turn.audit'),
+    );
+    for (const serialized of [metrics, audits]) {
+      expect(serialized).not.toContain(promptSecret);
+      expect(serialized).not.toContain(process.cwd());
+      expect(serialized).not.toContain('secret.example');
+      expect(serialized).not.toContain(testConfig.projectlessWorkspaceRoot);
+      expect(serialized).not.toContain(testConfig.stateDatabasePath);
+    }
   });
 
   test('does not leak capability diagnostics into the public capabilities projection', async () => {

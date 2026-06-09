@@ -2,56 +2,13 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
-import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
 import {
   createCodexModelsResponse,
   OpenAIResponsesAdapter,
 } from '../../../src/northbound/openai-responses/adapter';
 import { migrate } from '../../../src/state/migrations';
 import { SQLiteStateStore } from '../../../src/state/sqlite-store';
-
-class CapturingLogger implements ILogger {
-  constructor(
-    readonly entries: Array<{ level: string; fields: ILogFields; message?: string }> = [],
-    readonly bindings: ILogBindings = {},
-  ) {}
-
-  child(bindings: ILogBindings): ILogger {
-    return new CapturingLogger(this.entries, { ...this.bindings, ...bindings });
-  }
-
-  trace(fields: ILogFields, message?: string): void {
-    this.push('trace', fields, message);
-  }
-
-  debug(fields: ILogFields, message?: string): void {
-    this.push('debug', fields, message);
-  }
-
-  info(fields: ILogFields, message?: string): void {
-    this.push('info', fields, message);
-  }
-
-  warn(fields: ILogFields, message?: string): void {
-    this.push('warn', fields, message);
-  }
-
-  error(fields: ILogFields, message?: string): void {
-    this.push('error', fields, message);
-  }
-
-  fatal(fields: ILogFields, message?: string): void {
-    this.push('fatal', fields, message);
-  }
-
-  private push(level: string, fields: ILogFields, message?: string): void {
-    this.entries.push({
-      level,
-      fields: { ...this.bindings, ...fields },
-      ...(message === undefined ? {} : { message }),
-    });
-  }
-}
+import { CapturingLogger } from '../../support/capturing-logger';
 
 describe('OpenAIResponsesAdapter', () => {
   test('advertises Desktop-compatible GPT-5.5 reasoning controls', () => {

@@ -1,4 +1,3 @@
-import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { mkdir, realpath } from 'node:fs/promises';
 import { DefaultApprovalPolicy } from '../../../src/approvals/policy';
@@ -15,21 +14,21 @@ import type {
   IResolvedTurn,
   ISessionManager,
   IWorkspace,
-  IWorkspaceResolver,
 } from '../../../src/core/types';
 import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
-import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
 import { OpenAIResponsesAdapter } from '../../../src/northbound/openai-responses/adapter';
 import { createApp, type IAppDependencies } from '../../../src/server/app';
 import { createServerRuntimeConfig } from '../../../src/server/config';
-import { migrate } from '../../../src/state/migrations';
-import { SQLiteStateStore } from '../../../src/state/sqlite-store';
+import type { SQLiteStateStore } from '../../../src/state/sqlite-store';
+import {
+  CapturingLogger,
+  testConfig as config,
+  createInMemoryApp,
+  createStateStore,
+  request,
+} from '../../support/app-harness';
 import { MockBackend } from '../../support/backends/mock-backend';
 
-const config = createServerRuntimeConfig({
-  VOLARE_API_KEY: '0123456789abcdef',
-  VOLARE_WORKSPACE_ROOT: process.cwd(),
-});
 const unmediatedConfig = createServerRuntimeConfig({
   VOLARE_API_KEY: '0123456789abcdef',
   VOLARE_WORKSPACE_ROOT: process.cwd(),
@@ -38,51 +37,10 @@ const unmediatedConfig = createServerRuntimeConfig({
   VOLARE_COPILOT_PERMISSION_MODE: 'web',
 });
 
-function request(path: string, init: RequestInit = {}): Request {
-  return new Request(`http://127.0.0.1:8000${path}`, {
-    ...init,
-    headers: {
-      authorization: `Bearer ${config.apiKey}`,
-      ...init.headers,
-    },
-  });
-}
-
-function createStateStore(): SQLiteStateStore {
-  const database = new Database(':memory:');
-  migrate(database);
-  return new SQLiteStateStore(database);
-}
-
 async function getProjectlessWorkspace(store: SQLiteStateStore) {
   await mkdir(config.projectlessWorkspaceRoot, { recursive: true });
   return await store.getOrCreateWorkspace({
     rootPath: await realpath(config.projectlessWorkspaceRoot),
-  });
-}
-
-function createInMemoryApp(
-  overrides: Partial<IAppDependencies> = {},
-  backend: MockBackend = new MockBackend(),
-) {
-  const workspace: IWorkspace = {
-    id: 'workspace_test',
-    rootPath: process.cwd(),
-  };
-  const workspaceResolver: IWorkspaceResolver = {
-    async resolve() {
-      return workspace;
-    },
-  };
-
-  return createApp({
-    config,
-    workspaceResolver,
-    sessionManager: new InMemorySessionManager({
-      backend,
-      workspace,
-    }),
-    ...overrides,
   });
 }
 
@@ -216,49 +174,6 @@ async function createApprovalFixture(store: SQLiteStateStore) {
     timeoutAt: Date.now() + 60_000,
   });
   return { workspace, thread, session, turn, approval };
-}
-
-class CapturingLogger implements ILogger {
-  constructor(
-    readonly entries: Array<{ level: string; fields: ILogFields; message?: string }> = [],
-    readonly bindings: ILogBindings = {},
-  ) {}
-
-  child(bindings: ILogBindings): ILogger {
-    return new CapturingLogger(this.entries, { ...this.bindings, ...bindings });
-  }
-
-  trace(fields: ILogFields, message?: string): void {
-    this.push('trace', fields, message);
-  }
-
-  debug(fields: ILogFields, message?: string): void {
-    this.push('debug', fields, message);
-  }
-
-  info(fields: ILogFields, message?: string): void {
-    this.push('info', fields, message);
-  }
-
-  warn(fields: ILogFields, message?: string): void {
-    this.push('warn', fields, message);
-  }
-
-  error(fields: ILogFields, message?: string): void {
-    this.push('error', fields, message);
-  }
-
-  fatal(fields: ILogFields, message?: string): void {
-    this.push('fatal', fields, message);
-  }
-
-  private push(level: string, fields: ILogFields, message?: string): void {
-    this.entries.push({
-      level,
-      fields: { ...this.bindings, ...fields },
-      ...(message === undefined ? {} : { message }),
-    });
-  }
 }
 
 describe('server app', () => {

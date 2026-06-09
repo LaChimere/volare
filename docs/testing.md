@@ -30,7 +30,7 @@ bun run ci
 - `bun run test:e2e:codex` runs the real Codex CLI E2E lane.
 - `bun run test:contract` runs `tests/contract/**/*.test.ts`.
 - `bun run test:security` runs `tests/security/**/*.test.ts`.
-- `bun run test:package-smoke` verifies the compiled binary, npm pack dry-run, packed tarball install, and `bunx --bun volare help`, then removes generated package artifacts.
+- `bun run test:package-smoke` verifies the compiled binary, creates and installs the packed tarball, and runs `bunx --bun volare help`, then removes generated package artifacts.
 - `bun run test` runs unit, component, integration, contract, and security lanes.
 - `bun run ci` runs Biome, TypeScript, unit, component, integration, contract, and security lanes.
 

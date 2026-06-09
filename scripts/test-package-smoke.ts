@@ -45,7 +45,6 @@ try {
   }
   await run('bun', ['run', 'package']);
   await run('./builds/volare', ['help']);
-  await run('npm', ['pack', '--dry-run']);
   packedPackage = (await run('npm', ['pack', '--silent'])).trim().split(/\r?\n/).at(-1);
   if (!packedPackage) {
     throw new Error('npm pack did not report a tarball path');

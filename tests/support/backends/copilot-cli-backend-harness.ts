@@ -5,8 +5,9 @@ import type {
   ICopilotPromptRunner,
   ICopilotPromptRunOptions,
 } from '../../../src/backends/copilot-cli/backend';
-import type { AgentEvent } from '../../../src/core/types';
-import type { ILogBindings, ILogFields, ILogger } from '../../../src/logging/logger';
+
+export { collectEvents } from '../agent-events';
+export { CapturingLogger } from '../capturing-logger';
 
 export class FakeCopilotPromptRunner implements ICopilotPromptRunner {
   lastOptions?: ICopilotPromptRunOptions;
@@ -38,57 +39,6 @@ export class FakeCopilotPromptRunner implements ICopilotPromptRunner {
   async dispose(backendSessionId: string) {
     this.disposed.push(backendSessionId);
   }
-}
-
-export class CapturingLogger implements ILogger {
-  constructor(
-    readonly entries: Array<{ level: string; fields: ILogFields; message?: string }> = [],
-    readonly bindings: ILogBindings = {},
-  ) {}
-
-  child(bindings: ILogBindings): ILogger {
-    return new CapturingLogger(this.entries, { ...this.bindings, ...bindings });
-  }
-
-  trace(fields: ILogFields, message?: string): void {
-    this.push('trace', fields, message);
-  }
-
-  debug(fields: ILogFields, message?: string): void {
-    this.push('debug', fields, message);
-  }
-
-  info(fields: ILogFields, message?: string): void {
-    this.push('info', fields, message);
-  }
-
-  warn(fields: ILogFields, message?: string): void {
-    this.push('warn', fields, message);
-  }
-
-  error(fields: ILogFields, message?: string): void {
-    this.push('error', fields, message);
-  }
-
-  fatal(fields: ILogFields, message?: string): void {
-    this.push('fatal', fields, message);
-  }
-
-  private push(level: string, fields: ILogFields, message?: string): void {
-    this.entries.push({
-      level,
-      fields: { ...this.bindings, ...fields },
-      ...(message === undefined ? {} : { message }),
-    });
-  }
-}
-
-export async function collectEvents(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
-  const collected: AgentEvent[] = [];
-  for await (const event of events) {
-    collected.push(event);
-  }
-  return collected;
 }
 
 export async function installFakeCopilot(name: string, source: string): Promise<string> {
