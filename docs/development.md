@@ -30,7 +30,7 @@ bun run test
 bun run package
 ```
 
-`bun run check` runs Biome and TypeScript. `bun run test` runs unit, component, legacy integration, and populated target integration tests. `bun run package` compiles `src/cli.ts` to `builds/volare`. See [Testing](testing.md) for the current test commands and layered migration contract.
+`bun run check` runs Biome and TypeScript. `bun run test` runs unit, component, legacy integration, populated target integration, and contract tests. `bun run package` compiles `src/cli.ts` to `builds/volare`. See [Testing](testing.md) for the current test commands and layered migration contract.
 Hook installation is explicit so the published CLI package has no install-time side effects.
 
 ## PR and release automation

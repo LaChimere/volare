@@ -50,8 +50,8 @@
     "package": "mkdir -p builds && cd builds && bun build --compile ../src/cli.ts --outfile volare",
     "hooks:install": "lefthook install",
     "hooks:run": "lefthook run pre-commit --force",
-    "ci": "biome ci . && tsc --noEmit && bun run test:unit && bun run test:component && bun run test:integration && bun run test:integration:backend && bun run test:integration:durable",
-    "test": "bun run test:unit && bun run test:component && bun run test:integration && bun run test:integration:backend && bun run test:integration:durable",
+    "ci": "biome ci . && tsc --noEmit && bun run test:unit && bun run test:component && bun run test:integration && bun run test:integration:backend && bun run test:integration:durable && bun run test:contract",
+    "test": "bun run test:unit && bun run test:component && bun run test:integration && bun run test:integration:backend && bun run test:integration:durable && bun run test:contract",
     "test:unit": "bun run test:unit:legacy && bun run test:unit:target",
     "test:unit:legacy": "bun test tests/unit_tests --pass-with-no-tests",
     "test:unit:target": "test -n \"$(find tests/unit -name '*.test.ts' -print -quit)\" && bun test $(find tests/unit -name '*.test.ts' -print)",
@@ -60,6 +60,7 @@
     "test:integration:backend": "test -n \"$(find tests/integration/backend -name '*.test.ts' -print -quit)\" && bun test $(find tests/integration/backend -name '*.test.ts' -print) --timeout=30000",
     "test:integration:durable": "test -n \"$(find tests/integration/durable -name '*.test.ts' -print -quit)\" && bun test $(find tests/integration/durable -name '*.test.ts' -print) --timeout=30000",
     "test:integration:mock": "bun test tests/integration_tests/codex-cli-provider.test.ts --timeout=30000",
+    "test:contract": "test -n \"$(find tests/contract -name '*.test.ts' -print -quit)\" && bun test $(find tests/contract -name '*.test.ts' -print)",
     "test:e2e:codex": "bun test tests/integration_tests/codex-cli-e2e.test.ts --timeout=30000"
   },
   "devDependencies": {
