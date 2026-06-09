@@ -13,6 +13,7 @@ bun run test:unit:legacy
 bun run test:unit:target
 bun run test:component
 bun run test:integration
+bun run test:integration:backend
 bun run test:integration:mock
 bun run test:e2e:codex
 bun run test
@@ -25,12 +26,13 @@ bun run ci
 - `bun run test:unit:target` runs the populated `tests/unit/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:component` runs the populated `tests/component/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:integration` runs `bun test tests/integration_tests --timeout=30000 --pass-with-no-tests`.
+- `bun run test:integration:backend` runs the populated `tests/integration/backend/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:integration:mock` runs the deterministic Codex provider integration file without requiring `codex` on `PATH`.
 - `bun run test:e2e:codex` runs the current real Codex CLI E2E file and fails if that file path drifts.
-- `bun run test` runs the current unit, component, and integration scripts.
-- `bun run ci` runs Biome, TypeScript, unit tests, component tests, and integration tests.
+- `bun run test` runs the current unit, component, legacy integration, and populated target backend-integration scripts.
+- `bun run ci` runs Biome, TypeScript, unit tests, component tests, legacy integration tests, and populated target backend-integration tests.
 
-Target lane names such as `test:integration:http`, `test:integration:durable`, `test:integration:backend`, `test:contract`, `test:security`, and `test:package-smoke` are planned migration outputs. Do not document or use them as existing commands until their package scripts land.
+Target lane names such as `test:integration:http`, `test:integration:durable`, `test:contract`, `test:security`, and `test:package-smoke` are planned migration outputs. Do not document or use them as existing commands until their package scripts land.
 
 ## Target layout
 
@@ -61,7 +63,7 @@ Layer ownership:
 | `component` | Protocol-neutral seams across multiple modules without real sockets, real processes, or file-backed durable state unless that is the seam under test. |
 | `integration/http` | `createApp`, routes, auth, status, headers, SSE setup, and error-envelope behavior. |
 | `integration/durable` | File-backed SQLite, restart, migration, recovery, and replay behavior. |
-| `integration/backend` | Fake process / ACP runner / process lifecycle behavior. |
+| `integration/backend` | ACP JSON-RPC peer behavior, fake process / ACP runner behavior, and process lifecycle behavior. |
 | `e2e/codex` | Real Codex/client interoperability. |
 | `contract` | Stable wire, schema, and replay artifacts with dynamic data normalized. |
 | `security` | Sentinel-based no-leak assertions across public/debug/log/metric surfaces and subprocess environment handling. |

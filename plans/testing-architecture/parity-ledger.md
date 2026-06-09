@@ -5,7 +5,7 @@
 ## Status model
 
 - `pending`: legacy case still owns coverage.
-- `rewritten`: target test preserves or broadens the legacy invariant.
+- `rewritten`: target test preserves or broadens the legacy invariant; a byte-identical relocation into the correct target lane also qualifies.
 - `split`: legacy case was split across multiple target tests; assertion groups are named in the evidence.
 - `retired`: legacy case was intentionally removed as obsolete or redundant; the reason is recorded.
 
@@ -88,14 +88,14 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T050 | 90 | initializes with clientCapabilities over NDJSON | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | pending | ACP JSON-RPC boundary behavior. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T051 | 122 | validates initialize and session/new response shapes | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | pending | ACP JSON-RPC boundary behavior. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T052 | 137 | answers permission callbacks with explicit policy | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | pending | ACP JSON-RPC boundary behavior. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T053 | 173 | rejects malformed stdout, unexpected close, and timeouts explicitly | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | pending | ACP JSON-RPC boundary behavior. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T054 | 222 | rejects JSON-RPC error responses with server error context | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | pending | ACP JSON-RPC boundary behavior. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T055 | 243 | authenticates with a selected auth method | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | pending | ACP JSON-RPC boundary behavior. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T056 | 274 | classifies ACP authentication-required errors | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | pending | ACP JSON-RPC boundary behavior. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T057 | 302 | cleans pending requests when stdin write fails | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | pending | ACP JSON-RPC boundary behavior. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T050 | 90 | initializes with clientCapabilities over NDJSON | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | rewritten | Preserved initialize frame, clientCapabilities, and parsed initialize response assertions in target backend integration test. |
+| T051 | 122 | validates initialize and session/new response shapes | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | rewritten | Preserved initialize/session response validation and error assertions in target backend integration test. |
+| T052 | 137 | answers permission callbacks with explicit policy | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | rewritten | Preserved reverse permission callback policy selection assertion in target backend integration test. |
+| T053 | 173 | rejects malformed stdout, unexpected close, and timeouts explicitly | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | rewritten | Preserved malformed stdout, stdout close, and timeout error assertions in target backend integration test. |
+| T054 | 222 | rejects JSON-RPC error responses with server error context | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | rewritten | Preserved JSON-RPC error response classification assertion in target backend integration test. |
+| T055 | 243 | authenticates with a selected auth method | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | rewritten | Preserved auth method selection and authenticate frame assertions in target backend integration test. |
+| T056 | 274 | classifies ACP authentication-required errors | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | rewritten | Preserved ACP authentication-required error classification assertions in target backend integration test. |
+| T057 | 302 | cleans pending requests when stdin write fails | integration-backend | `tests/integration/backend/copilot-acp-peer.test.ts` | rewritten | Preserved pending request cleanup after stdin write failure assertion in target backend integration test. |
 
 ### `tests/unit_tests/backends/copilot-cli-backend.test.ts`
 
