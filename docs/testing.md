@@ -19,6 +19,7 @@ bun run test:integration:mock
 bun run test:e2e:codex
 bun run test:contract
 bun run test:security
+bun run test:package-smoke
 bun run test
 bun run ci
 ```
@@ -27,18 +28,19 @@ bun run ci
 - `bun run test:unit` runs the populated target unit tests.
 - `bun run test:unit:target` runs the populated `tests/unit/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:component` runs the populated `tests/component/**/*.test.ts` files and fails if the target lane is empty.
-- `bun run test:integration` runs `bun test tests/integration_tests --timeout=30000 --pass-with-no-tests`.
+- `bun run test:integration` runs the populated HTTP, backend, and durable target integration lanes.
 - `bun run test:integration:http` runs the populated `tests/integration/http/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:integration:backend` runs the populated `tests/integration/backend/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:integration:durable` runs the populated `tests/integration/durable/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:integration:mock` aliases `test:integration:http` while the migration still uses the mock lane name.
-- `bun run test:e2e:codex` runs the current real Codex CLI E2E file and fails if that file path drifts.
+- `bun run test:e2e:codex` runs the real Codex CLI E2E lane and fails if that file path drifts.
 - `bun run test:contract` runs the populated `tests/contract/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:security` runs the populated `tests/security/**/*.test.ts` files and fails if the target lane is empty.
-- `bun run test` runs the current unit, component, legacy integration, populated target integration, contract, and security scripts.
-- `bun run ci` runs Biome, TypeScript, unit tests, component tests, legacy integration tests, populated target integration tests, contract tests, and security tests.
+- `bun run test:package-smoke` verifies the compiled binary, npm pack dry-run, packed tarball install, and `bunx --bun volare help`, then removes generated package artifacts.
+- `bun run test` runs unit, component, target integration, contract, and security scripts.
+- `bun run ci` runs Biome, TypeScript, unit tests, component tests, target integration tests, contract tests, and security tests.
 
-Target lane names such as `test:package-smoke` are planned migration outputs. Do not document or use them as existing commands until their package scripts land.
+All planned target lane names now have package scripts. Keep new target scripts fail-loud once populated; do not add `--pass-with-no-tests` to target lanes.
 
 ## Target layout
 
