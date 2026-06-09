@@ -270,8 +270,8 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T172 | 15 | emits JSON logs with level, bindings, and messages | unit | `tests/unit/logging/logger.test.ts` | pending | Structured logger output invariants. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T173 | 36 | redacts sensitive fields before writing | split: unit + security | `tests/unit/logging/logger.test.ts`, `tests/security/logging/logger-redaction.test.ts` | pending | Logger behavior plus no-leak redaction assertions. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T172 | 15 | emits JSON logs with level, bindings, and messages | unit | `tests/unit/logging/logger.test.ts` | rewritten | Preserved structured log level, binding, field, message, and timestamp assertions in target unit test. |
+| T173 | 36 | redacts sensitive fields before writing | split: unit + security | `tests/unit/logging/logger.test.ts`, `tests/security/logging/logger-redaction.test.ts` | split | Preserved redacted field value assertions in target unit test and added no-leak log output assertions in target security test. |
 
 ### `tests/unit_tests/northbound/openai-responses-adapter.test.ts`
 
