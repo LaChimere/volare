@@ -13,6 +13,7 @@ bun run test:unit:legacy
 bun run test:unit:target
 bun run test:component
 bun run test:integration
+bun run test:integration:http
 bun run test:integration:backend
 bun run test:integration:durable
 bun run test:integration:mock
@@ -28,15 +29,16 @@ bun run ci
 - `bun run test:unit:target` runs the populated `tests/unit/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:component` runs the populated `tests/component/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:integration` runs `bun test tests/integration_tests --timeout=30000 --pass-with-no-tests`.
+- `bun run test:integration:http` runs the populated `tests/integration/http/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:integration:backend` runs the populated `tests/integration/backend/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:integration:durable` runs the populated `tests/integration/durable/**/*.test.ts` files and fails if the target lane is empty.
-- `bun run test:integration:mock` runs the deterministic Codex provider integration file without requiring `codex` on `PATH`.
+- `bun run test:integration:mock` aliases `test:integration:http` while the migration still uses the mock lane name.
 - `bun run test:e2e:codex` runs the current real Codex CLI E2E file and fails if that file path drifts.
 - `bun run test:contract` runs the populated `tests/contract/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test` runs the current unit, component, legacy integration, populated target integration, and contract scripts.
 - `bun run ci` runs Biome, TypeScript, unit tests, component tests, legacy integration tests, populated target integration tests, and contract tests.
 
-Target lane names such as `test:integration:http`, `test:security`, and `test:package-smoke` are planned migration outputs. Do not document or use them as existing commands until their package scripts land.
+Target lane names such as `test:security` and `test:package-smoke` are planned migration outputs. Do not document or use them as existing commands until their package scripts land.
 
 ## Target layout
 

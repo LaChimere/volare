@@ -3,9 +3,9 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configureCodex } from '../../scripts/config-codex';
-import { DurableSessionManager } from '../../src/core/durable-session-manager';
-import { InMemorySessionManager } from '../../src/core/in-memory-session-manager';
+import { configureCodex } from '../../../scripts/config-codex';
+import { DurableSessionManager } from '../../../src/core/durable-session-manager';
+import { InMemorySessionManager } from '../../../src/core/in-memory-session-manager';
 import type {
   AgentEvent,
   IAgentBackend,
@@ -18,13 +18,13 @@ import type {
   IWorkspace,
   IWorkspaceHints,
   IWorkspaceResolver,
-} from '../../src/core/types';
-import { SQLiteEventJournal } from '../../src/events/sqlite-event-journal';
-import { createApp } from '../../src/server/app';
-import { createServerRuntimeConfig } from '../../src/server/config';
-import { migrate } from '../../src/state/migrations';
-import { SQLiteStateStore } from '../../src/state/sqlite-store';
-import { MockBackend } from '../support/backends/mock-backend';
+} from '../../../src/core/types';
+import { SQLiteEventJournal } from '../../../src/events/sqlite-event-journal';
+import { createApp } from '../../../src/server/app';
+import { createServerRuntimeConfig } from '../../../src/server/config';
+import { migrate } from '../../../src/state/migrations';
+import { SQLiteStateStore } from '../../../src/state/sqlite-store';
+import { MockBackend } from '../../support/backends/mock-backend';
 
 const apiKey = '0123456789abcdef';
 const explicitWorkspaceRoot = process.cwd();
