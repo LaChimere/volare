@@ -170,6 +170,29 @@ export class DurableSessionManager implements ISessionManager {
       this.#releaseActiveTurn(turnId);
       return { status: turn.status === 'cancelled' ? 'cancelled' : 'already_terminal' } as const;
     }
+    if (turn.status === 'queued') {
+      const cancelledQueuedTurn = await this.#store.updateTurnStatus(
+        turn.id,
+        'queued',
+        'cancelled',
+        Date.now(),
+      );
+      if (cancelledQueuedTurn) {
+        this.#appendEvent(turn.id, { type: 'turn.cancelled', turnId: turn.id });
+        this.#logger.info(
+          { event: 'turn.cancelled', turnId: turn.id, bridgeSessionId: turn.bridgeSessionId },
+          'turn cancelled',
+        );
+        this.#releaseActiveTurn(turn.id);
+        return { status: 'cancelled' as const };
+      }
+      const currentTurn = await this.#store.getTurn(turn.id);
+      if (currentTurn && isTerminalTurnStatus(currentTurn.status)) {
+        return {
+          status: currentTurn.status === 'cancelled' ? 'cancelled' : 'already_terminal',
+        } as const;
+      }
+    }
     const session = await this.#store.getBackendSession(turn.bridgeSessionId);
     if (!session) {
       this.#logger.warn(
@@ -274,7 +297,29 @@ export class DurableSessionManager implements ISessionManager {
     };
     try {
       this.#assertSessionScope(resolved.session, resolved.request);
-      await this.#store.updateTurnStatus(resolved.turn.id, 'queued', 'running');
+      const movedToRunning = await this.#store.updateTurnStatus(
+        resolved.turn.id,
+        'queued',
+        'running',
+      );
+      if (!movedToRunning) {
+        const currentTurn = await this.#store.getTurn(resolved.turn.id);
+        const terminalEvent = currentTurn ? this.#terminalEventForTurnStatus(currentTurn) : null;
+        this.#logger.info(
+          {
+            event: 'turn.stream.skipped',
+            turnId: resolved.turn.id,
+            status: currentTurn?.status ?? 'missing',
+            durationMs: elapsedMs(startedAt),
+            activeTurnCount: this.#activeTurnCount,
+          },
+          'turn stream skipped because turn is no longer queued',
+        );
+        if (terminalEvent) {
+          yield terminalEvent;
+        }
+        return;
+      }
       this.#logger.info(
         {
           event: 'turn.stream.started',
@@ -655,6 +700,37 @@ export class DurableSessionManager implements ISessionManager {
   #record(turnId: string, event: AgentEvent): AgentEvent {
     this.#appendEvent(turnId, event);
     return event;
+  }
+
+  #terminalEventForTurnStatus(turn: ITurnRecord): AgentEvent | null {
+    const terminalEvent = this.#events
+      .get(turn.id)
+      ?.findLast((event) => TERMINAL_TURN_TYPES.has(event.type));
+    if (terminalEvent) {
+      return terminalEvent;
+    }
+    switch (turn.status) {
+      case 'succeeded':
+        return { type: 'turn.succeeded', turnId: turn.id };
+      case 'failed':
+        return {
+          type: 'turn.failed',
+          turnId: turn.id,
+          error: new VolareError('turn_already_failed', 'Turn failed before stream start'),
+        };
+      case 'cancelled':
+        return { type: 'turn.cancelled', turnId: turn.id };
+      case 'interrupted':
+        return {
+          type: 'turn.interrupted',
+          turnId: turn.id,
+          reason: 'turn_interrupted_before_stream_start',
+        };
+      case 'queued':
+      case 'running':
+      case 'cancelling':
+        return null;
+    }
   }
 
   #reserveActiveTurnCapacity(): void {
