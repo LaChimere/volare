@@ -17,6 +17,7 @@ bun run test:integration:backend
 bun run test:integration:durable
 bun run test:integration:mock
 bun run test:e2e:codex
+bun run test:contract
 bun run test
 bun run ci
 ```
@@ -31,10 +32,11 @@ bun run ci
 - `bun run test:integration:durable` runs the populated `tests/integration/durable/**/*.test.ts` files and fails if the target lane is empty.
 - `bun run test:integration:mock` runs the deterministic Codex provider integration file without requiring `codex` on `PATH`.
 - `bun run test:e2e:codex` runs the current real Codex CLI E2E file and fails if that file path drifts.
-- `bun run test` runs the current unit, component, legacy integration, and populated target integration scripts.
-- `bun run ci` runs Biome, TypeScript, unit tests, component tests, legacy integration tests, and populated target integration tests.
+- `bun run test:contract` runs the populated `tests/contract/**/*.test.ts` files and fails if the target lane is empty.
+- `bun run test` runs the current unit, component, legacy integration, populated target integration, and contract scripts.
+- `bun run ci` runs Biome, TypeScript, unit tests, component tests, legacy integration tests, populated target integration tests, and contract tests.
 
-Target lane names such as `test:integration:http`, `test:contract`, `test:security`, and `test:package-smoke` are planned migration outputs. Do not document or use them as existing commands until their package scripts land.
+Target lane names such as `test:integration:http`, `test:security`, and `test:package-smoke` are planned migration outputs. Do not document or use them as existing commands until their package scripts land.
 
 ## Target layout
 
