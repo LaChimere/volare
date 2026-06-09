@@ -451,9 +451,9 @@ A migration PR that deletes or disables a legacy file must update all of that fi
 
 | ID | Line | Legacy case | Target layer | Planned target | Status | Parity evidence |
 |---|---:|---|---|---|---|---|
-| T308 | 37 | routes a temporary project through Volare without leaking unrelated project context | e2e-codex | `tests/e2e/codex/codex-cli-e2e.test.ts` | pending | Real Codex/client interoperability. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T309 | 63 | supports the standard OpenAI v1 base path through Codex CLI | e2e-codex | `tests/e2e/codex/codex-cli-e2e.test.ts` | pending | Real Codex/client interoperability. Pending migration; preserve or explicitly retire every assertion in the target PR. |
-| T310 | 90 | rejects Codex CLI workspaces outside the Volare allowlist | e2e-codex | `tests/e2e/codex/codex-cli-e2e.test.ts` | pending | Real Codex/client interoperability. Pending migration; preserve or explicitly retire every assertion in the target PR. |
+| T308 | 37 | routes a temporary project through Volare without leaking unrelated project context | e2e-codex | `tests/e2e/codex/codex-cli-e2e.test.ts` | rewritten | Preserved temporary project routing and unrelated project context non-leak assertions in target E2E test. |
+| T309 | 63 | supports the standard OpenAI v1 base path through Codex CLI | e2e-codex | `tests/e2e/codex/codex-cli-e2e.test.ts` | rewritten | Preserved standard `/v1` base path interoperability assertions in target E2E test. |
+| T310 | 90 | rejects Codex CLI workspaces outside the Volare allowlist | e2e-codex | `tests/e2e/codex/codex-cli-e2e.test.ts` | rewritten | Preserved Codex workspace allowlist rejection assertions in target E2E test. |
 
 ### `tests/integration_tests/codex-cli-provider.test.ts`
 

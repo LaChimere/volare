@@ -3,8 +3,8 @@ import { describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { configureCodex } from '../../scripts/config-codex';
-import { DurableSessionManager } from '../../src/core/durable-session-manager';
+import { configureCodex } from '../../../scripts/config-codex';
+import { DurableSessionManager } from '../../../src/core/durable-session-manager';
 import type {
   AgentEvent,
   IAgentBackend,
@@ -15,12 +15,12 @@ import type {
   ICancelResult,
   ICreateSessionOptions,
   IWorkspace,
-} from '../../src/core/types';
-import { createEstimatedUsage } from '../../src/core/usage';
-import { createApp } from '../../src/server/app';
-import { createServerRuntimeConfig } from '../../src/server/config';
-import { migrate } from '../../src/state/migrations';
-import { SQLiteStateStore } from '../../src/state/sqlite-store';
+} from '../../../src/core/types';
+import { createEstimatedUsage } from '../../../src/core/usage';
+import { createApp } from '../../../src/server/app';
+import { createServerRuntimeConfig } from '../../../src/server/config';
+import { migrate } from '../../../src/state/migrations';
+import { SQLiteStateStore } from '../../../src/state/sqlite-store';
 
 const apiKey = '0123456789abcdef';
 const codexExecTimeoutMs = 45_000;
