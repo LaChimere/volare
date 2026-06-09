@@ -141,6 +141,7 @@ This layer should use real temporary SQLite files, not only `:memory:`.
 
 Backend tests verify process/runner behavior behind fake processes:
 
+- ACP JSON-RPC peer framing/parsing
 - process runner stdout/stderr parsing
 - process identity validation
 - ACP initialize/session/new/session/prompt flows
@@ -150,7 +151,7 @@ Backend tests verify process/runner behavior behind fake processes:
 - idle reaper and admission pressure
 - spawn/startup/process-exit cleanup
 
-This layer should use injected process spawners, not real Copilot CLI.
+This layer should use synthetic streams or injected process spawners, not real Copilot CLI.
 
 ACP runner tests, fake ACP process behavior, worker admission, process identity, process exits, and native cancellation belong primarily in this layer. A component test may touch these only to prove the `IAgentBackend` boundary integrates with core state.
 
