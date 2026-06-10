@@ -1,5 +1,11 @@
 # Volare best-practice target architecture
 
+## Status
+
+Implemented on `lachimere/refine-arch`. PR 0 through PR 9 are complete, and follow-up review refinements have landed through `8dcec47 fix(core): prevent queued turn cancellation race`.
+
+The remaining historical notes in this document describe the target architecture and original gaps that drove the work; they are not a list of open implementation tasks.
+
 ## Architecture intent
 
 The target architecture is a **stateful local agent-runtime bridge**. The goal is not to make Volare a generic model proxy; the goal is to make runtime control, state, cancellation, approval, capacity, and observability explicit and maintainable.

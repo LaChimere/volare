@@ -4,6 +4,12 @@
 
 Implement the reviewed target architecture from `plans/refine-arch/arch.md` and `plans/refine-arch/design.md` as a sequence of small, independently mergeable PRs. The plan keeps Volare's current user-visible behavior stable while tightening the runtime control plane around capacity, approval, worker admission, observability, and app-layer boundaries.
 
+## Status
+
+Implementation complete on `lachimere/refine-arch`. PR 0 through PR 9 landed, additional review/refine cleanup landed in `bda4743`, and the late queued-cancel stream race found by final code review was fixed in `8dcec47`.
+
+Final validation included `bun run ci`, `bun run test:package-smoke`, `bun run test:e2e:codex`, and commit-hook `test:unit` plus `check`. Older path examples in the PR plan below are preserved as planning history from before the testing architecture migration.
+
 ## Constraints
 
 - Preserve the stateful local agent-runtime bridge direction; do not turn Volare into a generic stateless model proxy.
