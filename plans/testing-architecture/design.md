@@ -2,6 +2,12 @@
 
 > Purpose: define the reviewable design for rebuilding Volare's tests into a clear layered test system without losing existing coverage.
 
+## Status
+
+Implemented on `lachimere/refine-arch`. PR 0 through PR 10 completed the coverage-preserving structural rewrite; subsequent review/refine cleanup in `bda4743` reduced helper duplication, added missing unit/security coverage, and aligned CI/release docs.
+
+Historical migration sequencing below is retained as the design record. The current contributor-facing commands and lane ownership live in `docs/testing.md`.
+
 ## Objective
 
 Design a testing system that protects Volare's runtime contracts across protocol compatibility, HTTP/SSE streaming, durable state, approvals, cancellation, ACP worker lifecycle, CLI integration, and security/privacy boundaries.

@@ -2,7 +2,9 @@
 
 ## Status
 
-Execution complete. PR 0 baseline through PR 9 SSE resume / AgentEvent schema design have been completed.
+Execution complete. PR 0 baseline through PR 9 SSE resume / AgentEvent schema design have been completed, follow-up entropy/review cleanup landed in `bda4743`, and the final queued-cancel stream race fix landed in `8dcec47`.
+
+Final validation included `bun run ci`, `bun run test:package-smoke`, `bun run test:e2e:codex`, and commit-hook `test:unit` plus `check`.
 
 ## PR 0: Runtime-control baseline
 

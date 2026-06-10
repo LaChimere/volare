@@ -3,6 +3,12 @@
 > Purpose: document the target architecture and design decisions for review before any execution planning.
 > Do not proceed to implementation planning until this design is approved.
 
+## Status
+
+Implemented on `lachimere/refine-arch`. The reviewed design moved through implementation, multi-round review/refine, and the late queued-cancel race fix in `8dcec47`.
+
+This document remains the design record; completed-gap language below is historical context unless a later plan explicitly reopens it.
+
 ## Objective
 
 Refine Volare toward a **stateful local agent-runtime bridge** architecture with clear boundaries for protocol adapters, HTTP transport, protocol-neutral runtime state, runtime control-plane concerns, observability, and backend execution.

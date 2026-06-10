@@ -1,5 +1,11 @@
 # Volare testing architecture
 
+## Status
+
+Implemented on `lachimere/refine-arch`. The layered test layout is now active, legacy test directories have been retired, CI is split by target lane, and final review/refine cleanup landed in `bda4743`.
+
+The parity ledger has 321 terminal entries with no pending rows. Final validation included `bun run ci`, `bun run test:package-smoke`, `bun run test:e2e:codex`, and commit-hook `test:unit` plus `check`.
+
 ## Architecture intent
 
 Volare's tests should become a **contract-driven runtime test architecture**. The goal is not simply to increase test count; the goal is to make every important runtime boundary explicit, reusable, and verifiable:

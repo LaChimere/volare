@@ -2,6 +2,12 @@
 
 > Purpose: track coverage parity while migrating from `tests/unit_tests` and `tests/integration_tests` to the target layered test layout. Do not delete or disable any legacy test file until every entry for that file is terminal.
 
+## Migration status
+
+Complete. All 321 legacy entries are terminal: 275 `rewritten`, 46 `split`, and 0 `pending`. The legacy layout has been retired; the target lanes now live under `tests/unit`, `tests/component`, `tests/integration`, `tests/contract`, `tests/security`, and `tests/e2e`.
+
+This ledger is retained as migration evidence. The legacy paths below are historical source locations, not active test directories.
+
 ## Status model
 
 - `pending`: legacy case still owns coverage.
