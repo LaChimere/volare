@@ -512,7 +512,7 @@ Work:
 - Remove temporary legacy scripts.
 - Update `package.json` aggregate `test` and `ci` scripts to target lanes.
 - Split CI into `static`, `unit`, `component`, `integration-http`, `integration-durable`, `integration-backend`, `contract`, `security`, `package-smoke`, and `real-codex-e2e`, with optional manual/live Copilot probes kept outside deterministic PR gates.
-- Keep `real-codex-e2e` separate from required deterministic PR gates until promoted.
+- Keep `real-codex-e2e` separate from required deterministic PR gates until promoted, but require it in release validation before npm publish.
 - Add job-level timeouts and upload useful logs/artifacts on failure.
 - Pin or record the real Codex CLI version for release-blocking jobs. A nightly `latest` compatibility job may exist, but failures there should open a labeled issue and block release only after triage.
 
