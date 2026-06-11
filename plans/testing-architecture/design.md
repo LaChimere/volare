@@ -94,7 +94,7 @@ graph TD
   Backend --> FastCI
   Contract --> FastCI
   Security --> FastCI
-  E2E --> SlowCI[Real-client main/nightly/manual gates]
+  E2E --> FastCI
 
   FastCI --> Retire[Retire legacy directories after parity]
 ```
@@ -512,9 +512,9 @@ Work:
 - Remove temporary legacy scripts.
 - Update `package.json` aggregate `test` and `ci` scripts to target lanes.
 - Split CI into `static`, `unit`, `component`, `integration-http`, `integration-durable`, `integration-backend`, `contract`, `security`, `package-smoke`, and `real-codex-e2e`, with optional manual/live Copilot probes kept outside deterministic PR gates.
-- Keep `real-codex-e2e` separate from required deterministic PR gates until promoted, but require it in release validation before npm publish.
+- Run `real-codex-e2e` in PR CI and release validation. The E2E fixture configures a temporary Codex home using the branch's Codex configuration code before launching Codex, and CI installs a pinned Codex CLI version for this lane.
 - Add job-level timeouts and upload useful logs/artifacts on failure.
-- Pin or record the real Codex CLI version for release-blocking jobs. A nightly `latest` compatibility job may exist, but failures there should open a labeled issue and block release only after triage.
+- Pin and record the real Codex CLI version for PR and release-blocking jobs. A nightly `latest` compatibility job may exist, but failures there should open a labeled issue and block release only after triage.
 
 Exit criteria:
 
@@ -524,7 +524,6 @@ Exit criteria:
 
 ## Open Questions
 
-- When should `real-codex-e2e` graduate from non-blocking/main-nightly to required PR gate?
 - Should package smoke run on macOS/Linux initially, or only on the default CI runner?
 
 These questions do not block the design. They should be resolved during planning.

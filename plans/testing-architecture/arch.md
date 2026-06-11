@@ -350,7 +350,8 @@ graph LR
   PR --> Contract[contract]
   PR --> Security[security]
   PR --> Package[package-smoke]
-  Main[main/nightly] --> RealCodex[real-codex-e2e]
+  PR --> RealCodex[real-codex-e2e]
+  Main[main/nightly] --> RealCodex
   Release[release] --> RealCodex
   Manual[manual] --> Live[ACP/Copilot live probes]
 ```
@@ -368,14 +369,14 @@ Recommended lanes:
 | `contract` | every PR | yes | stable wire/schema/replay artifacts |
 | `security` | every PR | yes | sentinel-based no-leak coverage |
 | `package-smoke` | every PR | yes | compiled binary / bunx behavior |
-| `real-codex-e2e` | main/nightly/manual/release | release yes, PR no | real Codex compatibility |
+| `real-codex-e2e` | every PR/main/nightly/manual/release | yes | real Codex compatibility after branch-owned Codex config |
 | `live-copilot-probes` | manual/nightly | no | external Copilot/ACP behavior |
 
-CI should upload logs/artifacts on failure, set job-level timeouts, and avoid broad retries. Real Codex/Copilot checks should be separated from deterministic PR gates unless they become highly stable and pinned. Release validation must run real Codex E2E against the checked-out release tag instead of relying only on post-merge `main` CI, and the npm publish job should not install mutable third-party E2E tooling while holding publish/OIDC credentials.
+CI should upload logs/artifacts on failure, set job-level timeouts, and avoid broad retries. Real Codex E2E runs in PR CI because the test configures a temporary Codex home using the branch's Codex configuration logic before launching Codex. CI should install a pinned Codex CLI version and avoid persisting checkout credentials in the real E2E job. Release validation must also run real Codex E2E against the checked-out release tag instead of relying only on post-merge `main` CI, and the npm publish job should not install mutable third-party E2E tooling while holding publish/OIDC credentials.
 
 During migration, `test:integration:mock` may exist as a temporary split for current integration tests. The end-state scripts should follow `plans/testing-architecture/design.md`: `test:integration:http`, `test:integration:durable`, `test:integration:backend`, `test:contract`, `test:security`, `test:e2e:codex`, and `test:package-smoke`.
 
-The real Codex CLI version should be pinned or recorded for release-blocking jobs. A nightly `latest` compatibility job may exist, but failures there should open a labeled issue and block the next release only after triage.
+The real Codex CLI version should be pinned and recorded for PR and release-blocking jobs. A nightly `latest` compatibility job may exist, but failures there should open a labeled issue and block the next release only after triage.
 
 ## Prioritized rollout
 

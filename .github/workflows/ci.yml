@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CODEX_CLI_VERSION: 0.139.0
+
 jobs:
   static:
     name: static
@@ -220,17 +223,18 @@ jobs:
 
   real-codex-e2e:
     name: real-codex-e2e
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
       - run: bun install --frozen-lockfile
       - name: Install Codex CLI
-        run: npm install --global @openai/codex@latest
+        run: npm install --global "@openai/codex@${CODEX_CLI_VERSION}"
       - name: Record Codex CLI version
         run: codex --version
       - name: Test real Codex E2E
